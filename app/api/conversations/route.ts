@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 
 export async function GET() {
-  const supabase = createServiceClient();
+  let supabase;
+  try {
+    supabase = createServiceClient();
+  } catch (e) {
+    return NextResponse.json(
+      { error: (e as Error).message },
+      { status: 500 }
+    );
+  }
 
   const { data, error } = await supabase
     .from("conversations")
@@ -24,7 +32,15 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = createServiceClient();
+  let supabase;
+  try {
+    supabase = createServiceClient();
+  } catch (e) {
+    return NextResponse.json(
+      { error: (e as Error).message },
+      { status: 500 }
+    );
+  }
   const body = await req.json().catch(() => ({}));
   const title = body.title || "Новый диалог";
 
@@ -42,7 +58,15 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const supabase = createServiceClient();
+  let supabase;
+  try {
+    supabase = createServiceClient();
+  } catch (e) {
+    return NextResponse.json(
+      { error: (e as Error).message },
+      { status: 500 }
+    );
+  }
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
 
