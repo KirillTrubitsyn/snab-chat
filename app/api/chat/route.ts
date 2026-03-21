@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   }
 
   // RAG search
-  const searchResults = await hybridSearch(userMessage.content, 20);
+  const searchResults = await hybridSearch(userMessage.content, 1000);
 
   const ragContext = searchResults.length
     ? searchResults

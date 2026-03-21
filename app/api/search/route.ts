@@ -3,7 +3,7 @@ import { hybridSearch } from "@/app/lib/retrieval";
 
 export async function POST(req: NextRequest) {
   try {
-    const { query, topK = 20, tags = null } = await req.json();
+    const { query, topK = 1000, tags = null } = await req.json();
 
     if (!query) {
       return NextResponse.json(

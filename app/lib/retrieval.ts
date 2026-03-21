@@ -12,7 +12,7 @@ interface SearchResult {
 
 export async function hybridSearch(
   query: string,
-  matchCount: number = 20,
+  matchCount: number = 1000,
   filterTags: string[] | null = null
 ): Promise<SearchResult[]> {
   const supabase = createServiceClient();
