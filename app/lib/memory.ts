@@ -64,7 +64,7 @@ export async function loadConversationContext(
       : oldText;
 
     const { text: summary } = await generateText({
-      model: google("gemini-3.1-flash-lite-preview"),
+      model: google("gemini-3-flash"),
       prompt: `Кратко суммаризируй этот диалог, сохранив ключевые факты, решения и контекст. Пиши на русском, компактно (до 500 слов):\n\n${contextForSummary}`,
     });
 
