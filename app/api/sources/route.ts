@@ -22,6 +22,42 @@ export async function GET() {
   }
 }
 
+export async function PATCH(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    }
+
+    const body = await req.json();
+    const { tags } = body;
+
+    if (!Array.isArray(tags)) {
+      return NextResponse.json({ error: "tags must be an array" }, { status: 400 });
+    }
+
+    const supabase = createServiceClient();
+
+    const { data, error } = await supabase
+      .from("sources")
+      .update({ tags })
+      .eq("id", id)
+      .select("id, filename, mime_type, tags, created_at")
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ source: data });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Internal server error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
