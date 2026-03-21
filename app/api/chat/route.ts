@@ -11,20 +11,19 @@ export async function POST(req: NextRequest) {
 
   const userMessage = messages[messages.length - 1];
 
-  // Save user message
-  if (conversationId) {
-    await saveMessage(conversationId, "user", userMessage.content);
-  }
+  // Run save, context load, and RAG search in parallel
+  const [, contextResult, searchResults] = await Promise.all([
+    conversationId
+      ? saveMessage(conversationId, "user", userMessage.content)
+      : Promise.resolve(),
+    conversationId
+      ? loadConversationContext(conversationId)
+      : Promise.resolve(null),
+    hybridSearch(userMessage.content, 20),
+  ]);
 
-  // Load conversation context
-  let contextMessages: { role: string; content: string }[] = [];
-  if (conversationId) {
-    const ctx = await loadConversationContext(conversationId);
-    contextMessages = ctx.messages;
-  }
-
-  // RAG search
-  const searchResults = await hybridSearch(userMessage.content, 20);
+  const contextMessages: { role: string; content: string }[] =
+    contextResult?.messages ?? [];
 
   const ragContext = searchResults.length
     ? searchResults
