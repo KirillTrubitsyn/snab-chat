@@ -496,6 +496,20 @@ export default function Chat() {
     loadConversations();
   }, [loadConversations]);
 
+  /* ── Delete source ── */
+  const deleteSource = useCallback(
+    async (sourceId: number, e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      try {
+        await fetch(`/api/sources?id=${sourceId}`, { method: "DELETE" });
+        setSources((prev) => prev.filter((s) => s.id !== sourceId));
+      } catch {
+        // ignore
+      }
+    },
+    []
+  );
+
   /* ── Load sources ── */
   const loadSources = useCallback(async () => {
     try {
@@ -783,11 +797,11 @@ export default function Chat() {
               </div>
               <div className="sidebar-list">
                 {sources.map((doc) => (
-                  <div className="doc-item" key={doc.id}>
+                  <div className="doc-item" key={doc.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <div className={`doc-icon ${doc.mime_type?.includes("pdf") ? "pdf" : "docx"}`}>
                       {doc.mime_type?.includes("pdf") ? "P" : "W"}
                     </div>
-                    <div style={{ minWidth: 0 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div
                         style={{
                           fontSize: 13,
@@ -807,6 +821,24 @@ export default function Chat() {
                         </div>
                       )}
                     </div>
+                    <button
+                      onClick={(e) => deleteSource(doc.id, e)}
+                      title="Удалить документ"
+                      style={{
+                        fontSize: 14,
+                        color: "var(--text-muted)",
+                        opacity: 0,
+                        transition: "opacity var(--transition)",
+                        flexShrink: 0,
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = "0"; }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      </svg>
+                    </button>
                   </div>
                 ))}
                 {sources.length === 0 && (
