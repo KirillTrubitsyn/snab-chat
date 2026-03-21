@@ -1077,6 +1077,7 @@ export default function Chat() {
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div
+                              title={doc.filename}
                               style={{
                                 fontSize: 13,
                                 whiteSpace: "nowrap",
