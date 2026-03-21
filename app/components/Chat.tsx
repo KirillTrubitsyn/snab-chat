@@ -4,12 +4,22 @@ import { useState, useEffect, useRef, useCallback, FormEvent } from "react";
 import { useChat } from "ai/react";
 import ReactMarkdown from "react-markdown";
 
+/* ── Types ── */
+
 interface Conversation {
   id: string;
   title: string;
   created_at: string;
   updated_at: string;
   hasSummary: boolean;
+}
+
+interface Source {
+  id: number;
+  filename: string;
+  mime_type: string;
+  tags: string[];
+  created_at: string;
 }
 
 interface ParsedFile {
@@ -21,26 +31,443 @@ interface ParsedFile {
   totalChunks: number;
 }
 
-export default function Chat() {
-  // --- Conversations ---
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeConvId, setActiveConvId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [hasSummary, setHasSummary] = useState(false);
-  const convIdRef = useRef<string | null>(null);
-  const pendingSubmitRef = useRef<string | null>(null);
+/* ── Helpers ── */
 
-  // --- Upload ---
-  const [uploadState, setUploadState] = useState<
-    "idle" | "parsing" | "preview" | "ingesting" | "done"
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const isToday =
+    d.getDate() === now.getDate() &&
+    d.getMonth() === now.getMonth() &&
+    d.getFullYear() === now.getFullYear();
+  if (isToday) return "сегодня";
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday =
+    d.getDate() === yesterday.getDate() &&
+    d.getMonth() === yesterday.getMonth() &&
+    d.getFullYear() === yesterday.getFullYear();
+  if (isYesterday) return "вчера";
+
+  const months = [
+    "янв", "фев", "мар", "апр", "май", "июн",
+    "июл", "авг", "сен", "окт", "ноя", "дек",
+  ];
+  return `${d.getDate()} ${months[d.getMonth()]}`;
+}
+
+/* ── Inline SVG icons ── */
+
+function CubeIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+      <line x1="12" y1="22.08" x2="12" y2="12" />
+    </svg>
+  );
+}
+
+function MenuIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <line x1="3" y1="5" x2="17" y2="5" />
+      <line x1="3" y1="10" x2="17" y2="10" />
+      <line x1="3" y1="15" x2="17" y2="15" />
+    </svg>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
+  );
+}
+
+function ArrowUpIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="19" x2="12" y2="5" />
+      <polyline points="5 12 12 5 19 12" />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
+/* ── Sub-components ── */
+
+function MessageBubble({ message }: { message: { id: string; role: string; content: string } }) {
+  const isUser = message.role === "user";
+  return (
+    <div className={`message ${isUser ? "message-user" : "message-ai"}`}>
+      <div className="message-content">
+        {isUser ? message.content : <ReactMarkdown>{message.content}</ReactMarkdown>}
+      </div>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="empty-state">
+      <SearchIcon />
+      <div className="empty-title">Задайте вопрос по документам</div>
+      <div className="empty-sub">
+        Загрузите DOCX или PDF в базу знаний, а затем задайте вопрос — ИИ найдёт ответ в ваших документах.
+      </div>
+    </div>
+  );
+}
+
+function TypingBubble() {
+  return (
+    <div className="message message-ai" style={{ padding: "12px 18px" }}>
+      <div className="typing-indicator">
+        <span />
+        <span />
+        <span />
+      </div>
+    </div>
+  );
+}
+
+/* ── Upload Modal ── */
+
+function UploadModal({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [stage, setStage] = useState<
+    "idle" | "uploading" | "review" | "ingesting" | "done" | "error"
   >("idle");
   const [parsedFile, setParsedFile] = useState<ParsedFile | null>(null);
   const [editTags, setEditTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState("");
   const [dragActive, setDragActive] = useState(false);
-  const [uploadTab, setUploadTab] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
-  // --- Chat ---
+  const handleFileSelect = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+
+    setStage("uploading");
+    setErrorMsg("");
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch("/api/parse", { method: "POST", body: formData });
+      if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
+      const data: ParsedFile = await res.json();
+      setParsedFile(data);
+      setEditTags(data.tags);
+      setStage("review");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Не удалось обработать файл");
+      setStage("error");
+    }
+  }, []);
+
+  const handleConfirm = useCallback(async () => {
+    if (!parsedFile) return;
+    setStage("ingesting");
+    setErrorMsg("");
+
+    try {
+      const res = await fetch("/api/ingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: parsedFile.filename,
+          mimeType: parsedFile.mimeType,
+          markdown: parsedFile.markdown,
+          tags: editTags,
+        }),
+      });
+      if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
+      setStage("done");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Не удалось загрузить в базу");
+      setStage("error");
+    }
+  }, [parsedFile, editTags]);
+
+  const openFilePicker = () => {
+    const inp = document.createElement("input");
+    inp.type = "file";
+    inp.accept = ".pdf,.docx";
+    inp.onchange = () => handleFileSelect(inp.files);
+    inp.click();
+  };
+
+  const retry = () => {
+    setErrorMsg("");
+    setStage("idle");
+    setParsedFile(null);
+    setEditTags([]);
+    setNewTag("");
+  };
+
+  const isPdf = parsedFile?.mimeType?.includes("pdf");
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="modal-header" style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 20,
+        }}>
+          <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, margin: 0 }}>
+            Загрузка документа
+          </h3>
+          <button
+            className="close-btn"
+            onClick={onClose}
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: "50%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 16,
+              color: "var(--text-muted)",
+              transition: "background var(--transition)",
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--bg-code)"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* ── idle ── */}
+        {stage === "idle" && (
+          <div
+            className={`drop-zone ${dragActive ? "active" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={(e) => { e.preventDefault(); setDragActive(false); handleFileSelect(e.dataTransfer.files); }}
+            onClick={openFilePicker}
+          >
+            <UploadIcon />
+            <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }}>
+              Перетащите файл или нажмите для выбора
+            </p>
+            <p style={{ fontSize: 12, color: "var(--text-muted)" }}>DOCX, PDF</p>
+          </div>
+        )}
+
+        {/* ── uploading ── */}
+        {stage === "uploading" && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "40px 0" }}>
+            <div className="spinner" />
+            <span style={{ fontSize: 14, color: "var(--text-secondary)" }}>Обработка документа…</span>
+          </div>
+        )}
+
+        {/* ── review ── */}
+        {stage === "review" && parsedFile && (
+          <div className="review-panel">
+            {/* File info badge */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "10px 14px",
+              background: "var(--bg-main)",
+              borderRadius: "var(--radius-sm)",
+              border: "1px solid var(--border)",
+            }}>
+              <div
+                className={`doc-icon ${isPdf ? "pdf" : "docx"}`}
+                style={{ width: 32, height: 32, borderRadius: 6, fontSize: 13, fontWeight: 600 }}
+              >
+                {isPdf ? "PDF" : "DOC"}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontSize: 14,
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}>
+                  {parsedFile.filename}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  {parsedFile.totalChunks} чанков · {parsedFile.chunks.reduce((s, c) => s + c.length, 0).toLocaleString()} символов
+                </div>
+              </div>
+            </div>
+
+            {/* Chunks preview */}
+            <div className="chunks-preview" style={{ maxHeight: 200, overflowY: "auto" }}>
+              {parsedFile.chunks.map((c) => (
+                <div key={c.index} className="chunk-card">{c.preview}</div>
+              ))}
+            </div>
+
+            {/* Tags */}
+            <div className="tags-section">
+              <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>Теги</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                {editTags.map((tag) => (
+                  <span key={tag} className="tag">
+                    {tag}
+                    <button onClick={() => setEditTags((t) => t.filter((x) => x !== tag))}>×</button>
+                  </span>
+                ))}
+                <form
+                  style={{ display: "inline-flex", gap: 4 }}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const t = newTag.trim();
+                    if (t && !editTags.includes(t)) {
+                      setEditTags((prev) => [...prev, t]);
+                      setNewTag("");
+                    }
+                  }}
+                >
+                  <input
+                    value={newTag}
+                    onChange={(e) => setNewTag(e.target.value)}
+                    placeholder="новый тег"
+                    style={{
+                      width: 90,
+                      fontSize: 12,
+                      padding: "4px 8px",
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--border)",
+                      background: "var(--bg-code)",
+                      color: "var(--text-primary)",
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    className="btn-secondary"
+                    style={{ padding: "4px 10px", fontSize: 14, lineHeight: 1 }}
+                  >
+                    +
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
+              <button className="btn-secondary" onClick={onClose}>Отмена</button>
+              <button className="btn-primary" onClick={handleConfirm}>Загрузить в базу</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── ingesting ── */}
+        {stage === "ingesting" && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "40px 0" }}>
+            <div className="spinner" />
+            <span style={{ fontSize: 14, color: "var(--text-secondary)" }}>Генерация эмбеддингов…</span>
+          </div>
+        )}
+
+        {/* ── done ── */}
+        {stage === "done" && parsedFile && (
+          <div style={{ textAlign: "center", padding: "32px 0" }}>
+            <div style={{
+              width: 48,
+              height: 48,
+              borderRadius: "50%",
+              background: "rgba(5, 150, 105, 0.1)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 16px",
+            }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <p style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
+              Документ загружен
+            </p>
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 20 }}>
+              {parsedFile.filename} · {parsedFile.totalChunks} чанков · {editTags.length} тегов
+            </p>
+            <button className="btn-primary" onClick={onSuccess}>Готово</button>
+          </div>
+        )}
+
+        {/* ── error ── */}
+        {stage === "error" && (
+          <div style={{ textAlign: "center", padding: "32px 0" }}>
+            <div style={{
+              width: 48,
+              height: 48,
+              borderRadius: "50%",
+              background: "rgba(220, 38, 38, 0.08)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 16px",
+            }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--error)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="15" y1="9" x2="9" y2="15" />
+                <line x1="9" y1="9" x2="15" y2="15" />
+              </svg>
+            </div>
+            <p style={{ fontSize: 14, color: "var(--error)", marginBottom: 4 }}>
+              {errorMsg || "Произошла ошибка"}
+            </p>
+            <button className="btn-secondary" onClick={retry} style={{ marginTop: 12 }}>
+              Попробовать снова
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   Main Chat component
+   ═══════════════════════════════════════════════ */
+
+export default function Chat() {
+  /* ── State ── */
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [hasSummary, setHasSummary] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [sources, setSources] = useState<Source[]>([]);
+
+  /* ── Refs ── */
+  const convIdRef = useRef<string | null>(null);
+  const pendingSubmitRef = useRef<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  /* ── useChat ── */
   const {
     messages,
     input,
@@ -54,10 +481,7 @@ export default function Chat() {
     body: { conversationId: convIdRef.current },
   });
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  // --- Load conversations ---
+  /* ── Load conversations ── */
   const loadConversations = useCallback(async () => {
     try {
       const res = await fetch("/api/conversations");
@@ -72,7 +496,22 @@ export default function Chat() {
     loadConversations();
   }, [loadConversations]);
 
-  // --- Switch conversation ---
+  /* ── Load sources ── */
+  const loadSources = useCallback(async () => {
+    try {
+      const res = await fetch("/api/sources");
+      const data = await res.json();
+      if (data.sources) setSources(data.sources);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSources();
+  }, [loadSources]);
+
+  /* ── Switch conversation ── */
   const switchConversation = useCallback(
     async (convId: string) => {
       setActiveConvId(convId);
@@ -80,9 +519,7 @@ export default function Chat() {
       setSidebarOpen(false);
 
       try {
-        const res = await fetch(
-          `/api/conversations/messages?id=${convId}`
-        );
+        const res = await fetch(`/api/conversations/messages?id=${convId}`);
         const data = await res.json();
         setHasSummary(data.conversation?.hasSummary ?? false);
         if (data.messages) {
@@ -103,7 +540,7 @@ export default function Chat() {
     [setMessages]
   );
 
-  // --- Create conversation ---
+  /* ── Create conversation ── */
   const createConversation = useCallback(
     async (title?: string) => {
       const res = await fetch("/api/conversations", {
@@ -122,9 +559,10 @@ export default function Chat() {
     [setMessages]
   );
 
-  // --- Delete conversation ---
+  /* ── Delete conversation ── */
   const deleteConversation = useCallback(
-    async (convId: string) => {
+    async (convId: string, e?: React.MouseEvent) => {
+      e?.stopPropagation();
       await fetch(`/api/conversations?id=${convId}`, { method: "DELETE" });
       setConversations((prev) => prev.filter((c) => c.id !== convId));
       if (activeConvId === convId) {
@@ -137,7 +575,7 @@ export default function Chat() {
     [activeConvId, setMessages]
   );
 
-  // --- Submit handler with pending logic ---
+  /* ── Submit handler with pending logic ── */
   const handleSubmit = useCallback(
     async (e?: FormEvent) => {
       e?.preventDefault();
@@ -145,19 +583,16 @@ export default function Chat() {
       if (!text || isLoading) return;
 
       if (!convIdRef.current) {
-        // No active conversation — create one, then send manually
         pendingSubmitRef.current = text;
         setInput("");
         const title = text.slice(0, 50) + (text.length > 50 ? "..." : "");
         const newId = await createConversation(title);
 
-        // Add user message optimistically
         setMessages((prev) => [
           ...prev,
           { id: `temp-user-${Date.now()}`, role: "user", content: text },
         ]);
 
-        // Manual fetch with streaming
         try {
           const res = await fetch("/api/chat", {
             method: "POST",
@@ -175,7 +610,6 @@ export default function Chat() {
           let assistantText = "";
           const assistantId = `temp-assistant-${Date.now()}`;
 
-          // Add empty assistant message
           setMessages((prev) => [
             ...prev,
             { id: assistantId, role: "assistant", content: "" },
@@ -186,7 +620,6 @@ export default function Chat() {
             if (done) break;
 
             const chunk = decoder.decode(value, { stream: true });
-            // Parse AI SDK data stream format: 0:"text"\n
             const lines = chunk.split("\n");
             for (const line of lines) {
               if (line.startsWith("0:")) {
@@ -203,9 +636,7 @@ export default function Chat() {
 
             setMessages((prev) =>
               prev.map((m) =>
-                m.id === assistantId
-                  ? { ...m, content: assistantText }
-                  : m
+                m.id === assistantId ? { ...m, content: assistantText } : m
               )
             );
           }
@@ -218,7 +649,6 @@ export default function Chat() {
         return;
       }
 
-      // Normal submit via useChat — we call fetch manually to include conversationId
       const currentMessages = [
         ...messages,
         { id: `temp-user-${Date.now()}`, role: "user" as const, content: text },
@@ -272,9 +702,7 @@ export default function Chat() {
 
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === assistantId
-                ? { ...m, content: assistantText }
-                : m
+              m.id === assistantId ? { ...m, content: assistantText } : m
             )
           );
         }
@@ -282,79 +710,16 @@ export default function Chat() {
         console.error("Stream error:", err);
       }
     },
-    [
-      input,
-      isLoading,
-      messages,
-      setInput,
-      setMessages,
-      createConversation,
-      loadConversations,
-    ]
+    [input, isLoading, messages, setInput, setMessages, createConversation, loadConversations]
   );
 
-  // --- Auto-scroll ---
+  /* ── Auto-scroll ── */
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
-  // --- File upload ---
-  const handleFileDrop = useCallback(
-    async (files: FileList | null) => {
-      if (!files || files.length === 0) return;
-      const file = files[0];
-
-      setUploadState("parsing");
-      setUploadTab(true);
-
-      const formData = new FormData();
-      formData.append("file", file);
-
-      try {
-        const res = await fetch("/api/parse", {
-          method: "POST",
-          body: formData,
-        });
-        const data: ParsedFile = await res.json();
-        setParsedFile(data);
-        setEditTags(data.tags);
-        setUploadState("preview");
-      } catch {
-        setUploadState("idle");
-      }
-    },
-    []
-  );
-
-  const handleIngest = useCallback(async () => {
-    if (!parsedFile) return;
-    setUploadState("ingesting");
-
-    try {
-      await fetch("/api/ingest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: parsedFile.filename,
-          mimeType: parsedFile.mimeType,
-          markdown: parsedFile.markdown,
-          tags: editTags,
-        }),
-      });
-      setUploadState("done");
-    } catch {
-      setUploadState("preview");
-    }
-  }, [parsedFile, editTags]);
-
-  const resetUpload = () => {
-    setUploadState("idle");
-    setParsedFile(null);
-    setEditTags([]);
-    setNewTag("");
-  };
-
-  // --- Key handler ---
+  /* ── Key handler ── */
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -362,380 +727,238 @@ export default function Chat() {
     }
   };
 
+  /* ── Derived ── */
+  const lastIsUser = messages.length > 0 && messages[messages.length - 1]?.role === "user";
+
+  /* ── Render ── */
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: "var(--bg)" }}>
-      {/* Sidebar overlay (mobile) */}
-      {sidebarOpen && (
-        <div
-          className="sidebar-overlay md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <aside
-        className={`fixed md:relative z-50 h-full flex flex-col transition-transform duration-200 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-        }`}
-        style={{
-          width: "var(--sidebar-w)",
-          minWidth: "var(--sidebar-w)",
-          background: "var(--bg-secondary)",
-          borderRight: "1px solid var(--border)",
-        }}
-      >
-        <div className="p-4 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
-          <span className="font-semibold text-sm" style={{ color: "var(--accent)" }}>
-            СнабЧат
-          </span>
-          <button
-            onClick={() => {
-              setActiveConvId(null);
-              convIdRef.current = null;
-              setMessages([]);
-              setHasSummary(false);
-            }}
-            className="text-xs px-3 py-1.5 rounded-md transition-colors"
-            style={{
-              background: "var(--bg-tertiary)",
-              color: "var(--text-muted)",
-              border: "1px solid var(--border)",
-            }}
-          >
-            + Новый
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-2">
-          {conversations.map((conv) => (
-            <div
-              key={conv.id}
-              className={`sidebar-item group ${
-                activeConvId === conv.id ? "active" : ""
-              }`}
-              onClick={() => switchConversation(conv.id)}
-            >
-              <span className="flex-1 truncate text-sm">{conv.title}</span>
-              {conv.hasSummary && (
-                <span className="summary-notice" style={{ padding: "2px 6px", fontSize: "10px" }}>
-                  M
-                </span>
-              )}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteConversation(conv.id);
-                }}
-                className="opacity-0 group-hover:opacity-100 transition-opacity text-xs"
-                style={{ color: "var(--danger)" }}
-              >
-                &times;
-              </button>
-            </div>
-          ))}
-          {conversations.length === 0 && (
-            <p className="text-center py-8 text-xs" style={{ color: "var(--text-muted)" }}>
-              Нет диалогов
-            </p>
-          )}
-        </div>
-
-        {/* Upload toggle */}
-        <div className="p-3" style={{ borderTop: "1px solid var(--border)" }}>
-          <button
-            onClick={() => setUploadTab(!uploadTab)}
-            className="w-full text-left text-xs py-2 px-3 rounded-md transition-colors"
-            style={{
-              background: uploadTab ? "var(--bg-tertiary)" : "transparent",
-              color: "var(--text-muted)",
-            }}
-          >
-            Загрузка документов
-          </button>
-        </div>
-      </aside>
-
-      {/* Main area */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Top bar */}
-        <header
-          className="flex items-center gap-3 px-4 py-3"
-          style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-secondary)" }}
-        >
-          <button
-            className="md:hidden text-lg"
-            onClick={() => setSidebarOpen(true)}
-            style={{ color: "var(--text-muted)" }}
-          >
-            &#9776;
-          </button>
-          <h1 className="text-sm font-medium truncate" style={{ color: "var(--text)" }}>
-            {activeConvId
-              ? conversations.find((c) => c.id === activeConvId)?.title ?? "Диалог"
-              : "СнабЧат — Дирекция по закупкам"}
-          </h1>
-          {hasSummary && <span className="summary-notice">Память</span>}
+    <>
+      <div className="app-layout">
+        {/* ── Header ── */}
+        <header className="app-header">
+          <div className="header-brand">
+            <button className="menu-btn" onClick={() => setSidebarOpen((o) => !o)}>
+              <MenuIcon />
+            </button>
+            <CubeIcon />
+            <span style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17 }}>
+              СнабЧат
+            </span>
+            <div className="header-divider" />
+            <span style={{ fontFamily: "var(--font-body)", fontSize: 14, color: "var(--text-secondary)" }}>
+              Дирекция по закупкам
+            </span>
+          </div>
+          <div>
+            {hasSummary && <span className="memory-pill">Память активна</span>}
+          </div>
         </header>
 
-        {/* Upload panel */}
-        {uploadTab && (
-          <div
-            className="animate-slideDown p-4"
-            style={{
-              background: "var(--bg-secondary)",
-              borderBottom: "1px solid var(--border)",
-            }}
-          >
-            {uploadState === "idle" && (
-              <div
-                className={`drop-zone ${dragActive ? "active" : ""}`}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragActive(true);
-                }}
-                onDragLeave={() => setDragActive(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragActive(false);
-                  handleFileDrop(e.dataTransfer.files);
-                }}
-                onClick={() => {
-                  const inp = document.createElement("input");
-                  inp.type = "file";
-                  inp.accept = ".pdf,.docx";
-                  inp.onchange = () => handleFileDrop(inp.files);
-                  inp.click();
-                }}
-              >
-                <p className="text-sm">
-                  Перетащите файл (PDF, DOCX) или нажмите для выбора
-                </p>
-              </div>
-            )}
-
-            {uploadState === "parsing" && (
-              <div className="flex items-center gap-3 justify-center py-4">
-                <div className="spinner" />
-                <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-                  Разбор документа...
-                </span>
-              </div>
-            )}
-
-            {uploadState === "preview" && parsedFile && (
-              <div className="animate-fadeIn space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium">{parsedFile.filename}</h3>
-                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {parsedFile.totalChunks} чанков
-                  </span>
-                </div>
-
-                {/* Tags */}
-                <div className="flex flex-wrap gap-1.5">
-                  {editTags.map((tag) => (
-                    <span key={tag} className="tag">
-                      {tag}
-                      <button onClick={() => setEditTags((t) => t.filter((x) => x !== tag))}>
-                        &times;
-                      </button>
-                    </span>
-                  ))}
-                  <form
-                    className="inline-flex"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      const t = newTag.trim();
-                      if (t && !editTags.includes(t)) {
-                        setEditTags((prev) => [...prev, t]);
-                        setNewTag("");
-                      }
-                    }}
-                  >
-                    <input
-                      value={newTag}
-                      onChange={(e) => setNewTag(e.target.value)}
-                      placeholder="+ тег"
-                      className="text-xs px-2 py-1 rounded-md outline-none"
-                      style={{
-                        background: "var(--bg-tertiary)",
-                        color: "var(--text)",
-                        border: "1px solid var(--border)",
-                        width: 80,
-                      }}
-                    />
-                  </form>
-                </div>
-
-                {/* Chunk previews */}
-                <div className="max-h-32 overflow-y-auto space-y-1">
-                  {parsedFile.chunks.slice(0, 3).map((c) => (
-                    <div key={c.index} className="chunk-card">
-                      {c.preview}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleIngest}
-                    className="text-xs px-4 py-2 rounded-md font-medium transition-colors"
-                    style={{ background: "var(--accent)", color: "#fff" }}
-                  >
-                    Загрузить в базу
-                  </button>
-                  <button
-                    onClick={resetUpload}
-                    className="text-xs px-4 py-2 rounded-md transition-colors"
+        {/* ── Body ── */}
+        <div className="app-body">
+          {/* ── Sidebar ── */}
+          <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
+            {/* Documents section */}
+            <div className="sidebar-section" style={{ flex: "0 0 auto", maxHeight: "40%" }}>
+              <div className="sidebar-section-title">
+                <span>
+                  ДОКУМЕНТЫ{" "}
+                  <span
                     style={{
-                      background: "var(--bg-tertiary)",
-                      color: "var(--text-muted)",
-                      border: "1px solid var(--border)",
+                      fontSize: 10,
+                      background: "var(--border)",
+                      borderRadius: "var(--radius-pill)",
+                      padding: "1px 7px",
+                      marginLeft: 4,
                     }}
                   >
-                    Отмена
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {uploadState === "ingesting" && (
-              <div className="flex items-center gap-3 justify-center py-4">
-                <div className="spinner" />
-                <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-                  Создание эмбеддингов и загрузка...
+                    {sources.length}
+                  </span>
                 </span>
               </div>
-            )}
-
-            {uploadState === "done" && (
-              <div className="animate-fadeIn text-center py-4">
-                <p className="text-sm" style={{ color: "var(--success)" }}>
-                  Документ загружен в базу знаний
-                </p>
-                <button
-                  onClick={resetUpload}
-                  className="mt-2 text-xs px-4 py-2 rounded-md transition-colors"
-                  style={{
-                    background: "var(--bg-tertiary)",
-                    color: "var(--text-muted)",
-                    border: "1px solid var(--border)",
-                  }}
-                >
-                  Загрузить ещё
+              <div style={{ padding: "0 8px 8px" }}>
+                <button className="upload-btn" onClick={() => setShowUploadModal(true)}>
+                  <UploadIcon /> Загрузить DOCX / PDF
                 </button>
               </div>
-            )}
-          </div>
-        )}
-
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-6">
-          {messages.length === 0 && !activeConvId && (
-            <div className="flex flex-col items-center justify-center h-full animate-fadeIn">
-              <h2
-                className="text-2xl font-semibold mb-2"
-                style={{ color: "var(--accent)" }}
-              >
-                СнабЧат
-              </h2>
-              <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-                ИИ-ассистент Дирекции по закупкам. Задайте вопрос или загрузите документ.
-              </p>
-            </div>
-          )}
-
-          <div className="max-w-3xl mx-auto space-y-4">
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className="animate-slideDown"
-                style={{
-                  display: "flex",
-                  justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
-                }}
-              >
-                <div
-                  className="rounded-xl px-4 py-3 max-w-[85%] text-sm leading-relaxed"
-                  style={{
-                    background:
-                      msg.role === "user"
-                        ? "var(--accent)"
-                        : "var(--bg-secondary)",
-                    color: msg.role === "user" ? "#fff" : "var(--text)",
-                    border:
-                      msg.role === "assistant"
-                        ? "1px solid var(--border)"
-                        : "none",
-                  }}
-                >
-                  {msg.role === "assistant" ? (
-                    <div className="message-content">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+              <div className="sidebar-list">
+                {sources.map((doc) => (
+                  <div className="doc-item" key={doc.id}>
+                    <div className={`doc-icon ${doc.mime_type?.includes("pdf") ? "pdf" : "docx"}`}>
+                      {doc.mime_type?.includes("pdf") ? "P" : "W"}
                     </div>
-                  ) : (
-                    msg.content
-                  )}
-                </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {doc.filename}
+                      </div>
+                      {doc.tags && doc.tags.length > 0 && (
+                        <div className="doc-tags">
+                          {doc.tags.slice(0, 3).map((t) => (
+                            <span key={t}>{t}</span>
+                          ))}
+                          {doc.tags.length > 3 && <span>+{doc.tags.length - 3}</span>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {sources.length === 0 && (
+                  <p
+                    style={{
+                      color: "var(--text-muted)",
+                      fontSize: 12,
+                      textAlign: "center",
+                      padding: 20,
+                    }}
+                  >
+                    Загрузите первый документ
+                  </p>
+                )}
               </div>
-            ))}
+            </div>
 
-            {isLoading && messages[messages.length - 1]?.role === "user" && (
-              <div className="flex gap-1.5 py-2 px-1">
-                <div className="typing-dot" />
-                <div className="typing-dot" />
-                <div className="typing-dot" />
-              </div>
-            )}
-          </div>
-
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input */}
-        <form
-          onSubmit={handleSubmit}
-          className="px-4 py-3"
-          style={{ borderTop: "1px solid var(--border)", background: "var(--bg-secondary)" }}
-        >
-          <div
-            className="max-w-3xl mx-auto flex gap-2 items-end"
-          >
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              placeholder="Задайте вопрос..."
-              rows={1}
-              className="flex-1 resize-none text-sm rounded-lg px-4 py-3 outline-none"
+            <hr
               style={{
-                background: "var(--bg-tertiary)",
-                color: "var(--text)",
-                border: "1px solid var(--border)",
-                maxHeight: 160,
-                fontFamily: "var(--font-sans)",
-              }}
-              onInput={(e) => {
-                const t = e.currentTarget;
-                t.style.height = "auto";
-                t.style.height = Math.min(t.scrollHeight, 160) + "px";
+                border: "none",
+                borderTop: "1px solid var(--border)",
+                margin: "0 12px",
               }}
             />
-            <button
-              type="submit"
-              disabled={!input.trim() || isLoading}
-              className="rounded-lg px-4 py-3 text-sm font-medium transition-colors disabled:opacity-40"
-              style={{
-                background: "var(--accent)",
-                color: "#fff",
-              }}
-            >
-              &rarr;
-            </button>
-          </div>
-        </form>
-      </main>
-    </div>
+
+            {/* Dialogs section */}
+            <div className="sidebar-section" style={{ flex: 1 }}>
+              <div className="sidebar-section-title">
+                <span>ДИАЛОГИ</span>
+                <button
+                  onClick={() => createConversation()}
+                  title="Новый диалог"
+                  style={{ fontSize: 16, color: "var(--text-secondary)", lineHeight: 1 }}
+                >
+                  +
+                </button>
+              </div>
+              <div className="sidebar-list">
+                {conversations.map((c) => (
+                  <div
+                    className={`sidebar-item ${c.id === activeConvId ? "active" : ""}`}
+                    onClick={() => switchConversation(c.id)}
+                    key={c.id}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 500,
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {c.title}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                        {formatDate(c.updated_at)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => deleteConversation(c.id, e)}
+                      style={{
+                        fontSize: 14,
+                        color: "var(--text-muted)",
+                        opacity: 0,
+                        transition: "opacity var(--transition)",
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = "0"; }}
+                    >
+                      🗑
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </aside>
+
+          {/* Sidebar overlay (mobile) */}
+          {sidebarOpen && (
+            <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
+          )}
+
+          {/* ── Main ── */}
+          <main className="main-area">
+            <div className="chat-column">
+              <div className="messages-area" ref={scrollRef}>
+                {hasSummary && (
+                  <div className="summary-notice">ℹ Ранние сообщения сжаты в резюме</div>
+                )}
+                {messages.length === 0 && !hasSummary && <EmptyState />}
+                {messages.map((m) => (
+                  <MessageBubble key={m.id} message={m} />
+                ))}
+                {isLoading && lastIsUser && <TypingBubble />}
+              </div>
+
+              <form className="input-area" onSubmit={handleSubmit}>
+                <div className="input-wrapper">
+                  <textarea
+                    ref={inputRef}
+                    value={input}
+                    onChange={handleInputChange}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Задайте вопрос..."
+                    rows={1}
+                    className="chat-input"
+                    style={{ maxHeight: 160 }}
+                    onInput={(e) => {
+                      const t = e.currentTarget;
+                      t.style.height = "auto";
+                      t.style.height = Math.min(t.scrollHeight, 160) + "px";
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={isLoading || !input.trim()}
+                    className="send-btn"
+                  >
+                    <ArrowUpIcon />
+                  </button>
+                </div>
+                <p
+                  style={{
+                    fontSize: 11,
+                    color: "var(--text-muted)",
+                    textAlign: "center",
+                    marginTop: 6,
+                  }}
+                >
+                  Enter — отправить · Shift+Enter — перенос
+                </p>
+              </form>
+            </div>
+          </main>
+        </div>
+
+        {/* ── Footer ── */}
+        <footer className="app-footer">СнабЧат · Дирекция по закупкам · 2026</footer>
+      </div>
+
+      {/* ── Upload Modal ── */}
+      {showUploadModal && (
+        <UploadModal
+          onClose={() => setShowUploadModal(false)}
+          onSuccess={() => {
+            loadSources();
+            setShowUploadModal(false);
+          }}
+        />
+      )}
+    </>
   );
 }
