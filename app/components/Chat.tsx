@@ -284,13 +284,10 @@ function UploadModal({
     if (successCount === 0) setGlobalError("Не удалось загрузить ни один файл");
   }, [entries]);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const openFilePicker = () => {
-    const inp = document.createElement("input");
-    inp.type = "file";
-    inp.accept = ".pdf,.docx,.xlsx,.xls";
-    inp.multiple = true;
-    inp.onchange = () => handleFileSelect(inp.files);
-    inp.click();
+    fileInputRef.current?.click();
   };
 
   const retry = () => {
@@ -301,46 +298,44 @@ function UploadModal({
     setExpandedIdx(null);
   };
 
-  const addMoreFiles = () => {
-    const inp = document.createElement("input");
-    inp.type = "file";
-    inp.accept = ".pdf,.docx,.xlsx,.xls";
-    inp.multiple = true;
-    inp.onchange = async () => {
-      if (!inp.files || inp.files.length === 0) return;
-      const startIdx = entries.length;
-      const newOnes: FileEntry[] = Array.from(inp.files).map((file) => ({
-        file,
-        status: "pending" as const,
-        tags: [],
-      }));
-      const all = [...entries, ...newOnes];
-      setEntries(all);
+  const addMoreRef = useRef<HTMLInputElement>(null);
 
-      // Parse the new files
-      for (let i = startIdx; i < all.length; i++) {
-        all[i] = { ...all[i], status: "parsing" };
-        setEntries([...all]);
+  const handleAddMoreChange = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const startIdx = entries.length;
+    const newOnes: FileEntry[] = Array.from(files).map((file) => ({
+      file,
+      status: "pending" as const,
+      tags: [],
+    }));
+    const all = [...entries, ...newOnes];
+    setEntries(all);
 
-        const formData = new FormData();
-        formData.append("file", all[i].file);
+    for (let i = startIdx; i < all.length; i++) {
+      all[i] = { ...all[i], status: "parsing" };
+      setEntries([...all]);
 
-        try {
-          const res = await fetch("/api/parse", { method: "POST", body: formData });
-          if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
-          const data: ParsedFile = await res.json();
-          all[i] = { ...all[i], status: "parsed", parsed: data, tags: data.tags };
-        } catch (err) {
-          all[i] = {
-            ...all[i],
-            status: "error",
-            error: err instanceof Error ? err.message : "Ошибка обработки",
-          };
-        }
-        setEntries([...all]);
+      const formData = new FormData();
+      formData.append("file", all[i].file);
+
+      try {
+        const res = await fetch("/api/parse", { method: "POST", body: formData });
+        if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
+        const data: ParsedFile = await res.json();
+        all[i] = { ...all[i], status: "parsed", parsed: data, tags: data.tags };
+      } catch (err) {
+        all[i] = {
+          ...all[i],
+          status: "error",
+          error: err instanceof Error ? err.message : "Ошибка обработки",
+        };
       }
-    };
-    inp.click();
+      setEntries([...all]);
+    }
+  }, [entries]);
+
+  const addMoreFiles = () => {
+    addMoreRef.current?.click();
   };
 
   const removeEntry = (idx: number) => {
@@ -388,6 +383,24 @@ function UploadModal({
             ✕
           </button>
         </div>
+
+        {/* Hidden file inputs */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.docx,.xlsx,.xls"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => { handleFileSelect(e.target.files); e.target.value = ""; }}
+        />
+        <input
+          ref={addMoreRef}
+          type="file"
+          accept=".pdf,.docx,.xlsx,.xls"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => { handleAddMoreChange(e.target.files); e.target.value = ""; }}
+        />
 
         {/* ── idle ── */}
         {stage === "idle" && (
@@ -1018,7 +1031,7 @@ export default function Chat() {
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {hasSummary && <span className="memory-pill">Память активна</span>}
             <button
-              className="menu-btn"
+              className="header-action-btn"
               onClick={() => {
                 setActiveConvId(null);
                 convIdRef.current = null;
