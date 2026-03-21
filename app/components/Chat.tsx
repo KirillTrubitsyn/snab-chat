@@ -1259,9 +1259,6 @@ export default function Chat() {
                     <ArrowUpIcon />
                   </button>
                 </div>
-                <p className="input-hint">
-                  Enter — отправить · Shift+Enter — перенос
-                </p>
               </form>
             </div>
           </main>
