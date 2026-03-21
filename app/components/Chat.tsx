@@ -691,6 +691,8 @@ export default function Chat() {
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [sources, setSources] = useState<Source[]>([]);
+  const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);
+  const [sourceTagInput, setSourceTagInput] = useState("");
 
   /* ── Refs ── */
   const convIdRef = useRef<string | null>(null);
@@ -734,6 +736,25 @@ export default function Chat() {
       try {
         await fetch(`/api/sources?id=${sourceId}`, { method: "DELETE" });
         setSources((prev) => prev.filter((s) => s.id !== sourceId));
+      } catch {
+        // ignore
+      }
+    },
+    []
+  );
+
+  /* ── Update source tags ── */
+  const updateSourceTags = useCallback(
+    async (sourceId: number, tags: string[]) => {
+      setSources((prev) =>
+        prev.map((s) => (s.id === sourceId ? { ...s, tags } : s))
+      );
+      try {
+        await fetch(`/api/sources?id=${sourceId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tags }),
+        });
       } catch {
         // ignore
       }
@@ -1039,48 +1060,128 @@ export default function Chat() {
                   </button>
                 </div>
                 <div className="sidebar-list">
-                  {sources.map((doc) => (
-                    <div className="doc-item" key={doc.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div className={`doc-icon ${doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") || doc.filename?.endsWith(".xlsx") || doc.filename?.endsWith(".xls") ? "xlsx" : "docx"}`}>
-                        {doc.mime_type?.includes("pdf") ? "P" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "X" : "W"}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
+                  {sources.map((doc) => {
+                    const isExpanded = expandedSourceId === doc.id;
+                    return (
+                      <div key={doc.id} style={{ marginBottom: 2 }}>
                         <div
-                          style={{
-                            fontSize: 13,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
+                          className="doc-item"
+                          style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
+                          onClick={() => {
+                            setExpandedSourceId(isExpanded ? null : doc.id);
+                            setSourceTagInput("");
                           }}
                         >
-                          {doc.filename}
+                          <div className={`doc-icon ${doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") || doc.filename?.endsWith(".xlsx") || doc.filename?.endsWith(".xls") ? "xlsx" : "docx"}`}>
+                            {doc.mime_type?.includes("pdf") ? "P" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "X" : "W"}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontSize: 13,
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              {doc.filename}
+                            </div>
+                            {!isExpanded && doc.tags && doc.tags.length > 0 && (
+                              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                                {doc.tags.length} {doc.tags.length === 1 ? "тег" : doc.tags.length < 5 ? "тега" : "тегов"}
+                              </div>
+                            )}
+                          </div>
+                          <svg
+                            width="12" height="12" viewBox="0 0 24 24" fill="none"
+                            stroke="var(--text-muted)" strokeWidth="2"
+                            style={{ flexShrink: 0, transition: "transform 150ms", transform: isExpanded ? "rotate(180deg)" : "rotate(0)" }}
+                          >
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
+                          <button
+                            className="doc-delete-btn"
+                            onClick={(e) => deleteSource(doc.id, e)}
+                            title="Удалить документ"
+                            style={{
+                              fontSize: 14,
+                              color: "var(--text-muted)",
+                              flexShrink: 0,
+                            }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                          </button>
                         </div>
-                        {doc.tags && doc.tags.length > 0 && (
-                          <div className="doc-tags">
-                            {doc.tags.slice(0, 3).map((t) => (
-                              <span key={t}>{t}</span>
-                            ))}
-                            {doc.tags.length > 3 && <span>+{doc.tags.length - 3}</span>}
+                        {isExpanded && (
+                          <div
+                            style={{
+                              padding: "6px 12px 10px",
+                              background: "var(--bg-white)",
+                              borderRadius: "0 0 var(--radius-sm) var(--radius-sm)",
+                              border: "1px solid var(--border)",
+                              borderTop: "none",
+                              marginTop: -2,
+                            }}
+                          >
+                            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>Теги</div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                              {(doc.tags || []).map((tag) => (
+                                <span key={tag} className="tag" style={{ fontSize: 11 }}>
+                                  {tag}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      updateSourceTags(doc.id, doc.tags.filter((t) => t !== tag));
+                                    }}
+                                    style={{ marginLeft: 3, fontSize: 12, color: "var(--text-muted)", lineHeight: 1 }}
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                              <form
+                                style={{ display: "inline-flex", gap: 4 }}
+                                onSubmit={(e) => {
+                                  e.preventDefault();
+                                  const t = sourceTagInput.trim();
+                                  if (t && !(doc.tags || []).includes(t)) {
+                                    updateSourceTags(doc.id, [...(doc.tags || []), t]);
+                                    setSourceTagInput("");
+                                  }
+                                }}
+                              >
+                                <input
+                                  value={sourceTagInput}
+                                  onChange={(e) => setSourceTagInput(e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  placeholder="новый тег"
+                                  style={{
+                                    width: 80,
+                                    fontSize: 11,
+                                    padding: "3px 6px",
+                                    borderRadius: "var(--radius-sm)",
+                                    border: "1px solid var(--border)",
+                                    background: "var(--bg-code)",
+                                    color: "var(--text-primary)",
+                                  }}
+                                />
+                                <button
+                                  type="submit"
+                                  className="btn-secondary"
+                                  style={{ padding: "3px 8px", fontSize: 13, lineHeight: 1 }}
+                                >
+                                  +
+                                </button>
+                              </form>
+                            </div>
                           </div>
                         )}
                       </div>
-                      <button
-                        className="doc-delete-btn"
-                        onClick={(e) => deleteSource(doc.id, e)}
-                        title="Удалить документ"
-                        style={{
-                          fontSize: 14,
-                          color: "var(--text-muted)",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        </svg>
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {sources.length === 0 && (
                     <p
                       style={{
@@ -1203,17 +1304,19 @@ export default function Chat() {
                         </div>
                       </div>
                       <button
+                        className="doc-delete-btn"
                         onClick={(e) => deleteConversation(c.id, e)}
+                        title="Удалить диалог"
                         style={{
                           fontSize: 14,
                           color: "var(--text-muted)",
-                          opacity: 0,
-                          transition: "opacity var(--transition)",
+                          flexShrink: 0,
                         }}
-                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
-                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = "0"; }}
                       >
-                        🗑
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
                       </button>
                     </div>
                   ))}
