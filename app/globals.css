@@ -257,6 +257,11 @@ input, textarea {
   color: var(--accent);
 }
 
+.doc-icon.xlsx {
+  background: #DCFCE7;
+  color: #16A34A;
+}
+
 .doc-tags {
   display: flex;
   gap: 4px;

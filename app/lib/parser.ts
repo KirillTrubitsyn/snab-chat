@@ -2,6 +2,12 @@
 const mammoth = require("mammoth") as {
   convertToMarkdown: (opts: { buffer: Buffer }) => Promise<{ value: string }>;
 };
+import * as XLSX from "xlsx";
+
+const EXCEL_MIMES = [
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel",
+];
 
 export async function parseToMarkdown(
   buffer: Buffer,
@@ -23,8 +29,66 @@ export async function parseToMarkdown(
     return addHeadingHeuristics(data.text);
   }
 
+  if (
+    EXCEL_MIMES.includes(mimeType) ||
+    filename.endsWith(".xlsx") ||
+    filename.endsWith(".xls")
+  ) {
+    return parseExcelToMarkdown(buffer, filename);
+  }
+
   // Fallback: treat as plain text
   return buffer.toString("utf-8");
+}
+
+function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
+  const workbook = XLSX.read(buffer, { type: "buffer" });
+  const parts: string[] = [];
+
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) continue;
+
+    const rows: string[][] = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      defval: "",
+    });
+
+    if (rows.length === 0) continue;
+
+    // Sheet heading
+    if (workbook.SheetNames.length > 1) {
+      parts.push(`## ${sheetName}`);
+    } else {
+      parts.push(`## ${filename}`);
+    }
+
+    // Build markdown table
+    const header = rows[0];
+    if (header.length === 0) continue;
+
+    parts.push(
+      "| " + header.map((c) => String(c).replace(/\|/g, "\\|")).join(" | ") + " |"
+    );
+    parts.push("| " + header.map(() => "---").join(" | ") + " |");
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      // Skip completely empty rows
+      if (row.every((c) => String(c).trim() === "")) continue;
+      parts.push(
+        "| " +
+          header.map((_, j) =>
+            String(row[j] ?? "").replace(/\|/g, "\\|").replace(/\n/g, " ")
+          ).join(" | ") +
+          " |"
+      );
+    }
+
+    parts.push("");
+  }
+
+  return parts.join("\n");
 }
 
 function addHeadingHeuristics(text: string): string {
