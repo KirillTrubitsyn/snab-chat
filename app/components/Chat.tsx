@@ -153,39 +153,44 @@ function UploadModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  const [uploadState, setUploadState] = useState<
-    "idle" | "parsing" | "preview" | "ingesting" | "done"
+  const [stage, setStage] = useState<
+    "idle" | "uploading" | "review" | "ingesting" | "done" | "error"
   >("idle");
   const [parsedFile, setParsedFile] = useState<ParsedFile | null>(null);
   const [editTags, setEditTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState("");
   const [dragActive, setDragActive] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
-  const handleFileDrop = useCallback(async (files: FileList | null) => {
+  const handleFileSelect = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const file = files[0];
 
-    setUploadState("parsing");
+    setStage("uploading");
+    setErrorMsg("");
     const formData = new FormData();
     formData.append("file", file);
 
     try {
       const res = await fetch("/api/parse", { method: "POST", body: formData });
+      if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
       const data: ParsedFile = await res.json();
       setParsedFile(data);
       setEditTags(data.tags);
-      setUploadState("preview");
-    } catch {
-      setUploadState("idle");
+      setStage("review");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Не удалось обработать файл");
+      setStage("error");
     }
   }, []);
 
-  const handleIngest = useCallback(async () => {
+  const handleConfirm = useCallback(async () => {
     if (!parsedFile) return;
-    setUploadState("ingesting");
+    setStage("ingesting");
+    setErrorMsg("");
 
     try {
-      await fetch("/api/ingest", {
+      const res = await fetch("/api/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -195,9 +200,11 @@ function UploadModal({
           tags: editTags,
         }),
       });
-      setUploadState("done");
-    } catch {
-      setUploadState("preview");
+      if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
+      setStage("done");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Не удалось загрузить в базу");
+      setStage("error");
     }
   }, [parsedFile, editTags]);
 
@@ -205,60 +212,133 @@ function UploadModal({
     const inp = document.createElement("input");
     inp.type = "file";
     inp.accept = ".pdf,.docx";
-    inp.onchange = () => handleFileDrop(inp.files);
+    inp.onchange = () => handleFileSelect(inp.files);
     inp.click();
   };
+
+  const retry = () => {
+    setErrorMsg("");
+    setStage("idle");
+    setParsedFile(null);
+    setEditTags([]);
+    setNewTag("");
+  };
+
+  const isPdf = parsedFile?.mimeType?.includes("pdf");
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18 }}>
+        {/* Header */}
+        <div className="modal-header" style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 20,
+        }}>
+          <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, margin: 0 }}>
             Загрузка документа
-          </h2>
-          <button onClick={onClose} style={{ fontSize: 20, color: "var(--text-muted)" }}>&times;</button>
+          </h3>
+          <button
+            className="close-btn"
+            onClick={onClose}
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: "50%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 16,
+              color: "var(--text-muted)",
+              transition: "background var(--transition)",
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--bg-code)"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+          >
+            ✕
+          </button>
         </div>
 
-        {uploadState === "idle" && (
+        {/* ── idle ── */}
+        {stage === "idle" && (
           <div
             className={`drop-zone ${dragActive ? "active" : ""}`}
             onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
             onDragLeave={() => setDragActive(false)}
-            onDrop={(e) => { e.preventDefault(); setDragActive(false); handleFileDrop(e.dataTransfer.files); }}
+            onDrop={(e) => { e.preventDefault(); setDragActive(false); handleFileSelect(e.dataTransfer.files); }}
             onClick={openFilePicker}
           >
             <UploadIcon />
-            <p style={{ fontSize: 14, color: "var(--text-secondary)" }}>
+            <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }}>
               Перетащите файл или нажмите для выбора
             </p>
-            <p style={{ fontSize: 12, color: "var(--text-muted)" }}>PDF, DOCX</p>
+            <p style={{ fontSize: 12, color: "var(--text-muted)" }}>DOCX, PDF</p>
           </div>
         )}
 
-        {uploadState === "parsing" && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, padding: "40px 0" }}>
+        {/* ── uploading ── */}
+        {stage === "uploading" && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "40px 0" }}>
             <div className="spinner" />
-            <span style={{ fontSize: 14, color: "var(--text-secondary)" }}>Разбор документа…</span>
+            <span style={{ fontSize: 14, color: "var(--text-secondary)" }}>Обработка документа…</span>
           </div>
         )}
 
-        {uploadState === "preview" && parsedFile && (
+        {/* ── review ── */}
+        {stage === "review" && parsedFile && (
           <div className="review-panel">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 14, fontWeight: 600 }}>{parsedFile.filename}</span>
-              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{parsedFile.totalChunks} чанков</span>
+            {/* File info badge */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "10px 14px",
+              background: "var(--bg-main)",
+              borderRadius: "var(--radius-sm)",
+              border: "1px solid var(--border)",
+            }}>
+              <div
+                className={`doc-icon ${isPdf ? "pdf" : "docx"}`}
+                style={{ width: 32, height: 32, borderRadius: 6, fontSize: 13, fontWeight: 600 }}
+              >
+                {isPdf ? "PDF" : "DOC"}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontSize: 14,
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}>
+                  {parsedFile.filename}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  {parsedFile.totalChunks} чанков · {parsedFile.chunks.reduce((s, c) => s + c.length, 0).toLocaleString()} символов
+                </div>
+              </div>
             </div>
 
+            {/* Chunks preview */}
+            <div className="chunks-preview" style={{ maxHeight: 200, overflowY: "auto" }}>
+              {parsedFile.chunks.map((c) => (
+                <div key={c.index} className="chunk-card">{c.preview}</div>
+              ))}
+            </div>
+
+            {/* Tags */}
             <div className="tags-section">
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>Теги</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                 {editTags.map((tag) => (
                   <span key={tag} className="tag">
                     {tag}
-                    <button onClick={() => setEditTags((t) => t.filter((x) => x !== tag))}>&times;</button>
+                    <button onClick={() => setEditTags((t) => t.filter((x) => x !== tag))}>×</button>
                   </span>
                 ))}
                 <form
-                  style={{ display: "inline-flex" }}
+                  style={{ display: "inline-flex", gap: 4 }}
                   onSubmit={(e) => {
                     e.preventDefault();
                     const t = newTag.trim();
@@ -271,9 +351,9 @@ function UploadModal({
                   <input
                     value={newTag}
                     onChange={(e) => setNewTag(e.target.value)}
-                    placeholder="+ тег"
+                    placeholder="новый тег"
                     style={{
-                      width: 80,
+                      width: 90,
                       fontSize: 12,
                       padding: "4px 8px",
                       borderRadius: "var(--radius-sm)",
@@ -282,36 +362,85 @@ function UploadModal({
                       color: "var(--text-primary)",
                     }}
                   />
+                  <button
+                    type="submit"
+                    className="btn-secondary"
+                    style={{ padding: "4px 10px", fontSize: 14, lineHeight: 1 }}
+                  >
+                    +
+                  </button>
                 </form>
               </div>
             </div>
 
-            <div className="chunks-preview" style={{ maxHeight: 160, overflowY: "auto" }}>
-              {parsedFile.chunks.slice(0, 3).map((c) => (
-                <div key={c.index} className="chunk-card">{c.preview}</div>
-              ))}
-            </div>
-
-            <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-              <button className="btn-primary" onClick={handleIngest}>Загрузить в базу</button>
+            {/* Actions */}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
               <button className="btn-secondary" onClick={onClose}>Отмена</button>
+              <button className="btn-primary" onClick={handleConfirm}>Загрузить в базу</button>
             </div>
           </div>
         )}
 
-        {uploadState === "ingesting" && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, padding: "40px 0" }}>
+        {/* ── ingesting ── */}
+        {stage === "ingesting" && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "40px 0" }}>
             <div className="spinner" />
-            <span style={{ fontSize: 14, color: "var(--text-secondary)" }}>Создание эмбеддингов…</span>
+            <span style={{ fontSize: 14, color: "var(--text-secondary)" }}>Генерация эмбеддингов…</span>
           </div>
         )}
 
-        {uploadState === "done" && (
+        {/* ── done ── */}
+        {stage === "done" && parsedFile && (
           <div style={{ textAlign: "center", padding: "32px 0" }}>
-            <p style={{ fontSize: 14, color: "var(--success)", marginBottom: 12 }}>
-              Документ загружен в базу знаний
+            <div style={{
+              width: 48,
+              height: 48,
+              borderRadius: "50%",
+              background: "rgba(5, 150, 105, 0.1)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 16px",
+            }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <p style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
+              Документ загружен
+            </p>
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 20 }}>
+              {parsedFile.filename} · {parsedFile.totalChunks} чанков · {editTags.length} тегов
             </p>
             <button className="btn-primary" onClick={onSuccess}>Готово</button>
+          </div>
+        )}
+
+        {/* ── error ── */}
+        {stage === "error" && (
+          <div style={{ textAlign: "center", padding: "32px 0" }}>
+            <div style={{
+              width: 48,
+              height: 48,
+              borderRadius: "50%",
+              background: "rgba(220, 38, 38, 0.08)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 16px",
+            }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--error)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="15" y1="9" x2="9" y2="15" />
+                <line x1="9" y1="9" x2="15" y2="15" />
+              </svg>
+            </div>
+            <p style={{ fontSize: 14, color: "var(--error)", marginBottom: 4 }}>
+              {errorMsg || "Произошла ошибка"}
+            </p>
+            <button className="btn-secondary" onClick={retry} style={{ marginTop: 12 }}>
+              Попробовать снова
+            </button>
           </div>
         )}
       </div>
