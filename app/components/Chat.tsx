@@ -211,7 +211,7 @@ function UploadModal({
   const openFilePicker = () => {
     const inp = document.createElement("input");
     inp.type = "file";
-    inp.accept = ".pdf,.docx";
+    inp.accept = ".pdf,.docx,.xlsx,.xls";
     inp.onchange = () => handleFileSelect(inp.files);
     inp.click();
   };
@@ -225,6 +225,7 @@ function UploadModal({
   };
 
   const isPdf = parsedFile?.mimeType?.includes("pdf");
+  const isExcel = parsedFile?.mimeType?.includes("sheet") || parsedFile?.mimeType?.includes("excel") || parsedFile?.filename?.endsWith(".xlsx") || parsedFile?.filename?.endsWith(".xls");
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -273,7 +274,7 @@ function UploadModal({
             <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }}>
               Перетащите файл или нажмите для выбора
             </p>
-            <p style={{ fontSize: 12, color: "var(--text-muted)" }}>DOCX, PDF</p>
+            <p style={{ fontSize: 12, color: "var(--text-muted)" }}>DOCX, PDF, Excel</p>
           </div>
         )}
 
@@ -299,10 +300,10 @@ function UploadModal({
               border: "1px solid var(--border)",
             }}>
               <div
-                className={`doc-icon ${isPdf ? "pdf" : "docx"}`}
+                className={`doc-icon ${isPdf ? "pdf" : isExcel ? "xlsx" : "docx"}`}
                 style={{ width: 32, height: 32, borderRadius: 6, fontSize: 13, fontWeight: 600 }}
               >
-                {isPdf ? "PDF" : "DOC"}
+                {isPdf ? "PDF" : isExcel ? "XLS" : "DOC"}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
@@ -792,14 +793,14 @@ export default function Chat() {
               </div>
               <div style={{ padding: "0 8px 8px" }}>
                 <button className="upload-btn" onClick={() => setShowUploadModal(true)}>
-                  <UploadIcon /> Загрузить DOCX / PDF
+                  <UploadIcon /> Загрузить DOCX / PDF / Excel
                 </button>
               </div>
               <div className="sidebar-list">
                 {sources.map((doc) => (
                   <div className="doc-item" key={doc.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div className={`doc-icon ${doc.mime_type?.includes("pdf") ? "pdf" : "docx"}`}>
-                      {doc.mime_type?.includes("pdf") ? "P" : "W"}
+                    <div className={`doc-icon ${doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") || doc.filename?.endsWith(".xlsx") || doc.filename?.endsWith(".xls") ? "xlsx" : "docx"}`}>
+                      {doc.mime_type?.includes("pdf") ? "P" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "X" : "W"}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div
