@@ -112,7 +112,7 @@ input, textarea {
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  z-index: 50;
+  z-index: 150;
 }
 
 .header-brand {
