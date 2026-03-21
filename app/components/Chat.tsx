@@ -1259,14 +1259,7 @@ export default function Chat() {
                     <ArrowUpIcon />
                   </button>
                 </div>
-                <p
-                  style={{
-                    fontSize: 11,
-                    color: "var(--text-muted)",
-                    textAlign: "center",
-                    marginTop: 6,
-                  }}
-                >
+                <p className="input-hint">
                   Enter — отправить · Shift+Enter — перенос
                 </p>
               </form>
@@ -1348,7 +1341,10 @@ export default function Chat() {
         </div>
 
         {/* ── Footer ── */}
-        <footer className="app-footer">СнабЧат · Дирекция по закупкам · 2026 · Разработка @Кирилл Трубицын</footer>
+        <footer className="app-footer">
+          <span className="footer-full">СнабЧат · Дирекция по закупкам · 2026 · </span>
+          Разработка @Кирилл Трубицын
+        </footer>
       </div>
 
       {/* ── Upload Modal ── */}
