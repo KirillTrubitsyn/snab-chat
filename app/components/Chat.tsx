@@ -822,17 +822,14 @@ export default function Chat() {
                       )}
                     </div>
                     <button
+                      className="doc-delete-btn"
                       onClick={(e) => deleteSource(doc.id, e)}
                       title="Удалить документ"
                       style={{
                         fontSize: 14,
                         color: "var(--text-muted)",
-                        opacity: 0,
-                        transition: "opacity var(--transition)",
                         flexShrink: 0,
                       }}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = "0"; }}
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <polyline points="3 6 5 6 21 6" />
