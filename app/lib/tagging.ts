@@ -1,4 +1,4 @@
-import { google } from "@ai-sdk/google";
+import { google } from "@/app/lib/google-ai";
 import { generateText } from "ai";
 
 export async function autoTag(markdown: string): Promise<string[]> {

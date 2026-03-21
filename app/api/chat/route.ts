@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { google } from "@ai-sdk/google";
+import { google } from "@/app/lib/google-ai";
 import { streamText } from "ai";
 import { hybridSearch } from "@/app/lib/retrieval";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
