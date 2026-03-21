@@ -98,6 +98,15 @@ function ArrowUpIcon() {
   );
 }
 
+function HistoryIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
+}
+
 function SearchIcon() {
   return (
     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -676,7 +685,10 @@ export default function Chat() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [hasSummary, setHasSummary] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [leftOpen, setLeftOpen] = useState(false);
+  const [rightOpen, setRightOpen] = useState(false);
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [sources, setSources] = useState<Source[]>([]);
 
@@ -749,7 +761,7 @@ export default function Chat() {
     async (convId: string) => {
       setActiveConvId(convId);
       convIdRef.current = convId;
-      setSidebarOpen(false);
+      setRightOpen(false);
 
       try {
         const res = await fetch(`/api/conversations/messages?id=${convId}`);
@@ -970,7 +982,7 @@ export default function Chat() {
         {/* ── Header ── */}
         <header className="app-header">
           <div className="header-brand">
-            <button className="menu-btn" onClick={() => setSidebarOpen((o) => !o)}>
+            <button className="menu-btn" onClick={() => setLeftOpen((o) => !o)}>
               <MenuIcon />
             </button>
             <CubeIcon />
@@ -982,161 +994,113 @@ export default function Chat() {
               Дирекция по закупкам
             </span>
           </div>
-          <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {hasSummary && <span className="memory-pill">Память активна</span>}
+            <button className="menu-btn" onClick={() => setRightOpen((o) => !o)}>
+              <HistoryIcon />
+            </button>
           </div>
         </header>
 
         {/* ── Body ── */}
         <div className="app-body">
-          {/* ── Sidebar ── */}
-          <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
-            {/* Documents section */}
-            <div className="sidebar-section" style={{ flex: "0 0 auto", maxHeight: "40%" }}>
-              <div className="sidebar-section-title">
-                <span>
-                  ДОКУМЕНТЫ{" "}
-                  <span
-                    style={{
-                      fontSize: 10,
-                      background: "var(--border)",
-                      borderRadius: "var(--radius-pill)",
-                      padding: "1px 7px",
-                      marginLeft: 4,
-                    }}
-                  >
-                    {sources.length}
+          {/* ── Left sidebar: Sources ── */}
+          <aside className={`sidebar-panel left ${leftOpen ? "open" : ""} ${leftCollapsed ? "collapsed" : ""}`}>
+            <button
+              className="sidebar-collapse-btn"
+              onClick={() => setLeftCollapsed((c) => !c)}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points={leftCollapsed ? "9 18 15 12 9 6" : "15 18 9 12 15 6"} />
+              </svg>
+              {leftCollapsed ? "Источники" : "Свернуть"}
+            </button>
+            <div className="sidebar-content">
+              <div className="sidebar-section" style={{ flex: 1 }}>
+                <div className="sidebar-section-title">
+                  <span>
+                    ИСТОЧНИКИ{" "}
+                    <span
+                      style={{
+                        fontSize: 10,
+                        background: "var(--border)",
+                        borderRadius: "var(--radius-pill)",
+                        padding: "1px 7px",
+                        marginLeft: 4,
+                      }}
+                    >
+                      {sources.length}
+                    </span>
                   </span>
-                </span>
-              </div>
-              <div style={{ padding: "0 8px 8px" }}>
-                <button className="upload-btn" onClick={() => setShowUploadModal(true)}>
-                  <UploadIcon /> Загрузить DOCX / PDF / Excel
-                </button>
-              </div>
-              <div className="sidebar-list">
-                {sources.map((doc) => (
-                  <div className="doc-item" key={doc.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div className={`doc-icon ${doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") || doc.filename?.endsWith(".xlsx") || doc.filename?.endsWith(".xls") ? "xlsx" : "docx"}`}>
-                      {doc.mime_type?.includes("pdf") ? "P" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "X" : "W"}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
-                        {doc.filename}
+                </div>
+                <div style={{ padding: "0 8px 8px" }}>
+                  <button className="upload-btn" onClick={() => setShowUploadModal(true)}>
+                    <UploadIcon /> Загрузить DOCX / PDF / Excel
+                  </button>
+                </div>
+                <div className="sidebar-list">
+                  {sources.map((doc) => (
+                    <div className="doc-item" key={doc.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div className={`doc-icon ${doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") || doc.filename?.endsWith(".xlsx") || doc.filename?.endsWith(".xls") ? "xlsx" : "docx"}`}>
+                        {doc.mime_type?.includes("pdf") ? "P" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "X" : "W"}
                       </div>
-                      {doc.tags && doc.tags.length > 0 && (
-                        <div className="doc-tags">
-                          {doc.tags.slice(0, 3).map((t) => (
-                            <span key={t}>{t}</span>
-                          ))}
-                          {doc.tags.length > 3 && <span>+{doc.tags.length - 3}</span>}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {doc.filename}
                         </div>
-                      )}
-                    </div>
-                    <button
-                      className="doc-delete-btn"
-                      onClick={(e) => deleteSource(doc.id, e)}
-                      title="Удалить документ"
-                      style={{
-                        fontSize: 14,
-                        color: "var(--text-muted)",
-                        flexShrink: 0,
-                      }}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                      </svg>
-                    </button>
-                  </div>
-                ))}
-                {sources.length === 0 && (
-                  <p
-                    style={{
-                      color: "var(--text-muted)",
-                      fontSize: 12,
-                      textAlign: "center",
-                      padding: 20,
-                    }}
-                  >
-                    Загрузите первый документ
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <hr
-              style={{
-                border: "none",
-                borderTop: "1px solid var(--border)",
-                margin: "0 12px",
-              }}
-            />
-
-            {/* Dialogs section */}
-            <div className="sidebar-section" style={{ flex: 1 }}>
-              <div className="sidebar-section-title">
-                <span>ДИАЛОГИ</span>
-                <button
-                  onClick={() => createConversation()}
-                  title="Новый диалог"
-                  style={{ fontSize: 16, color: "var(--text-secondary)", lineHeight: 1 }}
-                >
-                  +
-                </button>
-              </div>
-              <div className="sidebar-list">
-                {conversations.map((c) => (
-                  <div
-                    className={`sidebar-item ${c.id === activeConvId ? "active" : ""}`}
-                    onClick={() => switchConversation(c.id)}
-                    key={c.id}
-                  >
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div
+                        {doc.tags && doc.tags.length > 0 && (
+                          <div className="doc-tags">
+                            {doc.tags.slice(0, 3).map((t) => (
+                              <span key={t}>{t}</span>
+                            ))}
+                            {doc.tags.length > 3 && <span>+{doc.tags.length - 3}</span>}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        className="doc-delete-btn"
+                        onClick={(e) => deleteSource(doc.id, e)}
+                        title="Удалить документ"
                         style={{
-                          fontSize: 13,
-                          fontWeight: 500,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
+                          fontSize: 14,
+                          color: "var(--text-muted)",
+                          flexShrink: 0,
                         }}
                       >
-                        {c.title}
-                      </div>
-                      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                        {formatDate(c.updated_at)}
-                      </div>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
+                      </button>
                     </div>
-                    <button
-                      onClick={(e) => deleteConversation(c.id, e)}
+                  ))}
+                  {sources.length === 0 && (
+                    <p
                       style={{
-                        fontSize: 14,
                         color: "var(--text-muted)",
-                        opacity: 0,
-                        transition: "opacity var(--transition)",
+                        fontSize: 12,
+                        textAlign: "center",
+                        padding: 20,
                       }}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = "0"; }}
                     >
-                      🗑
-                    </button>
-                  </div>
-                ))}
+                      Загрузите первый документ
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           </aside>
 
           {/* Sidebar overlay (mobile) */}
-          {sidebarOpen && (
-            <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
+          {(leftOpen || rightOpen) && (
+            <div className="sidebar-overlay" onClick={() => { setLeftOpen(false); setRightOpen(false); }} />
           )}
 
           {/* ── Main ── */}
@@ -1191,6 +1155,72 @@ export default function Chat() {
               </form>
             </div>
           </main>
+
+          {/* ── Right sidebar: Dialogs ── */}
+          <aside className={`sidebar-panel right ${rightOpen ? "open" : ""} ${rightCollapsed ? "collapsed" : ""}`}>
+            <button
+              className="sidebar-collapse-btn"
+              onClick={() => setRightCollapsed((c) => !c)}
+            >
+              {rightCollapsed ? "Диалоги" : "Свернуть"}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points={rightCollapsed ? "15 18 9 12 15 6" : "9 18 15 12 9 6"} />
+              </svg>
+            </button>
+            <div className="sidebar-content">
+              <div className="sidebar-section" style={{ flex: 1 }}>
+                <div className="sidebar-section-title">
+                  <span>ДИАЛОГИ</span>
+                  <button
+                    onClick={() => createConversation()}
+                    title="Новый диалог"
+                    style={{ fontSize: 16, color: "var(--text-secondary)", lineHeight: 1 }}
+                  >
+                    +
+                  </button>
+                </div>
+                <div className="sidebar-list">
+                  {conversations.map((c) => (
+                    <div
+                      className={`sidebar-item ${c.id === activeConvId ? "active" : ""}`}
+                      onClick={() => switchConversation(c.id)}
+                      key={c.id}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 500,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {c.title}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                          {formatDate(c.updated_at)}
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => deleteConversation(c.id, e)}
+                        style={{
+                          fontSize: 14,
+                          color: "var(--text-muted)",
+                          opacity: 0,
+                          transition: "opacity var(--transition)",
+                        }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = "0"; }}
+                      >
+                        🗑
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </aside>
         </div>
 
         {/* ── Footer ── */}
