@@ -1019,7 +1019,12 @@ export default function Chat() {
             {hasSummary && <span className="memory-pill">Память активна</span>}
             <button
               className="menu-btn"
-              onClick={() => createConversation()}
+              onClick={() => {
+                setActiveConvId(null);
+                convIdRef.current = null;
+                setMessages([]);
+                setHasSummary(false);
+              }}
               title="Новый чат"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1254,14 +1259,7 @@ export default function Chat() {
                     <ArrowUpIcon />
                   </button>
                 </div>
-                <p
-                  style={{
-                    fontSize: 11,
-                    color: "var(--text-muted)",
-                    textAlign: "center",
-                    marginTop: 6,
-                  }}
-                >
+                <p className="input-hint">
                   Enter — отправить · Shift+Enter — перенос
                 </p>
               </form>
@@ -1284,7 +1282,12 @@ export default function Chat() {
                 <div className="sidebar-section-title">
                   <span>ДИАЛОГИ</span>
                   <button
-                    onClick={() => createConversation()}
+                    onClick={() => {
+                      setActiveConvId(null);
+                      convIdRef.current = null;
+                      setMessages([]);
+                      setHasSummary(false);
+                    }}
                     title="Новый диалог"
                     style={{ fontSize: 16, color: "var(--text-secondary)", lineHeight: 1 }}
                   >
@@ -1338,7 +1341,10 @@ export default function Chat() {
         </div>
 
         {/* ── Footer ── */}
-        <footer className="app-footer">СнабЧат · Дирекция по закупкам · 2026 · Разработка @Кирилл Трубицын</footer>
+        <footer className="app-footer">
+          <span className="footer-full">СнабЧат · Дирекция по закупкам · 2026 · </span>
+          Разработка @Кирилл Трубицын
+        </footer>
       </div>
 
       {/* ── Upload Modal ── */}
