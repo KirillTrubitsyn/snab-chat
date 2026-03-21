@@ -79,7 +79,7 @@ ${ragContext ? `База знаний (результаты поиска):\n\n${
   }
 
   const result = streamText({
-    model: google("gemini-2.0-flash-lite"),
+    model: google("gemini-3.1-flash-lite-preview"),
     system: systemPrompt,
     messages: modelMessages,
     async onFinish({ text }) {
