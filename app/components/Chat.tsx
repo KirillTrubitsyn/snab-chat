@@ -118,13 +118,23 @@ function SearchIcon() {
 
 /* ── Sub-components ── */
 
-function MessageBubble({ message }: { message: { id: string; role: string; content: string } }) {
+function MessageBubble({ message }: { message: { id: string; role: string; content: string; sources?: string[] } }) {
   const isUser = message.role === "user";
   return (
     <div className={`message ${isUser ? "message-user" : "message-ai"}`}>
       <div className="message-content">
         {isUser ? message.content : <ReactMarkdown>{message.content}</ReactMarkdown>}
       </div>
+      {!isUser && message.sources && message.sources.length > 0 && (
+        <div className="message-sources">
+          <div className="message-sources-label">Источники:</div>
+          <div className="message-sources-list">
+            {message.sources.map((s, i) => (
+              <span key={i} className="message-source-tag">{s}</span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -884,6 +894,13 @@ export default function Chat() {
 
           if (!res.ok || !res.body) throw new Error("Stream failed");
 
+          // Parse sources from header
+          let sources: string[] = [];
+          try {
+            const srcHeader = res.headers.get("X-Sources");
+            if (srcHeader) sources = JSON.parse(decodeURIComponent(srcHeader));
+          } catch { /* ignore */ }
+
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
           let assistantText = "";
@@ -891,7 +908,7 @@ export default function Chat() {
 
           setMessages((prev) => [
             ...prev,
-            { id: assistantId, role: "assistant", content: "" },
+            { id: assistantId, role: "assistant", content: "", sources },
           ]);
 
           while (true) {
@@ -950,6 +967,13 @@ export default function Chat() {
 
         if (!res.ok || !res.body) throw new Error("Stream failed");
 
+        // Parse sources from header
+        let sources: string[] = [];
+        try {
+          const srcHeader = res.headers.get("X-Sources");
+          if (srcHeader) sources = JSON.parse(decodeURIComponent(srcHeader));
+        } catch { /* ignore */ }
+
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let assistantText = "";
@@ -957,7 +981,7 @@ export default function Chat() {
 
         setMessages((prev) => [
           ...prev,
-          { id: assistantId, role: "assistant", content: "" },
+          { id: assistantId, role: "assistant", content: "", sources },
         ]);
 
         while (true) {

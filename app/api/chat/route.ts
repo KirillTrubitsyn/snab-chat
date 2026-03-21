@@ -25,6 +25,9 @@ export async function POST(req: NextRequest) {
   const contextMessages: { role: string; content: string }[] =
     contextResult?.messages ?? [];
 
+  // Extract unique source filenames
+  const sourceFilenames = [...new Set(searchResults.map((r) => r.source_filename))];
+
   const ragContext = searchResults.length
     ? searchResults
         .map(
@@ -95,5 +98,9 @@ ${ragContext ? `База знаний (результаты поиска):\n\n${
     },
   });
 
-  return result.toDataStreamResponse();
+  return result.toDataStreamResponse({
+    headers: {
+      "X-Sources": encodeURIComponent(JSON.stringify(sourceFilenames)),
+    },
+  });
 }

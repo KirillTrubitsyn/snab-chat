@@ -408,6 +408,41 @@ input, textarea {
   font-family: var(--font-body);
 }
 
+/* ── Message sources ── */
+.message-sources {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.message-sources-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  font-family: var(--font-body);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.message-sources-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.message-source-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-family: var(--font-body);
+  background: var(--bg-code);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  line-height: 1.4;
+}
+
 .message-content code {
   font-family: var(--font-mono);
   background: var(--bg-code);
