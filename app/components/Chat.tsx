@@ -144,7 +144,28 @@ function TypingBubble() {
   );
 }
 
-/* ── Upload Modal ── */
+/* ── Upload Modal (bulk) ── */
+
+interface FileEntry {
+  file: File;
+  status: "pending" | "parsing" | "parsed" | "ingesting" | "done" | "error";
+  parsed?: ParsedFile;
+  tags: string[];
+  error?: string;
+}
+
+function fileTypeClass(entry: FileEntry) {
+  const name = entry.file.name.toLowerCase();
+  const mime = entry.file.type;
+  if (mime.includes("pdf") || name.endsWith(".pdf")) return "pdf";
+  if (mime.includes("sheet") || mime.includes("excel") || name.endsWith(".xlsx") || name.endsWith(".xls")) return "xlsx";
+  return "docx";
+}
+
+function fileTypeLabel(entry: FileEntry) {
+  const cls = fileTypeClass(entry);
+  return cls === "pdf" ? "PDF" : cls === "xlsx" ? "XLS" : "DOC";
+}
 
 function UploadModal({
   onClose,
@@ -154,78 +175,176 @@ function UploadModal({
   onSuccess: () => void;
 }) {
   const [stage, setStage] = useState<
-    "idle" | "uploading" | "review" | "ingesting" | "done" | "error"
+    "idle" | "parsing" | "review" | "ingesting" | "done" | "error"
   >("idle");
-  const [parsedFile, setParsedFile] = useState<ParsedFile | null>(null);
-  const [editTags, setEditTags] = useState<string[]>([]);
+  const [entries, setEntries] = useState<FileEntry[]>([]);
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [newTag, setNewTag] = useState("");
   const [dragActive, setDragActive] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
+  const [globalError, setGlobalError] = useState("");
+
+  const updateEntry = useCallback((idx: number, patch: Partial<FileEntry>) => {
+    setEntries((prev) => prev.map((e, i) => (i === idx ? { ...e, ...patch } : e)));
+  }, []);
 
   const handleFileSelect = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const file = files[0];
 
-    setStage("uploading");
-    setErrorMsg("");
-    const formData = new FormData();
-    formData.append("file", file);
+    const newEntries: FileEntry[] = Array.from(files).map((file) => ({
+      file,
+      status: "pending" as const,
+      tags: [],
+    }));
 
-    try {
-      const res = await fetch("/api/parse", { method: "POST", body: formData });
-      if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
-      const data: ParsedFile = await res.json();
-      setParsedFile(data);
-      setEditTags(data.tags);
+    setEntries(newEntries);
+    setStage("parsing");
+    setGlobalError("");
+
+    // Parse files sequentially to avoid overloading server
+    const results = [...newEntries];
+    for (let i = 0; i < results.length; i++) {
+      results[i] = { ...results[i], status: "parsing" };
+      setEntries([...results]);
+
+      const formData = new FormData();
+      formData.append("file", results[i].file);
+
+      try {
+        const res = await fetch("/api/parse", { method: "POST", body: formData });
+        if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
+        const data: ParsedFile = await res.json();
+        results[i] = { ...results[i], status: "parsed", parsed: data, tags: data.tags };
+      } catch (err) {
+        results[i] = {
+          ...results[i],
+          status: "error",
+          error: err instanceof Error ? err.message : "Ошибка обработки",
+        };
+      }
+      setEntries([...results]);
+    }
+
+    const hasAnyParsed = results.some((e) => e.status === "parsed");
+    if (hasAnyParsed) {
       setStage("review");
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Не удалось обработать файл");
+    } else {
+      setGlobalError("Не удалось обработать ни один файл");
       setStage("error");
     }
   }, []);
 
-  const handleConfirm = useCallback(async () => {
-    if (!parsedFile) return;
+  const handleConfirmAll = useCallback(async () => {
     setStage("ingesting");
-    setErrorMsg("");
+    setGlobalError("");
 
-    try {
-      const res = await fetch("/api/ingest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: parsedFile.filename,
-          mimeType: parsedFile.mimeType,
-          markdown: parsedFile.markdown,
-          tags: editTags,
-        }),
-      });
-      if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
-      setStage("done");
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Не удалось загрузить в базу");
-      setStage("error");
+    const updated = [...entries];
+    let successCount = 0;
+
+    for (let i = 0; i < updated.length; i++) {
+      if (updated[i].status !== "parsed" || !updated[i].parsed) continue;
+
+      updated[i] = { ...updated[i], status: "ingesting" };
+      setEntries([...updated]);
+
+      try {
+        const p = updated[i].parsed!;
+        const res = await fetch("/api/ingest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename: p.filename,
+            mimeType: p.mimeType,
+            markdown: p.markdown,
+            tags: updated[i].tags,
+          }),
+        });
+        if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
+        updated[i] = { ...updated[i], status: "done" };
+        successCount++;
+      } catch (err) {
+        updated[i] = {
+          ...updated[i],
+          status: "error",
+          error: err instanceof Error ? err.message : "Ошибка загрузки",
+        };
+      }
+      setEntries([...updated]);
     }
-  }, [parsedFile, editTags]);
+
+    setStage(successCount > 0 ? "done" : "error");
+    if (successCount === 0) setGlobalError("Не удалось загрузить ни один файл");
+  }, [entries]);
 
   const openFilePicker = () => {
     const inp = document.createElement("input");
     inp.type = "file";
     inp.accept = ".pdf,.docx,.xlsx,.xls";
+    inp.multiple = true;
     inp.onchange = () => handleFileSelect(inp.files);
     inp.click();
   };
 
   const retry = () => {
-    setErrorMsg("");
+    setGlobalError("");
     setStage("idle");
-    setParsedFile(null);
-    setEditTags([]);
+    setEntries([]);
     setNewTag("");
+    setExpandedIdx(null);
   };
 
-  const isPdf = parsedFile?.mimeType?.includes("pdf");
-  const isExcel = parsedFile?.mimeType?.includes("sheet") || parsedFile?.mimeType?.includes("excel") || parsedFile?.filename?.endsWith(".xlsx") || parsedFile?.filename?.endsWith(".xls");
+  const addMoreFiles = () => {
+    const inp = document.createElement("input");
+    inp.type = "file";
+    inp.accept = ".pdf,.docx,.xlsx,.xls";
+    inp.multiple = true;
+    inp.onchange = async () => {
+      if (!inp.files || inp.files.length === 0) return;
+      const startIdx = entries.length;
+      const newOnes: FileEntry[] = Array.from(inp.files).map((file) => ({
+        file,
+        status: "pending" as const,
+        tags: [],
+      }));
+      const all = [...entries, ...newOnes];
+      setEntries(all);
+
+      // Parse the new files
+      for (let i = startIdx; i < all.length; i++) {
+        all[i] = { ...all[i], status: "parsing" };
+        setEntries([...all]);
+
+        const formData = new FormData();
+        formData.append("file", all[i].file);
+
+        try {
+          const res = await fetch("/api/parse", { method: "POST", body: formData });
+          if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
+          const data: ParsedFile = await res.json();
+          all[i] = { ...all[i], status: "parsed", parsed: data, tags: data.tags };
+        } catch (err) {
+          all[i] = {
+            ...all[i],
+            status: "error",
+            error: err instanceof Error ? err.message : "Ошибка обработки",
+          };
+        }
+        setEntries([...all]);
+      }
+    };
+    inp.click();
+  };
+
+  const removeEntry = (idx: number) => {
+    setEntries((prev) => prev.filter((_, i) => i !== idx));
+    if (expandedIdx === idx) setExpandedIdx(null);
+    else if (expandedIdx !== null && expandedIdx > idx) setExpandedIdx(expandedIdx - 1);
+  };
+
+  const parsedCount = entries.filter((e) => e.status === "parsed").length;
+  const doneCount = entries.filter((e) => e.status === "done").length;
+  const errorCount = entries.filter((e) => e.status === "error").length;
+  const parsingCount = entries.filter((e) => e.status === "parsing").length;
+  const ingestingCount = entries.filter((e) => e.status === "ingesting").length;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -238,7 +357,7 @@ function UploadModal({
           marginBottom: 20,
         }}>
           <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, margin: 0 }}>
-            Загрузка документа
+            Загрузка документов
           </h3>
           <button
             className="close-btn"
@@ -272,126 +391,220 @@ function UploadModal({
           >
             <UploadIcon />
             <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }}>
-              Перетащите файл или нажмите для выбора
+              Перетащите файлы или нажмите для выбора
             </p>
-            <p style={{ fontSize: 12, color: "var(--text-muted)" }}>DOCX, PDF, Excel</p>
+            <p style={{ fontSize: 12, color: "var(--text-muted)" }}>DOCX, PDF, Excel · можно выбрать несколько</p>
           </div>
         )}
 
-        {/* ── uploading ── */}
-        {stage === "uploading" && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "40px 0" }}>
-            <div className="spinner" />
-            <span style={{ fontSize: 14, color: "var(--text-secondary)" }}>Обработка документа…</span>
+        {/* ── parsing ── */}
+        {stage === "parsing" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 0" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <div className="spinner" style={{ width: 18, height: 18 }} />
+              <span style={{ fontSize: 14, color: "var(--text-secondary)" }}>
+                Обработка файлов… ({entries.filter((e) => e.status === "parsed" || e.status === "error").length}/{entries.length})
+              </span>
+            </div>
+            {entries.map((entry, i) => (
+              <div key={i} style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "8px 12px",
+                background: "var(--bg-main)",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--border)",
+              }}>
+                <div
+                  className={`doc-icon ${fileTypeClass(entry)}`}
+                  style={{ width: 28, height: 28, borderRadius: 5, fontSize: 11, fontWeight: 600, flexShrink: 0 }}
+                >
+                  {fileTypeLabel(entry)}
+                </div>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {entry.file.name}
+                </div>
+                {entry.status === "parsing" && <div className="spinner" style={{ width: 16, height: 16 }} />}
+                {entry.status === "parsed" && (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
+                )}
+                {entry.status === "error" && (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--error)" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                )}
+                {entry.status === "pending" && (
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>ожидание</span>
+                )}
+              </div>
+            ))}
           </div>
         )}
 
         {/* ── review ── */}
-        {stage === "review" && parsedFile && (
+        {stage === "review" && (
           <div className="review-panel">
-            {/* File info badge */}
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "10px 14px",
-              background: "var(--bg-main)",
-              borderRadius: "var(--radius-sm)",
-              border: "1px solid var(--border)",
-            }}>
-              <div
-                className={`doc-icon ${isPdf ? "pdf" : isExcel ? "xlsx" : "docx"}`}
-                style={{ width: 32, height: 32, borderRadius: 6, fontSize: 13, fontWeight: 600 }}
-              >
-                {isPdf ? "PDF" : isExcel ? "XLS" : "DOC"}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                  fontSize: 14,
-                  fontWeight: 600,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}>
-                  {parsedFile.filename}
-                </div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                  {parsedFile.totalChunks} чанков · {parsedFile.chunks.reduce((s, c) => s + c.length, 0).toLocaleString()} символов
-                </div>
-              </div>
-            </div>
+            {/* File list */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto" }}>
+              {entries.map((entry, i) => (
+                <div key={i}>
+                  <div style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "8px 12px",
+                    background: entry.status === "error" ? "rgba(220,38,38,0.05)" : "var(--bg-main)",
+                    borderRadius: "var(--radius-sm)",
+                    border: `1px solid ${entry.status === "error" ? "var(--error)" : "var(--border)"}`,
+                    cursor: entry.status === "parsed" ? "pointer" : "default",
+                  }}
+                    onClick={() => entry.status === "parsed" && setExpandedIdx(expandedIdx === i ? null : i)}
+                  >
+                    <div
+                      className={`doc-icon ${fileTypeClass(entry)}`}
+                      style={{ width: 28, height: 28, borderRadius: 5, fontSize: 11, fontWeight: 600, flexShrink: 0 }}
+                    >
+                      {fileTypeLabel(entry)}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {entry.file.name}
+                      </div>
+                      {entry.parsed && (
+                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                          {entry.parsed.totalChunks} чанков · {entry.tags.length} тегов
+                        </div>
+                      )}
+                      {entry.status === "error" && (
+                        <div style={{ fontSize: 11, color: "var(--error)" }}>{entry.error}</div>
+                      )}
+                    </div>
+                    {entry.status === "parsed" && (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"
+                        style={{ transform: expandedIdx === i ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s", flexShrink: 0 }}>
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); removeEntry(i); }}
+                      style={{ fontSize: 14, color: "var(--text-muted)", padding: "2px 4px", flexShrink: 0 }}
+                      title="Убрать"
+                    >
+                      ✕
+                    </button>
+                  </div>
 
-            {/* Chunks preview */}
-            <div className="chunks-preview" style={{ maxHeight: 200, overflowY: "auto" }}>
-              {parsedFile.chunks.map((c) => (
-                <div key={c.index} className="chunk-card">{c.preview}</div>
+                  {/* Expanded details */}
+                  {expandedIdx === i && entry.parsed && (
+                    <div style={{ padding: "8px 12px", borderLeft: "2px solid var(--border)", marginLeft: 20, marginTop: 4 }}>
+                      {/* Chunks preview */}
+                      <div className="chunks-preview" style={{ maxHeight: 120, overflowY: "auto", marginBottom: 8 }}>
+                        {entry.parsed.chunks.map((c) => (
+                          <div key={c.index} className="chunk-card">{c.preview}</div>
+                        ))}
+                      </div>
+                      {/* Tags */}
+                      <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>Теги</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                        {entry.tags.map((tag) => (
+                          <span key={tag} className="tag" style={{ fontSize: 11 }}>
+                            {tag}
+                            <button onClick={() => updateEntry(i, { tags: entry.tags.filter((x) => x !== tag) })}>×</button>
+                          </span>
+                        ))}
+                        <form
+                          style={{ display: "inline-flex", gap: 4 }}
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            const t = newTag.trim();
+                            if (t && !entry.tags.includes(t)) {
+                              updateEntry(i, { tags: [...entry.tags, t] });
+                              setNewTag("");
+                            }
+                          }}
+                        >
+                          <input
+                            value={newTag}
+                            onChange={(e) => setNewTag(e.target.value)}
+                            placeholder="новый тег"
+                            style={{
+                              width: 80,
+                              fontSize: 11,
+                              padding: "3px 6px",
+                              borderRadius: "var(--radius-sm)",
+                              border: "1px solid var(--border)",
+                              background: "var(--bg-code)",
+                              color: "var(--text-primary)",
+                            }}
+                          />
+                          <button type="submit" className="btn-secondary" style={{ padding: "3px 8px", fontSize: 13, lineHeight: 1 }}>+</button>
+                        </form>
+                      </div>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
 
-            {/* Tags */}
-            <div className="tags-section">
-              <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>Теги</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                {editTags.map((tag) => (
-                  <span key={tag} className="tag">
-                    {tag}
-                    <button onClick={() => setEditTags((t) => t.filter((x) => x !== tag))}>×</button>
-                  </span>
-                ))}
-                <form
-                  style={{ display: "inline-flex", gap: 4 }}
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const t = newTag.trim();
-                    if (t && !editTags.includes(t)) {
-                      setEditTags((prev) => [...prev, t]);
-                      setNewTag("");
-                    }
-                  }}
-                >
-                  <input
-                    value={newTag}
-                    onChange={(e) => setNewTag(e.target.value)}
-                    placeholder="новый тег"
-                    style={{
-                      width: 90,
-                      fontSize: 12,
-                      padding: "4px 8px",
-                      borderRadius: "var(--radius-sm)",
-                      border: "1px solid var(--border)",
-                      background: "var(--bg-code)",
-                      color: "var(--text-primary)",
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    className="btn-secondary"
-                    style={{ padding: "4px 10px", fontSize: 14, lineHeight: 1 }}
-                  >
-                    +
-                  </button>
-                </form>
+            {/* Add more + actions */}
+            <div style={{ display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+              <button className="btn-secondary" onClick={addMoreFiles} style={{ fontSize: 13 }}>
+                + Добавить ещё
+              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn-secondary" onClick={onClose}>Отмена</button>
+                <button className="btn-primary" onClick={handleConfirmAll} disabled={parsedCount === 0}>
+                  Загрузить {parsedCount > 1 ? `${parsedCount} файлов` : "в базу"}
+                </button>
               </div>
-            </div>
-
-            {/* Actions */}
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
-              <button className="btn-secondary" onClick={onClose}>Отмена</button>
-              <button className="btn-primary" onClick={handleConfirm}>Загрузить в базу</button>
             </div>
           </div>
         )}
 
         {/* ── ingesting ── */}
         {stage === "ingesting" && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "40px 0" }}>
-            <div className="spinner" />
-            <span style={{ fontSize: 14, color: "var(--text-secondary)" }}>Генерация эмбеддингов…</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 0" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <div className="spinner" style={{ width: 18, height: 18 }} />
+              <span style={{ fontSize: 14, color: "var(--text-secondary)" }}>
+                Загрузка в базу… ({doneCount}/{parsedCount})
+              </span>
+            </div>
+            {entries.filter((e) => e.parsed).map((entry, i) => (
+              <div key={i} style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "8px 12px",
+                background: "var(--bg-main)",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--border)",
+              }}>
+                <div
+                  className={`doc-icon ${fileTypeClass(entry)}`}
+                  style={{ width: 28, height: 28, borderRadius: 5, fontSize: 11, fontWeight: 600, flexShrink: 0 }}
+                >
+                  {fileTypeLabel(entry)}
+                </div>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {entry.file.name}
+                </div>
+                {entry.status === "ingesting" && <div className="spinner" style={{ width: 16, height: 16 }} />}
+                {entry.status === "done" && (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
+                )}
+                {entry.status === "error" && (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--error)" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                )}
+                {entry.status === "parsed" && (
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>ожидание</span>
+                )}
+              </div>
+            ))}
           </div>
         )}
 
         {/* ── done ── */}
-        {stage === "done" && parsedFile && (
+        {stage === "done" && (
           <div style={{ textAlign: "center", padding: "32px 0" }}>
             <div style={{
               width: 48,
@@ -408,10 +621,15 @@ function UploadModal({
               </svg>
             </div>
             <p style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
-              Документ загружен
+              {doneCount === entries.length ? "Все документы загружены" : `Загружено ${doneCount} из ${entries.length}`}
             </p>
+            {errorCount > 0 && (
+              <p style={{ fontSize: 13, color: "var(--error)", marginBottom: 4 }}>
+                {errorCount} {errorCount === 1 ? "файл" : "файлов"} с ошибкой
+              </p>
+            )}
             <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 20 }}>
-              {parsedFile.filename} · {parsedFile.totalChunks} чанков · {editTags.length} тегов
+              {doneCount} {doneCount === 1 ? "документ" : "документов"} · {entries.filter((e) => e.status === "done").reduce((s, e) => s + (e.parsed?.totalChunks ?? 0), 0)} чанков
             </p>
             <button className="btn-primary" onClick={onSuccess}>Готово</button>
           </div>
@@ -437,7 +655,7 @@ function UploadModal({
               </svg>
             </div>
             <p style={{ fontSize: 14, color: "var(--error)", marginBottom: 4 }}>
-              {errorMsg || "Произошла ошибка"}
+              {globalError || "Произошла ошибка"}
             </p>
             <button className="btn-secondary" onClick={retry} style={{ marginTop: 12 }}>
               Попробовать снова
