@@ -39,24 +39,23 @@ export async function POST(req: NextRequest) {
       const texts = batch.map((c) => c.content);
       const embeddings = await embedDocuments(texts);
 
-      // Use raw SQL via rpc to bypass PostgREST schema cache issues
-      for (let j = 0; j < batch.length; j++) {
-        const { error: chunkError } = await supabase.rpc("insert_chunk", {
-          p_source_id: source.id,
-          p_source_filename: filename,
-          p_chunk_index: batch[j].index,
-          p_content: batch[j].content,
-          p_embedding: JSON.stringify(embeddings[j]),
-          p_tags: tags,
-        });
+      const rows = batch.map((chunk, j) => ({
+        source_id: source.id,
+        source_filename: filename,
+        chunk_index: chunk.index,
+        content: chunk.content,
+        embedding: JSON.stringify(embeddings[j]),
+        tags,
+      }));
 
-        if (chunkError) {
-          console.error("Chunk insert error:", chunkError);
-          return NextResponse.json(
-            { error: `Failed to insert chunk ${batch[j].index}` },
-            { status: 500 }
-          );
-        }
+      const { error: chunkError } = await supabase.from("chunks").insert(rows);
+
+      if (chunkError) {
+        console.error("Chunk insert error:", chunkError);
+        return NextResponse.json(
+          { error: `Failed to insert chunk batch starting at ${i}` },
+          { status: 500 }
+        );
       }
 
       insertedCount += batch.length;
