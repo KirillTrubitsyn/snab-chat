@@ -1031,7 +1031,7 @@ export default function Chat() {
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {hasSummary && <span className="memory-pill">Память активна</span>}
             <button
-              className="menu-btn"
+              className="header-action-btn"
               onClick={() => {
                 setActiveConvId(null);
                 convIdRef.current = null;

@@ -773,6 +773,23 @@ input, textarea {
   display: none;
 }
 
+/* Header action button (always visible) */
+.header-action-btn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  transition: background var(--transition), color var(--transition);
+  cursor: pointer;
+}
+
+.header-action-btn:hover {
+  background: var(--bg-sidebar-hover);
+  color: var(--text-primary);
+}
+
 /* ── Animations ── */
 
 @keyframes fadeInUp {
