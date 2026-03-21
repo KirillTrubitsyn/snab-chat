@@ -1,5 +1,5 @@
 import { createServiceClient } from "./supabase";
-import { google } from "@ai-sdk/google";
+import { google } from "@/app/lib/google-ai";
 import { generateText } from "ai";
 
 const HISTORY_TOKEN_BUDGET = 30000;
