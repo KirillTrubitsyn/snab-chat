@@ -20,6 +20,7 @@ interface Source {
   mime_type: string;
   tags: string[];
   storage_path: string | null;
+  folder_path: string | null;
   created_at: string;
 }
 
@@ -267,6 +268,7 @@ function TypingBubble() {
 
 interface FileEntry {
   file: File;
+  relativePath: string;
   status: "pending" | "parsing" | "parsed" | "ingesting" | "done" | "error";
   parsed?: ParsedFile;
   tags: string[];
@@ -309,8 +311,18 @@ function UploadModal({
   const handleFileSelect = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
-    const newEntries: FileEntry[] = Array.from(files).map((file) => ({
+    const supportedExts = [".pdf", ".docx", ".xlsx", ".xls"];
+    const validFiles = Array.from(files).filter((f) => {
+      const ext = f.name.toLowerCase().slice(f.name.lastIndexOf("."));
+      return supportedExts.includes(ext);
+    });
+    if (validFiles.length === 0) {
+      setGlobalError("Нет поддерживаемых файлов (PDF, DOCX, XLSX)");
+      return;
+    }
+    const newEntries: FileEntry[] = validFiles.map((file) => ({
       file,
+      relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
       status: "pending" as const,
       tags: [],
     }));
@@ -384,6 +396,10 @@ function UploadModal({
         fd.append("mimeType", p.mimeType);
         fd.append("markdown", p.markdown);
         fd.append("tags", JSON.stringify(updated[i].tags));
+        // Send folder path (directory part of relative path)
+        const relPath = updated[i].relativePath;
+        const folderPath = relPath.includes("/") ? relPath.substring(0, relPath.lastIndexOf("/")) : "";
+        if (folderPath) fd.append("folderPath", folderPath);
         const res = await fetch("/api/ingest", {
           method: "POST",
           body: fd,
@@ -410,9 +426,14 @@ function UploadModal({
   }, [entries]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const openFilePicker = () => {
     fileInputRef.current?.click();
+  };
+
+  const openFolderPicker = () => {
+    folderInputRef.current?.click();
   };
 
   const retry = () => {
@@ -427,9 +448,16 @@ function UploadModal({
 
   const handleAddMoreChange = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    const supportedExts = [".pdf", ".docx", ".xlsx", ".xls"];
+    const validFiles = Array.from(files).filter((f) => {
+      const ext = f.name.toLowerCase().slice(f.name.lastIndexOf("."));
+      return supportedExts.includes(ext);
+    });
+    if (validFiles.length === 0) return;
     const startIdx = entries.length;
-    const newOnes: FileEntry[] = Array.from(files).map((file) => ({
+    const newOnes: FileEntry[] = validFiles.map((file) => ({
       file,
+      relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
       status: "pending" as const,
       tags: [],
     }));
@@ -528,6 +556,14 @@ function UploadModal({
           onChange={(e) => { handleFileSelect(e.target.files); e.target.value = ""; }}
         />
         <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => { handleFileSelect(e.target.files); e.target.value = ""; }}
+          {...{ webkitdirectory: "" } as React.InputHTMLAttributes<HTMLInputElement>}
+        />
+        <input
           ref={addMoreRef}
           type="file"
           accept=".pdf,.docx,.xlsx,.xls"
@@ -538,18 +574,30 @@ function UploadModal({
 
         {/* ── idle ── */}
         {stage === "idle" && (
-          <div
-            className={`drop-zone ${dragActive ? "active" : ""}`}
-            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={(e) => { e.preventDefault(); setDragActive(false); handleFileSelect(e.dataTransfer.files); }}
-            onClick={openFilePicker}
-          >
-            <UploadIcon />
-            <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }}>
-              Перетащите файлы или нажмите для выбора
-            </p>
-            <p style={{ fontSize: 12, color: "var(--text-muted)" }}>DOCX, PDF, Excel · можно выбрать несколько</p>
+          <div>
+            <div
+              className={`drop-zone ${dragActive ? "active" : ""}`}
+              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={(e) => { e.preventDefault(); setDragActive(false); handleFileSelect(e.dataTransfer.files); }}
+              onClick={openFilePicker}
+            >
+              <UploadIcon />
+              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }}>
+                Перетащите файлы или нажмите для выбора
+              </p>
+              <p style={{ fontSize: 12, color: "var(--text-muted)" }}>DOCX, PDF, Excel · можно выбрать несколько</p>
+            </div>
+            <button
+              className="btn-secondary"
+              onClick={(e) => { e.stopPropagation(); openFolderPicker(); }}
+              style={{ width: "100%", marginTop: 8, padding: "10px 16px", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+              Загрузить папку целиком
+            </button>
           </div>
         )}
 
@@ -578,8 +626,8 @@ function UploadModal({
                 >
                   {fileTypeLabel(entry)}
                 </div>
-                <div style={{ flex: 1, minWidth: 0, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {entry.file.name}
+                <div style={{ flex: 1, minWidth: 0, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={entry.relativePath}>
+                  {entry.relativePath !== entry.file.name ? entry.relativePath : entry.file.name}
                 </div>
                 {entry.status === "parsing" && <div className="spinner" style={{ width: 16, height: 16 }} />}
                 {entry.status === "parsed" && (
@@ -842,6 +890,8 @@ export default function Chat() {
   const [sourceTagInput, setSourceTagInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [viewingSource, setViewingSource] = useState<Source | null>(null);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<number>>(new Set());
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
 
   /* ── Refs ── */
   const convIdRef = useRef<string | null>(null);
@@ -891,6 +941,24 @@ export default function Chat() {
     },
     []
   );
+
+  /* ── Bulk delete sources ── */
+  const deleteSelectedSources = useCallback(async () => {
+    if (selectedSourceIds.size === 0) return;
+    const ids = Array.from(selectedSourceIds);
+    try {
+      await fetch("/api/sources", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      setSources((prev) => prev.filter((s) => !selectedSourceIds.has(s.id)));
+      setSelectedSourceIds(new Set());
+      setBulkSelectMode(false);
+    } catch {
+      // ignore
+    }
+  }, [selectedSourceIds]);
 
   /* ── Update source tags ── */
   const updateSourceTags = useCallback(
@@ -1237,10 +1305,59 @@ export default function Chat() {
                     </span>
                   </span>
                 </div>
-                <div style={{ padding: "0 8px 8px" }}>
+                <div style={{ padding: "0 8px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
                   <button className="upload-btn" onClick={() => setShowUploadModal(true)}>
                     <UploadIcon /> Загрузить DOCX / PDF / Excel
                   </button>
+                  {sources.length > 0 && (
+                    <div style={{ display: "flex", gap: 4 }}>
+                      {!bulkSelectMode ? (
+                        <button
+                          className="btn-secondary"
+                          style={{ flex: 1, fontSize: 11, padding: "4px 8px" }}
+                          onClick={() => setBulkSelectMode(true)}
+                        >
+                          Выбрать
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            className="btn-secondary"
+                            style={{ flex: 1, fontSize: 11, padding: "4px 8px" }}
+                            onClick={() => {
+                              if (selectedSourceIds.size === sources.length) {
+                                setSelectedSourceIds(new Set());
+                              } else {
+                                setSelectedSourceIds(new Set(sources.map((s) => s.id)));
+                              }
+                            }}
+                          >
+                            {selectedSourceIds.size === sources.length ? "Снять всё" : "Выбрать все"}
+                          </button>
+                          <button
+                            className="btn-secondary"
+                            style={{
+                              flex: 1,
+                              fontSize: 11,
+                              padding: "4px 8px",
+                              color: selectedSourceIds.size > 0 ? "var(--error)" : undefined,
+                            }}
+                            disabled={selectedSourceIds.size === 0}
+                            onClick={deleteSelectedSources}
+                          >
+                            Удалить ({selectedSourceIds.size})
+                          </button>
+                          <button
+                            className="btn-secondary"
+                            style={{ fontSize: 11, padding: "4px 8px" }}
+                            onClick={() => { setSelectedSourceIds(new Set()); setBulkSelectMode(false); }}
+                          >
+                            ✕
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="sidebar-list">
                   {sources.map((doc) => {
@@ -1251,16 +1368,41 @@ export default function Chat() {
                           className="doc-item"
                           style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
                           onClick={() => {
+                            if (bulkSelectMode) {
+                              setSelectedSourceIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(doc.id)) next.delete(doc.id);
+                                else next.add(doc.id);
+                                return next;
+                              });
+                              return;
+                            }
                             setExpandedSourceId(isExpanded ? null : doc.id);
                             setSourceTagInput("");
                           }}
                         >
+                          {bulkSelectMode && (
+                            <input
+                              type="checkbox"
+                              checked={selectedSourceIds.has(doc.id)}
+                              onChange={() => {
+                                setSelectedSourceIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(doc.id)) next.delete(doc.id);
+                                  else next.add(doc.id);
+                                  return next;
+                                });
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ flexShrink: 0, cursor: "pointer" }}
+                            />
+                          )}
                           <div className={`doc-icon ${doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") || doc.filename?.endsWith(".xlsx") || doc.filename?.endsWith(".xls") ? "xlsx" : "docx"}`}>
                             {doc.mime_type?.includes("pdf") ? "P" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "X" : "W"}
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div
-                              title={doc.filename}
+                              title={doc.folder_path ? `${doc.folder_path}/${doc.filename}` : doc.filename}
                               style={{
                                 fontSize: 13,
                                 whiteSpace: "nowrap",
@@ -1270,7 +1412,12 @@ export default function Chat() {
                             >
                               {doc.filename}
                             </div>
-                            {!isExpanded && doc.tags && doc.tags.length > 0 && (
+                            {!isExpanded && doc.folder_path && (
+                              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {doc.folder_path}
+                              </div>
+                            )}
+                            {!isExpanded && !doc.folder_path && doc.tags && doc.tags.length > 0 && (
                               <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                                 {doc.tags.length} {doc.tags.length === 1 ? "тег" : doc.tags.length < 5 ? "тега" : "тегов"}
                               </div>
