@@ -518,7 +518,7 @@ function ExcelViewer({ sheets }: { sheets: ExcelSheet[] }) {
                   const key = `${ri},${ci}`;
                   const merge = mergeMap.get(key);
                   if (merge === "hidden") return null;
-                  const span = merge && merge !== "hidden" ? merge : undefined;
+                  const span = merge || undefined;
                   const isEmpty = cell.trim() === "";
                   return (
                     <td
