@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, FormEvent } from "react";
 import { useChat } from "ai/react";
 import ReactMarkdown from "react-markdown";
+import InviteGate from "./InviteGate";
 
 /* ── Types ── */
 
@@ -22,15 +23,6 @@ interface Source {
   storage_path: string | null;
   folder_path: string | null;
   created_at: string;
-}
-
-interface ParsedFile {
-  filename: string;
-  mimeType: string;
-  markdown: string;
-  tags: string[];
-  chunks: { index: number; preview: string; length: number }[];
-  totalChunks: number;
 }
 
 /* ── Helpers ── */
@@ -77,16 +69,6 @@ function MenuIcon() {
       <line x1="3" y1="5" x2="17" y2="5" />
       <line x1="3" y1="10" x2="17" y2="10" />
       <line x1="3" y1="15" x2="17" y2="15" />
-    </svg>
-  );
-}
-
-function UploadIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" y1="3" x2="12" y2="15" />
     </svg>
   );
 }
@@ -412,618 +394,46 @@ function TypingBubble() {
   );
 }
 
-/* ── Upload Modal (bulk) ── */
-
-interface FileEntry {
-  file: File;
-  relativePath: string;
-  status: "pending" | "parsing" | "parsed" | "ingesting" | "done" | "error";
-  parsed?: ParsedFile;
-  tags: string[];
-  error?: string;
-}
-
-function fileTypeClass(entry: FileEntry) {
-  const name = entry.file.name.toLowerCase();
-  const mime = entry.file.type;
-  if (mime.includes("pdf") || name.endsWith(".pdf")) return "pdf";
-  if (mime.includes("sheet") || mime.includes("excel") || name.endsWith(".xlsx") || name.endsWith(".xls")) return "xlsx";
-  return "docx";
-}
-
-function fileTypeLabel(entry: FileEntry) {
-  const cls = fileTypeClass(entry);
-  return cls === "pdf" ? "PDF" : cls === "xlsx" ? "XLS" : "DOC";
-}
-
-function UploadModal({
-  onClose,
-  onSuccess,
-}: {
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const [stage, setStage] = useState<
-    "idle" | "parsing" | "review" | "ingesting" | "done" | "error"
-  >("idle");
-  const [entries, setEntries] = useState<FileEntry[]>([]);
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-  const [newTag, setNewTag] = useState("");
-  const [dragActive, setDragActive] = useState(false);
-  const [globalError, setGlobalError] = useState("");
-
-  const updateEntry = useCallback((idx: number, patch: Partial<FileEntry>) => {
-    setEntries((prev) => prev.map((e, i) => (i === idx ? { ...e, ...patch } : e)));
-  }, []);
-
-  const handleFileSelect = useCallback(async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-
-    const supportedExts = [".pdf", ".docx", ".xlsx", ".xls"];
-    const validFiles = Array.from(files).filter((f) => {
-      const ext = f.name.toLowerCase().slice(f.name.lastIndexOf("."));
-      return supportedExts.includes(ext);
-    });
-    if (validFiles.length === 0) {
-      setGlobalError("Нет поддерживаемых файлов (PDF, DOCX, XLSX)");
-      return;
-    }
-    const newEntries: FileEntry[] = validFiles.map((file) => ({
-      file,
-      relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
-      status: "pending" as const,
-      tags: [],
-    }));
-
-    setEntries(newEntries);
-    setStage("parsing");
-    setGlobalError("");
-
-    // Parse files sequentially to avoid overloading server
-    const results = [...newEntries];
-    for (let i = 0; i < results.length; i++) {
-      results[i] = { ...results[i], status: "parsing" };
-      setEntries([...results]);
-
-      const formData = new FormData();
-      formData.append("file", results[i].file);
-
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 120000);
-        const res = await fetch("/api/parse", {
-          method: "POST",
-          body: formData,
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
-        const data: ParsedFile = await res.json();
-        results[i] = { ...results[i], status: "parsed", parsed: data, tags: data.tags };
-      } catch (err) {
-        results[i] = {
-          ...results[i],
-          status: "error",
-          error: err instanceof Error
-            ? (err.name === "AbortError" ? "Таймаут: сервер не ответил за 2 мин" : err.message)
-            : "Ошибка обработки",
-        };
-      }
-      setEntries([...results]);
-    }
-
-    const hasAnyParsed = results.some((e) => e.status === "parsed");
-    if (hasAnyParsed) {
-      setStage("review");
-    } else {
-      setGlobalError("Не удалось обработать ни один файл");
-      setStage("error");
-    }
-  }, []);
-
-  const handleConfirmAll = useCallback(async () => {
-    setStage("ingesting");
-    setGlobalError("");
-
-    const updated = [...entries];
-    let successCount = 0;
-
-    for (let i = 0; i < updated.length; i++) {
-      if (updated[i].status !== "parsed" || !updated[i].parsed) continue;
-
-      updated[i] = { ...updated[i], status: "ingesting" };
-      setEntries([...updated]);
-
-      try {
-        const p = updated[i].parsed!;
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 300000);
-        const fd = new FormData();
-        fd.append("file", updated[i].file);
-        fd.append("filename", p.filename);
-        fd.append("mimeType", p.mimeType);
-        fd.append("markdown", p.markdown);
-        fd.append("tags", JSON.stringify(updated[i].tags));
-        // Send folder path (directory part of relative path)
-        const relPath = updated[i].relativePath;
-        const folderPath = relPath.includes("/") ? relPath.substring(0, relPath.lastIndexOf("/")) : "";
-        if (folderPath) fd.append("folderPath", folderPath);
-        const res = await fetch("/api/ingest", {
-          method: "POST",
-          body: fd,
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
-        updated[i] = { ...updated[i], status: "done" };
-        successCount++;
-      } catch (err) {
-        updated[i] = {
-          ...updated[i],
-          status: "error",
-          error: err instanceof Error
-            ? (err.name === "AbortError" ? "Таймаут: загрузка заняла больше 5 мин" : err.message)
-            : "Ошибка загрузки",
-        };
-      }
-      setEntries([...updated]);
-    }
-
-    setStage(successCount > 0 ? "done" : "error");
-    if (successCount === 0) setGlobalError("Не удалось загрузить ни один файл");
-  }, [entries]);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
-
-  const openFilePicker = () => {
-    fileInputRef.current?.click();
-  };
-
-  const openFolderPicker = () => {
-    folderInputRef.current?.click();
-  };
-
-  const retry = () => {
-    setGlobalError("");
-    setStage("idle");
-    setEntries([]);
-    setNewTag("");
-    setExpandedIdx(null);
-  };
-
-  const addMoreRef = useRef<HTMLInputElement>(null);
-
-  const handleAddMoreChange = useCallback(async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const supportedExts = [".pdf", ".docx", ".xlsx", ".xls"];
-    const validFiles = Array.from(files).filter((f) => {
-      const ext = f.name.toLowerCase().slice(f.name.lastIndexOf("."));
-      return supportedExts.includes(ext);
-    });
-    if (validFiles.length === 0) return;
-    const startIdx = entries.length;
-    const newOnes: FileEntry[] = validFiles.map((file) => ({
-      file,
-      relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
-      status: "pending" as const,
-      tags: [],
-    }));
-    const all = [...entries, ...newOnes];
-    setEntries(all);
-
-    for (let i = startIdx; i < all.length; i++) {
-      all[i] = { ...all[i], status: "parsing" };
-      setEntries([...all]);
-
-      const formData = new FormData();
-      formData.append("file", all[i].file);
-
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 120000);
-        const res = await fetch("/api/parse", {
-          method: "POST",
-          body: formData,
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
-        const data: ParsedFile = await res.json();
-        all[i] = { ...all[i], status: "parsed", parsed: data, tags: data.tags };
-      } catch (err) {
-        all[i] = {
-          ...all[i],
-          status: "error",
-          error: err instanceof Error
-            ? (err.name === "AbortError" ? "Таймаут: сервер не ответил за 2 мин" : err.message)
-            : "Ошибка обработки",
-        };
-      }
-      setEntries([...all]);
-    }
-  }, [entries]);
-
-  const addMoreFiles = () => {
-    addMoreRef.current?.click();
-  };
-
-  const removeEntry = (idx: number) => {
-    setEntries((prev) => prev.filter((_, i) => i !== idx));
-    if (expandedIdx === idx) setExpandedIdx(null);
-    else if (expandedIdx !== null && expandedIdx > idx) setExpandedIdx(expandedIdx - 1);
-  };
-
-  const parsedCount = entries.filter((e) => e.status === "parsed").length;
-  const doneCount = entries.filter((e) => e.status === "done").length;
-  const errorCount = entries.filter((e) => e.status === "error").length;
-  const parsingCount = entries.filter((e) => e.status === "parsing").length;
-  const ingestingCount = entries.filter((e) => e.status === "ingesting").length;
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="modal-header" style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 20,
-        }}>
-          <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 18, margin: 0 }}>
-            Загрузка документов
-          </h3>
-          <button
-            className="close-btn"
-            onClick={onClose}
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: "50%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 16,
-              color: "var(--text-muted)",
-              transition: "background var(--transition)",
-            }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--bg-code)"; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-          >
-            ✕
-          </button>
-        </div>
-
-        {/* Hidden file inputs */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.docx,.xlsx,.xls"
-          multiple
-          style={{ display: "none" }}
-          onChange={(e) => { handleFileSelect(e.target.files); e.target.value = ""; }}
-        />
-        <input
-          ref={folderInputRef}
-          type="file"
-          multiple
-          style={{ display: "none" }}
-          onChange={(e) => { handleFileSelect(e.target.files); e.target.value = ""; }}
-          {...{ webkitdirectory: "" } as React.InputHTMLAttributes<HTMLInputElement>}
-        />
-        <input
-          ref={addMoreRef}
-          type="file"
-          accept=".pdf,.docx,.xlsx,.xls"
-          multiple
-          style={{ display: "none" }}
-          onChange={(e) => { handleAddMoreChange(e.target.files); e.target.value = ""; }}
-        />
-
-        {/* ── idle ── */}
-        {stage === "idle" && (
-          <div>
-            <div
-              className={`drop-zone ${dragActive ? "active" : ""}`}
-              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-              onDragLeave={() => setDragActive(false)}
-              onDrop={(e) => { e.preventDefault(); setDragActive(false); handleFileSelect(e.dataTransfer.files); }}
-              onClick={openFilePicker}
-            >
-              <UploadIcon />
-              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }}>
-                Перетащите файлы или нажмите для выбора
-              </p>
-              <p style={{ fontSize: 12, color: "var(--text-muted)" }}>DOCX, PDF, Excel · можно выбрать несколько</p>
-            </div>
-            <button
-              className="btn-secondary"
-              onClick={(e) => { e.stopPropagation(); openFolderPicker(); }}
-              style={{ width: "100%", marginTop: 8, padding: "10px 16px", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              </svg>
-              Загрузить папку целиком
-            </button>
-          </div>
-        )}
-
-        {/* ── parsing ── */}
-        {stage === "parsing" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 0" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <div className="spinner" style={{ width: 18, height: 18 }} />
-              <span style={{ fontSize: 14, color: "var(--text-secondary)" }}>
-                Обработка файлов… ({entries.filter((e) => e.status === "parsed" || e.status === "error").length}/{entries.length})
-              </span>
-            </div>
-            {entries.map((entry, i) => (
-              <div key={i} style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "8px 12px",
-                background: "var(--bg-main)",
-                borderRadius: "var(--radius-sm)",
-                border: "1px solid var(--border)",
-              }}>
-                <div
-                  className={`doc-icon ${fileTypeClass(entry)}`}
-                  style={{ width: 28, height: 28, borderRadius: 5, fontSize: 11, fontWeight: 600, flexShrink: 0 }}
-                >
-                  {fileTypeLabel(entry)}
-                </div>
-                <div style={{ flex: 1, minWidth: 0, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={entry.relativePath}>
-                  {entry.relativePath !== entry.file.name ? entry.relativePath : entry.file.name}
-                </div>
-                {entry.status === "parsing" && <div className="spinner" style={{ width: 16, height: 16 }} />}
-                {entry.status === "parsed" && (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
-                )}
-                {entry.status === "error" && (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--error)" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                )}
-                {entry.status === "pending" && (
-                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>ожидание</span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* ── review ── */}
-        {stage === "review" && (
-          <div className="review-panel">
-            {/* File list */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto" }}>
-              {entries.map((entry, i) => (
-                <div key={i}>
-                  <div style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "8px 12px",
-                    background: entry.status === "error" ? "rgba(220,38,38,0.05)" : "var(--bg-main)",
-                    borderRadius: "var(--radius-sm)",
-                    border: `1px solid ${entry.status === "error" ? "var(--error)" : "var(--border)"}`,
-                    cursor: entry.status === "parsed" ? "pointer" : "default",
-                  }}
-                    onClick={() => entry.status === "parsed" && setExpandedIdx(expandedIdx === i ? null : i)}
-                  >
-                    <div
-                      className={`doc-icon ${fileTypeClass(entry)}`}
-                      style={{ width: 28, height: 28, borderRadius: 5, fontSize: 11, fontWeight: 600, flexShrink: 0 }}
-                    >
-                      {fileTypeLabel(entry)}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {entry.file.name}
-                      </div>
-                      {entry.parsed && (
-                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                          {entry.parsed.totalChunks} чанков · {entry.tags.length} тегов
-                        </div>
-                      )}
-                      {entry.status === "error" && (
-                        <div style={{ fontSize: 11, color: "var(--error)" }}>{entry.error}</div>
-                      )}
-                    </div>
-                    {entry.status === "parsed" && (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"
-                        style={{ transform: expandedIdx === i ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s", flexShrink: 0 }}>
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
-                    )}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); removeEntry(i); }}
-                      style={{ fontSize: 14, color: "var(--text-muted)", padding: "2px 4px", flexShrink: 0 }}
-                      title="Убрать"
-                    >
-                      ✕
-                    </button>
-                  </div>
-
-                  {/* Expanded details */}
-                  {expandedIdx === i && entry.parsed && (
-                    <div style={{ padding: "8px 12px", borderLeft: "2px solid var(--border)", marginLeft: 20, marginTop: 4 }}>
-                      {/* Chunks preview */}
-                      <div className="chunks-preview" style={{ maxHeight: 120, overflowY: "auto", marginBottom: 8 }}>
-                        {entry.parsed.chunks.map((c) => (
-                          <div key={c.index} className="chunk-card">{c.preview}</div>
-                        ))}
-                      </div>
-                      {/* Tags */}
-                      <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>Теги</div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
-                        {entry.tags.map((tag) => (
-                          <span key={tag} className="tag" style={{ fontSize: 11 }}>
-                            {tag}
-                            <button onClick={() => updateEntry(i, { tags: entry.tags.filter((x) => x !== tag) })}>×</button>
-                          </span>
-                        ))}
-                        <form
-                          style={{ display: "inline-flex", gap: 4 }}
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            const t = newTag.trim();
-                            if (t && !entry.tags.includes(t)) {
-                              updateEntry(i, { tags: [...entry.tags, t] });
-                              setNewTag("");
-                            }
-                          }}
-                        >
-                          <input
-                            value={newTag}
-                            onChange={(e) => setNewTag(e.target.value)}
-                            placeholder="новый тег"
-                            style={{
-                              width: 80,
-                              fontSize: 11,
-                              padding: "3px 6px",
-                              borderRadius: "var(--radius-sm)",
-                              border: "1px solid var(--border)",
-                              background: "var(--bg-code)",
-                              color: "var(--text-primary)",
-                            }}
-                          />
-                          <button type="submit" className="btn-secondary" style={{ padding: "3px 8px", fontSize: 13, lineHeight: 1 }}>+</button>
-                        </form>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Add more + actions */}
-            <div style={{ display: "flex", gap: 8, justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-              <button className="btn-secondary" onClick={addMoreFiles} style={{ fontSize: 13 }}>
-                + Добавить ещё
-              </button>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn-secondary" onClick={onClose}>Отмена</button>
-                <button className="btn-primary" onClick={handleConfirmAll} disabled={parsedCount === 0}>
-                  Загрузить {parsedCount > 1 ? `${parsedCount} файлов` : "в базу"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── ingesting ── */}
-        {stage === "ingesting" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 0" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <div className="spinner" style={{ width: 18, height: 18 }} />
-              <span style={{ fontSize: 14, color: "var(--text-secondary)" }}>
-                Загрузка в базу… ({doneCount}/{parsedCount})
-              </span>
-            </div>
-            {entries.filter((e) => e.parsed).map((entry, i) => (
-              <div key={i} style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "8px 12px",
-                background: "var(--bg-main)",
-                borderRadius: "var(--radius-sm)",
-                border: "1px solid var(--border)",
-              }}>
-                <div
-                  className={`doc-icon ${fileTypeClass(entry)}`}
-                  style={{ width: 28, height: 28, borderRadius: 5, fontSize: 11, fontWeight: 600, flexShrink: 0 }}
-                >
-                  {fileTypeLabel(entry)}
-                </div>
-                <div style={{ flex: 1, minWidth: 0, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {entry.file.name}
-                </div>
-                {entry.status === "ingesting" && <div className="spinner" style={{ width: 16, height: 16 }} />}
-                {entry.status === "done" && (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
-                )}
-                {entry.status === "error" && (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--error)" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                )}
-                {entry.status === "parsed" && (
-                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>ожидание</span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* ── done ── */}
-        {stage === "done" && (
-          <div style={{ textAlign: "center", padding: "32px 0" }}>
-            <div style={{
-              width: 48,
-              height: 48,
-              borderRadius: "50%",
-              background: "rgba(5, 150, 105, 0.1)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              margin: "0 auto 16px",
-            }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            </div>
-            <p style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
-              {doneCount === entries.length ? "Все документы загружены" : `Загружено ${doneCount} из ${entries.length}`}
-            </p>
-            {errorCount > 0 && (
-              <p style={{ fontSize: 13, color: "var(--error)", marginBottom: 4 }}>
-                {errorCount} {errorCount === 1 ? "файл" : "файлов"} с ошибкой
-              </p>
-            )}
-            <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 20 }}>
-              {doneCount} {doneCount === 1 ? "документ" : "документов"} · {entries.filter((e) => e.status === "done").reduce((s, e) => s + (e.parsed?.totalChunks ?? 0), 0)} чанков
-            </p>
-            <button className="btn-primary" onClick={onSuccess}>Готово</button>
-          </div>
-        )}
-
-        {/* ── error ── */}
-        {stage === "error" && (
-          <div style={{ textAlign: "center", padding: "32px 0" }}>
-            <div style={{
-              width: 48,
-              height: 48,
-              borderRadius: "50%",
-              background: "rgba(220, 38, 38, 0.08)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              margin: "0 auto 16px",
-            }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--error)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="15" y1="9" x2="9" y2="15" />
-                <line x1="9" y1="9" x2="15" y2="15" />
-              </svg>
-            </div>
-            <p style={{ fontSize: 14, color: "var(--error)", marginBottom: 4 }}>
-              {globalError || "Произошла ошибка"}
-            </p>
-            <button className="btn-secondary" onClick={retry} style={{ marginTop: 12 }}>
-              Попробовать снова
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /* ═══════════════════════════════════════════════
    Main Chat component
    ═══════════════════════════════════════════════ */
 
 export default function Chat() {
+  /* ── Auth State ── */
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [inviteCode, setInviteCode] = useState<string>("");
+  const [userName, setUserName] = useState<string>("");
+  const [authLoading, setAuthLoading] = useState(true);
+
+  /* ── Check existing auth on mount ── */
+  useEffect(() => {
+    const code = localStorage.getItem("snabchat_invite_code");
+    const name = localStorage.getItem("snabchat_user_name");
+    if (code && name) {
+      setInviteCode(code);
+      setUserName(name);
+      setIsAuthenticated(true);
+    }
+    setAuthLoading(false);
+  }, []);
+
+  const handleAuthSuccess = useCallback((data: { type: string; code: string; userName: string }) => {
+    setInviteCode(data.code);
+    setUserName(data.userName);
+    setIsAuthenticated(true);
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem("snabchat_invite_code");
+    localStorage.removeItem("snabchat_invite_code_id");
+    localStorage.removeItem("snabchat_user_name");
+    localStorage.removeItem("snabchat_is_admin");
+    localStorage.removeItem("snabchat_admin_code");
+    setIsAuthenticated(false);
+    setInviteCode("");
+    setUserName("");
+  }, []);
+
   /* ── State ── */
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
@@ -1032,14 +442,10 @@ export default function Chat() {
   const [rightOpen, setRightOpen] = useState(false);
   const [leftCollapsed, setLeftCollapsed] = useState(true);
   const [rightCollapsed, setRightCollapsed] = useState(true);
-  const [showUploadModal, setShowUploadModal] = useState(false);
   const [sources, setSources] = useState<Source[]>([]);
   const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);
-  const [sourceTagInput, setSourceTagInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [viewingSource, setViewingSource] = useState<Source | null>(null);
-  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<number>>(new Set());
-  const [bulkSelectMode, setBulkSelectMode] = useState(false);
 
   /* ── Refs ── */
   const convIdRef = useRef<string | null>(null);
@@ -1063,69 +469,21 @@ export default function Chat() {
 
   /* ── Load conversations ── */
   const loadConversations = useCallback(async () => {
+    if (!inviteCode) return;
     try {
-      const res = await fetch("/api/conversations");
+      const res = await fetch("/api/conversations", {
+        headers: { "x-invite-code": inviteCode },
+      });
       const data = await res.json();
       if (Array.isArray(data)) setConversations(data);
     } catch {
       // ignore
     }
-  }, []);
+  }, [inviteCode]);
 
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
-
-  /* ── Delete source ── */
-  const deleteSource = useCallback(
-    async (sourceId: number, e?: React.MouseEvent) => {
-      e?.stopPropagation();
-      try {
-        await fetch(`/api/sources?id=${sourceId}`, { method: "DELETE" });
-        setSources((prev) => prev.filter((s) => s.id !== sourceId));
-      } catch {
-        // ignore
-      }
-    },
-    []
-  );
-
-  /* ── Bulk delete sources ── */
-  const deleteSelectedSources = useCallback(async () => {
-    if (selectedSourceIds.size === 0) return;
-    const ids = Array.from(selectedSourceIds);
-    try {
-      await fetch("/api/sources", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids }),
-      });
-      setSources((prev) => prev.filter((s) => !selectedSourceIds.has(s.id)));
-      setSelectedSourceIds(new Set());
-      setBulkSelectMode(false);
-    } catch {
-      // ignore
-    }
-  }, [selectedSourceIds]);
-
-  /* ── Update source tags ── */
-  const updateSourceTags = useCallback(
-    async (sourceId: number, tags: string[]) => {
-      setSources((prev) =>
-        prev.map((s) => (s.id === sourceId ? { ...s, tags } : s))
-      );
-      try {
-        await fetch(`/api/sources?id=${sourceId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tags }),
-        });
-      } catch {
-        // ignore
-      }
-    },
-    []
-  );
 
   /* ── Load sources ── */
   const loadSources = useCallback(async () => {
@@ -1150,7 +508,9 @@ export default function Chat() {
       setRightOpen(false);
 
       try {
-        const res = await fetch(`/api/conversations/messages?id=${convId}`);
+        const res = await fetch(`/api/conversations/messages?id=${convId}`, {
+          headers: { "x-invite-code": inviteCode },
+        });
         const data = await res.json();
         setHasSummary(data.conversation?.hasSummary ?? false);
         if (data.messages) {
@@ -1176,7 +536,7 @@ export default function Chat() {
     async (title?: string) => {
       const res = await fetch("/api/conversations", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-invite-code": inviteCode },
         body: JSON.stringify({ title: title || "Новый диалог" }),
       });
       const conv = await res.json();
@@ -1194,7 +554,10 @@ export default function Chat() {
   const deleteConversation = useCallback(
     async (convId: string, e?: React.MouseEvent) => {
       e?.stopPropagation();
-      await fetch(`/api/conversations?id=${convId}`, { method: "DELETE" });
+      await fetch(`/api/conversations?id=${convId}`, {
+        method: "DELETE",
+        headers: { "x-invite-code": inviteCode },
+      });
       setConversations((prev) => prev.filter((c) => c.id !== convId));
       if (activeConvId === convId) {
         setActiveConvId(null);
@@ -1229,7 +592,7 @@ export default function Chat() {
         try {
           const res = await fetch("/api/chat", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "x-invite-code": inviteCode },
             body: JSON.stringify({
               messages: [{ role: "user", content: text }],
               conversationId: newId,
@@ -1300,7 +663,7 @@ export default function Chat() {
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "x-invite-code": inviteCode },
           body: JSON.stringify({
             messages: currentMessages.map((m) => ({
               role: m.role,
@@ -1381,6 +744,17 @@ export default function Chat() {
   const lastIsUser = messages.length > 0 && messages[messages.length - 1]?.role === "user";
 
   /* ── Render ── */
+
+  // Show loading spinner
+  if (authLoading) {
+    return <div className="invite-gate"><div className="admin-spinner" /></div>;
+  }
+
+  // Show invite gate if not authenticated
+  if (!isAuthenticated) {
+    return <InviteGate onSuccess={handleAuthSuccess} />;
+  }
+
   return (
     <>
       <div className="app-layout">
@@ -1396,7 +770,7 @@ export default function Chat() {
             </span>
             <div className="header-divider" />
             <span style={{ fontFamily: "var(--font-body)", fontSize: 14, color: "var(--text-secondary)" }}>
-              Дирекция по закупкам
+              {userName}
             </span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1418,6 +792,18 @@ export default function Chat() {
             </button>
             <button className="menu-btn" onClick={() => setRightOpen((o) => !o)}>
               <HistoryIcon />
+            </button>
+            <button
+              className="header-action-btn"
+              onClick={handleLogout}
+              title="Выйти"
+              style={{ color: "var(--text-muted)" }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
             </button>
           </div>
         </header>
@@ -1453,59 +839,10 @@ export default function Chat() {
                     </span>
                   </span>
                 </div>
-                <div style={{ padding: "0 8px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
-                  <button className="upload-btn" onClick={() => setShowUploadModal(true)}>
-                    <UploadIcon /> Загрузить DOCX / PDF / Excel
-                  </button>
-                  {sources.length > 0 && (
-                    <div style={{ display: "flex", gap: 4 }}>
-                      {!bulkSelectMode ? (
-                        <button
-                          className="btn-secondary"
-                          style={{ flex: 1, fontSize: 11, padding: "4px 8px" }}
-                          onClick={() => setBulkSelectMode(true)}
-                        >
-                          Выбрать
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            className="btn-secondary"
-                            style={{ flex: 1, fontSize: 11, padding: "4px 8px" }}
-                            onClick={() => {
-                              if (selectedSourceIds.size === sources.length) {
-                                setSelectedSourceIds(new Set());
-                              } else {
-                                setSelectedSourceIds(new Set(sources.map((s) => s.id)));
-                              }
-                            }}
-                          >
-                            {selectedSourceIds.size === sources.length ? "Снять всё" : "Выбрать все"}
-                          </button>
-                          <button
-                            className="btn-secondary"
-                            style={{
-                              flex: 1,
-                              fontSize: 11,
-                              padding: "4px 8px",
-                              color: selectedSourceIds.size > 0 ? "var(--error)" : undefined,
-                            }}
-                            disabled={selectedSourceIds.size === 0}
-                            onClick={deleteSelectedSources}
-                          >
-                            Удалить ({selectedSourceIds.size})
-                          </button>
-                          <button
-                            className="btn-secondary"
-                            style={{ fontSize: 11, padding: "4px 8px" }}
-                            onClick={() => { setSelectedSourceIds(new Set()); setBulkSelectMode(false); }}
-                          >
-                            ✕
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
+                <div style={{ padding: "0 8px 8px" }}>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "4px 0" }}>
+                    Управление документами доступно в админ-панели
+                  </div>
                 </div>
                 <div className="sidebar-list">
                   {sources.map((doc) => {
@@ -1516,35 +853,9 @@ export default function Chat() {
                           className="doc-item"
                           style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
                           onClick={() => {
-                            if (bulkSelectMode) {
-                              setSelectedSourceIds((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(doc.id)) next.delete(doc.id);
-                                else next.add(doc.id);
-                                return next;
-                              });
-                              return;
-                            }
                             setExpandedSourceId(isExpanded ? null : doc.id);
-                            setSourceTagInput("");
                           }}
                         >
-                          {bulkSelectMode && (
-                            <input
-                              type="checkbox"
-                              checked={selectedSourceIds.has(doc.id)}
-                              onChange={() => {
-                                setSelectedSourceIds((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(doc.id)) next.delete(doc.id);
-                                  else next.add(doc.id);
-                                  return next;
-                                });
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              style={{ flexShrink: 0, cursor: "pointer" }}
-                            />
-                          )}
                           <div className={`doc-icon ${doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") || doc.filename?.endsWith(".xlsx") || doc.filename?.endsWith(".xls") ? "xlsx" : "docx"}`}>
                             {doc.mime_type?.includes("pdf") ? "P" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "X" : "W"}
                           </div>
@@ -1560,12 +871,7 @@ export default function Chat() {
                             >
                               {doc.filename}
                             </div>
-                            {!isExpanded && doc.folder_path && (
-                              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                {doc.folder_path}
-                              </div>
-                            )}
-                            {!isExpanded && !doc.folder_path && doc.tags && doc.tags.length > 0 && (
+                            {!isExpanded && doc.tags && doc.tags.length > 0 && (
                               <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                                 {doc.tags.length} {doc.tags.length === 1 ? "тег" : doc.tags.length < 5 ? "тега" : "тегов"}
                               </div>
@@ -1605,21 +911,6 @@ export default function Chat() {
                               <line x1="12" y1="15" x2="12" y2="3" />
                             </svg>
                           </button>
-                          <button
-                            className="doc-delete-btn"
-                            onClick={(e) => deleteSource(doc.id, e)}
-                            title="Удалить документ"
-                            style={{
-                              fontSize: 14,
-                              color: "var(--text-muted)",
-                              flexShrink: 0,
-                            }}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            </svg>
-                          </button>
                         </div>
                         {isExpanded && (
                           <div
@@ -1632,65 +923,19 @@ export default function Chat() {
                               marginTop: -2,
                             }}
                           >
-                            <button
-                              className="btn-secondary"
-                              style={{ width: "100%", padding: "5px 0", fontSize: 12, marginBottom: 8 }}
-                              onClick={(e) => { e.stopPropagation(); setViewingSource(doc); }}
-                            >
-                              Просмотр документа
-                            </button>
-                            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>Теги</div>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
-                              {(doc.tags || []).map((tag) => (
-                                <span key={tag} className="tag" style={{ fontSize: 11 }}>
-                                  {tag}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      updateSourceTags(doc.id, doc.tags.filter((t) => t !== tag));
-                                    }}
-                                    style={{ marginLeft: 3, fontSize: 12, color: "var(--text-muted)", lineHeight: 1 }}
-                                  >
-                                    ×
-                                  </button>
-                                </span>
-                              ))}
-                              <form
-                                style={{ display: "inline-flex", gap: 4 }}
-                                onSubmit={(e) => {
-                                  e.preventDefault();
-                                  const t = sourceTagInput.trim();
-                                  if (t && !(doc.tags || []).includes(t)) {
-                                    updateSourceTags(doc.id, [...(doc.tags || []), t]);
-                                    setSourceTagInput("");
-                                  }
-                                }}
-                              >
-                                <input
-                                  value={sourceTagInput}
-                                  onChange={(e) => setSourceTagInput(e.target.value)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  placeholder="новый тег"
-                                  style={{
-                                    width: 80,
-                                    fontSize: 11,
-                                    padding: "3px 6px",
-                                    borderRadius: "var(--radius-sm)",
-                                    border: "1px solid var(--border)",
-                                    background: "var(--bg-code)",
-                                    color: "var(--text-primary)",
-                                  }}
-                                />
-                                <button
-                                  type="submit"
-                                  className="btn-secondary"
-                                  style={{ padding: "3px 8px", fontSize: 13, lineHeight: 1 }}
-                                >
-                                  +
-                                </button>
-                              </form>
-                            </div>
-                            <div style={{ display: "flex", gap: 6, marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+                            {doc.tags && doc.tags.length > 0 && (
+                              <>
+                                <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>Теги</div>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+                                  {doc.tags.map((tag) => (
+                                    <span key={tag} className="tag" style={{ fontSize: 11 }}>
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                            <div style={{ display: "flex", gap: 6 }}>
                               <button
                                 className="btn-secondary"
                                 style={{ flex: 1, fontSize: 12, padding: "5px 10px", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}
@@ -1729,7 +974,7 @@ export default function Chat() {
                         padding: 20,
                       }}
                     >
-                      Загрузите первый документ
+                      Документы ещё не загружены
                     </p>
                   )}
                 </div>
@@ -1866,16 +1111,6 @@ export default function Chat() {
         </footer>
       </div>
 
-      {/* ── Upload Modal ── */}
-      {showUploadModal && (
-        <UploadModal
-          onClose={() => setShowUploadModal(false)}
-          onSuccess={() => {
-            loadSources();
-            setShowUploadModal(false);
-          }}
-        />
-      )}
       {viewingSource && (
         <DocumentViewer
           source={viewingSource}

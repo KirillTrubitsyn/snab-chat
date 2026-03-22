@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { chunkMarkdown } from "@/app/lib/chunking";
 import { embedDocuments } from "@/app/lib/embeddings";
+import { requireAdmin } from "@/app/lib/auth";
 
 let bucketReady = false;
 
 export async function POST(req: NextRequest) {
+  const adminCheck = requireAdmin(req);
+  if (adminCheck instanceof NextResponse) return adminCheck;
+
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File | null;

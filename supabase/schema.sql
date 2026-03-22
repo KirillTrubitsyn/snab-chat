@@ -55,16 +55,31 @@ create index if not exists chunks_source_id_idx on chunks (source_id);
 -- Индекс по тегам
 create index if not exists chunks_tags_idx on chunks using gin (tags);
 
--- 5. Таблица диалогов
+-- 5. Таблица инвайт-кодов
+create table if not exists invite_codes (
+  id uuid primary key default gen_random_uuid(),
+  code text unique not null,
+  name text not null,                    -- ФИО / кому выдан
+  uses_remaining integer default null,   -- null = безлимит
+  is_active boolean default true,
+  created_at timestamptz default now()
+);
+
+create index if not exists invite_codes_code_idx on invite_codes (code);
+
+-- 6. Таблица диалогов
 create table if not exists conversations (
   id uuid primary key default gen_random_uuid(),
   title text default 'Новый диалог',
   summary text,
+  invite_code_id uuid references invite_codes(id) on delete set null,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
 
--- 6. Таблица сообщений
+create index if not exists conversations_invite_code_id_idx on conversations (invite_code_id);
+
+-- 7. Таблица сообщений
 create table if not exists messages (
   id uuid primary key default gen_random_uuid(),
   conversation_id uuid references conversations(id) on delete cascade,
@@ -77,7 +92,7 @@ create table if not exists messages (
 create index if not exists messages_conversation_id_idx
   on messages (conversation_id, created_at);
 
--- 7. RPC-функция гибридного поиска (vector + FTS)
+-- 8. RPC-функция гибридного поиска (vector + FTS)
 create or replace function hybrid_search(
   query_text text,
   query_embedding vector(1536),
@@ -151,7 +166,7 @@ begin
 end;
 $$;
 
--- 8. RLS (Row Level Security) — отключено для service role
+-- 9. RLS (Row Level Security) — отключено для service role
 -- При необходимости включите RLS и настройте политики:
 -- alter table sources enable row level security;
 -- alter table chunks enable row level security;
