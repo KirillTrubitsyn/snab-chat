@@ -3,10 +3,20 @@ const mammoth = require("mammoth") as {
   convertToMarkdown: (opts: { buffer: Buffer }) => Promise<{ value: string }>;
 };
 import * as XLSX from "xlsx";
+import { google, withGoogleApiLimit } from "./google-ai";
+import { generateText } from "ai";
 
 const EXCEL_MIMES = [
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.ms-excel",
+];
+
+const IMAGE_MIMES = [
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/bmp",
+  "image/webp",
 ];
 
 export async function parseToMarkdown(
@@ -37,8 +47,57 @@ export async function parseToMarkdown(
     return parseExcelToMarkdown(buffer, filename);
   }
 
+  // Image OCR via Gemini Vision
+  if (
+    IMAGE_MIMES.includes(mimeType) ||
+    /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(filename)
+  ) {
+    return parseImageToMarkdown(buffer, mimeType);
+  }
+
   // Fallback: treat as plain text
   return buffer.toString("utf-8");
+}
+
+async function parseImageToMarkdown(
+  buffer: Buffer,
+  mimeType: string
+): Promise<string> {
+  const base64 = buffer.toString("base64");
+  const mediaMime = IMAGE_MIMES.includes(mimeType) ? mimeType : "image/jpeg";
+
+  const { text } = await withGoogleApiLimit(() =>
+    generateText({
+      model: google("gemini-2.0-flash"),
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              image: `data:${mediaMime};base64,${base64}`,
+            },
+            {
+              type: "text",
+              text: `Ты — OCR-система. Извлеки ВЕСЬ текст из этого изображения документа.
+
+Правила:
+1. Сохраняй структуру документа (заголовки, абзацы, списки, таблицы)
+2. Используй markdown-форматирование
+3. Таблицы оформляй как markdown-таблицы
+4. Если текст на русском — сохраняй на русском
+5. Не добавляй свои комментарии, только извлечённый текст
+6. Если изображение не содержит текста, напиши: "(изображение без текста)"`,
+            },
+          ],
+        },
+      ],
+      maxTokens: 8000,
+      temperature: 0,
+    })
+  );
+
+  return text || "(не удалось распознать текст)";
 }
 
 function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
