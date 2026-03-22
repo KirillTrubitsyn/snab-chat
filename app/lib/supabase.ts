@@ -22,10 +22,15 @@ function validateSupabaseUrl(url: string): string {
   return url;
 }
 
+let serviceClientInstance: ReturnType<typeof createClient> | null = null;
+
 export function createServiceClient() {
-  const url = validateSupabaseUrl(getEnvOrThrow("NEXT_PUBLIC_SUPABASE_URL"));
-  const key = getEnvOrThrow("SUPABASE_SERVICE_ROLE_KEY");
-  return createClient(url, key);
+  if (!serviceClientInstance) {
+    const url = validateSupabaseUrl(getEnvOrThrow("NEXT_PUBLIC_SUPABASE_URL"));
+    const key = getEnvOrThrow("SUPABASE_SERVICE_ROLE_KEY");
+    serviceClientInstance = createClient(url, key);
+  }
+  return serviceClientInstance;
 }
 
 export function createBrowserClient() {
