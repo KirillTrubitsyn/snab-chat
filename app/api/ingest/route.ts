@@ -3,6 +3,8 @@ import { createServiceClient } from "@/app/lib/supabase";
 import { chunkMarkdown } from "@/app/lib/chunking";
 import { embedDocuments } from "@/app/lib/embeddings";
 
+let bucketReady = false;
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -23,6 +25,12 @@ export async function POST(req: NextRequest) {
       const safeName = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
       storagePath = safeName;
 
+      // Ensure bucket exists only once per server lifetime
+      if (!bucketReady) {
+        await supabase.storage.createBucket("documents", { public: false }).catch(() => {});
+        bucketReady = true;
+      }
+
       const { error: uploadError } = await supabase.storage
         .from("documents")
         .upload(storagePath, buffer, {
@@ -32,7 +40,6 @@ export async function POST(req: NextRequest) {
 
       if (uploadError) {
         console.error("Storage upload error:", uploadError);
-        // Continue without storage — file will still be indexed
         storagePath = null;
       }
     }
@@ -61,8 +68,8 @@ export async function POST(req: NextRequest) {
 
     const chunks = chunkMarkdown(markdown);
 
-    // Embed in batches of 10 (embeddings are parallelized internally)
-    const batchSize = 10;
+    // Embed in batches (single API call per batch)
+    const batchSize = 50;
     let insertedCount = 0;
 
     for (let i = 0; i < chunks.length; i += batchSize) {

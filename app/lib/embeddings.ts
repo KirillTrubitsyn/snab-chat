@@ -20,31 +20,17 @@ export async function embedQuery(text: string): Promise<number[]> {
   });
 }
 
-const MAX_CONCURRENT_EMBEDDINGS = 3;
-
 export async function embedDocuments(texts: string[]): Promise<number[][]> {
-  const results: number[][] = new Array(texts.length);
-
-  // Process embeddings in parallel with concurrency limit
-  for (let i = 0; i < texts.length; i += MAX_CONCURRENT_EMBEDDINGS) {
-    const batch = texts.slice(i, i + MAX_CONCURRENT_EMBEDDINGS);
-    const batchResults = await Promise.all(
-      batch.map((text) =>
-        withGoogleApiLimit(() =>
-          client.models.embedContent({
-            model: MODEL,
-            contents: text,
-            config: {
-              taskType: "RETRIEVAL_DOCUMENT",
-              outputDimensionality: DIMENSIONS,
-            },
-          })
-        )
-      )
-    );
-    batchResults.forEach((result, j) => {
-      results[i + j] = result.embeddings![0].values!;
+  // Use batch embedding — one API call for multiple texts
+  return withGoogleApiLimit(async () => {
+    const result = await client.models.embedContent({
+      model: MODEL,
+      contents: texts,
+      config: {
+        taskType: "RETRIEVAL_DOCUMENT",
+        outputDimensionality: DIMENSIONS,
+      },
     });
-  }
-  return results;
+    return result.embeddings!.map((e) => e.values!);
+  });
 }
