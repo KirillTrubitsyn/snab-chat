@@ -455,7 +455,7 @@ function MessageBubble({
     const codePatterns: { code: string; sourceId: number }[] = [];
     for (const src of allSources) {
       // Match codes like: С-НМГРЭС-В5-03, И-ГК-В1/У6-02, Пл-ГК-В5-03, М-ГК-В1/У4-01
-      const codes = src.filename.match(/[А-ЯA-Zа-яa-z]{1,4}[-][А-ЯA-Zа-яa-z/]{1,10}[-][А-ЯA-Zа-яa-z0-9/]{1,6}[-]\d{1,3}/gi);
+      const codes = src.filename.match(/[А-ЯA-Zа-яa-z]{1,4}-[А-ЯA-Zа-яa-z/]{1,15}-[А-ЯA-Zа-яa-z0-9/]{1,6}-\d{1,3}/gi);
       if (codes) {
         for (const code of codes) {
           codePatterns.push({ code, sourceId: src.id });
@@ -468,14 +468,35 @@ function MessageBubble({
     // Sort by length descending so longer codes match first
     codePatterns.sort((a, b) => b.code.length - a.code.length);
 
-    let result = text;
-    for (const { code, sourceId } of codePatterns) {
-      // Escape special regex chars in code
-      const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      // Only match if not already inside a markdown link
-      const regex = new RegExp(`(?<!\\[[^\\]]*)(${escaped})(?![^\\[]*\\])`, "gi");
-      result = result.replace(regex, `[$1](source:${sourceId})`);
-    }
+    // Build a combined regex that matches any code
+    const combinedPattern = codePatterns
+      .map(({ code }) => code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("|");
+    const regex = new RegExp(combinedPattern, "gi");
+
+    // Replace codes with markdown links, avoiding already-linked text
+    // Process the whole text, using offset to check context
+    const result = text.replace(regex, (match, offset) => {
+      // Check if already inside a markdown link by looking at surrounding text
+      const before = text.substring(Math.max(0, offset - 200), offset);
+      // If there's an unclosed [ before us, we're inside link text
+      const lastOpen = before.lastIndexOf("[");
+      const lastClose = before.lastIndexOf("]");
+      if (lastOpen > lastClose) return match;
+
+      // Check if preceded by ]( — we'd be inside a link URL
+      const justBefore = text.substring(Math.max(0, offset - 10), offset);
+      if (justBefore.includes("](")) return match;
+
+      // Find matching source
+      const matchLower = match.toLowerCase();
+      const pattern = codePatterns.find(
+        (p) => p.code.toLowerCase() === matchLower
+      );
+      if (!pattern) return match;
+
+      return `[${match}](source:${pattern.sourceId})`;
+    });
 
     return result;
   };
@@ -1188,6 +1209,8 @@ export default function Chat() {
   /* ── State ── */
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  // Unique key for useChat to avoid stale message cache when starting new chats
+  const [chatKey, setChatKey] = useState(() => `new-${Date.now()}`);
   const [hasSummary, setHasSummary] = useState(false);
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
@@ -1219,7 +1242,7 @@ export default function Chat() {
     isLoading,
     setInput,
   } = useChat({
-    id: activeConvId ?? undefined,
+    id: activeConvId ?? chatKey,
     api: "/api/chat",
     body: { conversationId: convIdRef.current },
   });
@@ -1640,6 +1663,7 @@ export default function Chat() {
               onClick={() => {
                 setActiveConvId(null);
                 convIdRef.current = null;
+                setChatKey(`new-${Date.now()}`);
                 setMessages([]);
                 setHasSummary(false);
               }}
@@ -2090,6 +2114,7 @@ export default function Chat() {
                     onClick={() => {
                       setActiveConvId(null);
                       convIdRef.current = null;
+                      setChatKey(`new-${Date.now()}`);
                       setMessages([]);
                       setHasSummary(false);
                     }}
