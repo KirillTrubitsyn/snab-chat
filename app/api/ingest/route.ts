@@ -12,6 +12,7 @@ export async function POST(req: NextRequest) {
     const markdown = formData.get("markdown") as string;
     const tagsRaw = formData.get("tags") as string;
     const tags: string[] = tagsRaw ? JSON.parse(tagsRaw) : [];
+    const folderPath = (formData.get("folderPath") as string) || null;
 
     const supabase = createServiceClient();
 
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
         tags,
         content_preview: markdown.slice(0, 500),
         storage_path: storagePath,
+        folder_path: folderPath,
       })
       .select("id")
       .single();
