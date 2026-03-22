@@ -109,7 +109,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   // Search/filter state
   const [searchName, setSearchName] = useState("");
 
-  const headers = { "x-admin-code": adminCode };
+  const headers = { "x-admin-code": encodeURIComponent(adminCode) };
 
   /* ── Load data ── */
 
@@ -261,7 +261,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
         formData.append("file", file);
         const res = await fetch("/api/parse", {
           method: "POST",
-          headers: { "x-admin-code": adminCode },
+          headers: { "x-admin-code": encodeURIComponent(adminCode) },
           body: formData,
         });
         if (res.ok) {
@@ -293,7 +293,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
       try {
         await fetch("/api/ingest", {
           method: "POST",
-          headers: { "x-admin-code": adminCode },
+          headers: { "x-admin-code": encodeURIComponent(adminCode) },
           body: formData,
         });
       } catch { /* ignore */ }
