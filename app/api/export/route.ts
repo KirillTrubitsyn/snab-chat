@@ -213,6 +213,66 @@ function parseMarkdownToParagraphs(text: string): BlockElement[] {
       continue;
     }
 
+    // Blockquote (lines starting with >)
+    if (line.match(/^>\s?/)) {
+      // Collect consecutive blockquote lines
+      const quoteLines: string[] = [line.replace(/^>\s?/, "")];
+      while (i + 1 < lines.length && lines[i + 1].match(/^>\s?/)) {
+        i++;
+        quoteLines.push(lines[i].replace(/^>\s?/, ""));
+      }
+      const quoteText = quoteLines.join(" ").replace(/\s+/g, " ").trim();
+      // Remove wrapping quotes if present
+      const cleanedQuote = quoteText.replace(/^["«]|["»]$/g, "").trim();
+
+      // Use a single-cell table for reliable background shading
+      paragraphs.push(
+        new Table({
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({
+                  children: [
+                    new Paragraph({
+                      children: [
+                        new TextRun({
+                          text: "«",
+                          italics: true,
+                          font: FONT_BODY,
+                          size: 21,
+                          color: "374151",
+                        }),
+                        ...parseQuoteFormatting(cleanedQuote),
+                        new TextRun({
+                          text: "»",
+                          italics: true,
+                          font: FONT_BODY,
+                          size: 21,
+                          color: "374151",
+                        }),
+                      ],
+                      alignment: AlignmentType.JUSTIFIED,
+                    }),
+                  ],
+                  shading: { type: ShadingType.CLEAR, fill: "EDF4FB" },
+                  borders: {
+                    top: { style: BorderStyle.NONE, size: 0 },
+                    bottom: { style: BorderStyle.NONE, size: 0 },
+                    right: { style: BorderStyle.NONE, size: 0 },
+                    left: { style: BorderStyle.SINGLE, size: 12, color: BRAND_CYAN },
+                  },
+                  margins: { top: 80, bottom: 80, left: 200, right: 120 },
+                  width: { size: 100, type: WidthType.PERCENTAGE },
+                }),
+              ],
+            }),
+          ],
+          width: { size: 100, type: WidthType.PERCENTAGE },
+        })
+      );
+      continue;
+    }
+
     // Horizontal rule
     if (line.match(/^[-*_]{3,}$/)) {
       paragraphs.push(
@@ -276,6 +336,35 @@ function parseInlineFormatting(text: string): TextRun[] {
 
   if (runs.length === 0) {
     runs.push(new TextRun({ text: cleaned, font: FONT_BODY, size: 22 }));
+  }
+
+  return runs;
+}
+
+/* ── Blockquote inline formatting (italic + muted color) ── */
+
+function parseQuoteFormatting(text: string): TextRun[] {
+  const runs: TextRun[] = [];
+  const cleaned = text.replace(/\[doc:\d+\]/g, "").replace(/\[[\w\s.-]+\.(docx?|pdf|xlsx?)\]/gi, "");
+
+  const regex = /(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|([^*`]+))/g;
+  let match;
+  while ((match = regex.exec(cleaned)) !== null) {
+    if (match[2]) {
+      runs.push(new TextRun({ text: match[2], bold: true, italics: true, font: FONT_BODY, size: 21, color: "374151" }));
+    } else if (match[3]) {
+      runs.push(new TextRun({ text: match[3], bold: true, italics: true, font: FONT_BODY, size: 21, color: "374151" }));
+    } else if (match[4]) {
+      runs.push(new TextRun({ text: match[4], italics: true, font: FONT_BODY, size: 21, color: "374151" }));
+    } else if (match[5]) {
+      runs.push(new TextRun({ text: match[5], italics: true, font: "IBM Plex Mono", size: 20, color: "374151" }));
+    } else if (match[6]) {
+      runs.push(new TextRun({ text: match[6], italics: true, font: FONT_BODY, size: 21, color: "374151" }));
+    }
+  }
+
+  if (runs.length === 0) {
+    runs.push(new TextRun({ text: cleaned, italics: true, font: FONT_BODY, size: 21, color: "374151" }));
   }
 
   return runs;
