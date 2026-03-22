@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const markdown = await parseToMarkdown(buffer, file.type, file.name);
-    const tags = await autoTag(markdown);
+    const tags = await autoTag(markdown, file.name);
     const chunks = chunkMarkdown(markdown);
 
     return NextResponse.json({
