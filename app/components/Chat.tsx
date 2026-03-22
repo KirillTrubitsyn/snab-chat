@@ -1047,11 +1047,15 @@ export default function Chat() {
         body: JSON.stringify({ question: questionContent, answer: answerContent }),
       });
       if (!res.ok) throw new Error("Export failed");
+      // Extract filename from Content-Disposition header
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const filenameMatch = disposition.match(/filename\*=UTF-8''(.+?)(?:;|$)/);
+      const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : `snabchat-${new Date().toISOString().slice(0, 10)}.docx`;
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `snabchat-${new Date().toISOString().slice(0, 10)}.docx`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -2130,7 +2134,7 @@ export default function Chat() {
 
         {/* ── Footer ── */}
         <footer className="app-footer">
-          <span className="footer-full">СнабЧат · Дирекция по закупкам · 2026 · </span>
+          <span className="footer-full">СнабЧат · Дирекция по ресурсному обеспечению · 2026 · </span>
           Разработка @Кирилл Трубицын
         </footer>
       </div>

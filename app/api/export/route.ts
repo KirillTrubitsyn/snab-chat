@@ -578,7 +578,7 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
                     color: BRAND_CYAN,
                   }),
                   new TextRun({
-                    text: " · Дирекция по закупкам",
+                    text: " · Дирекция по ресурсному обеспечению",
                     font: FONT_BODY,
                     size: 16,
                     italics: true,
@@ -599,6 +599,40 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
   return Buffer.from(buffer);
 }
 
+/* ── Filename generator (up to 4 meaningful Russian words) ── */
+
+const STOP_WORDS = new Set([
+  "в", "на", "по", "с", "и", "а", "но", "или", "что", "как", "для", "из",
+  "от", "до", "за", "при", "не", "ли", "бы", "же", "это", "то", "все",
+  "он", "она", "они", "мы", "вы", "его", "её", "их", "мне", "нам", "вам",
+  "о", "об", "у", "к", "ко", "та", "те", "тот", "эта", "эти", "этот",
+  "какой", "какая", "какие", "чем", "кто", "где", "когда", "почему",
+  "есть", "быть", "был", "была", "были", "будет", "может", "можно",
+  "нужно", "надо", "ещё", "еще", "уже", "так", "очень", "более",
+  "скажи", "расскажи", "объясни", "опиши", "подскажи", "покажи",
+  "пожалуйста", "какой", "какая", "какие", "какое",
+]);
+
+function generateFilename(question: string): string {
+  // Extract meaningful words from question
+  const words = question
+    .replace(/[^\wа-яА-ЯёЁ\s-]/g, "")
+    .split(/\s+/)
+    .map((w) => w.toLowerCase())
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+
+  const selected = words.slice(0, 4);
+
+  if (selected.length === 0) {
+    return `СнабЧат-${new Date().toISOString().slice(0, 10)}.docx`;
+  }
+
+  // Capitalize first word
+  selected[0] = selected[0].charAt(0).toUpperCase() + selected[0].slice(1);
+
+  return `${selected.join(" ")}.docx`;
+}
+
 /* ── API handler ── */
 
 export async function POST(request: NextRequest) {
@@ -615,15 +649,15 @@ export async function POST(request: NextRequest) {
 
     const buffer = await generateDocx(question, answer);
 
-    const dateStr = new Date().toISOString().slice(0, 10);
-    const filename = `snabchat-${dateStr}.docx`;
+    const filename = generateFilename(question);
+    const encodedFilename = encodeURIComponent(filename);
 
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Disposition": `attachment; filename="snabchat.docx"; filename*=UTF-8''${encodedFilename}`,
       },
     });
   } catch (error) {
