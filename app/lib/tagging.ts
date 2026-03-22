@@ -6,7 +6,7 @@ export async function autoTag(markdown: string): Promise<string[]> {
 
   try {
     const { text } = await withGoogleApiLimit(() => generateText({
-      model: google("gemini-3-flash"),
+      model: google("gemini-3-flash-preview"),
       prompt: `Проанализируй текст документа и сгенерируй от 3 до 10 тегов (на русском языке) для классификации.
 Теги должны отражать тематику документа в контексте закупок, снабжения и корпоративного управления.
 Верни ТОЛЬКО JSON-массив строк, без пояснений.
