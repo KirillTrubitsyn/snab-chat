@@ -268,6 +268,13 @@ function MessageBubble({
     // Match without extension
     const nameNoExt = normName.replace(/\.\w+$/, "");
     src = allSources.find((doc) => normalize(doc.filename).replace(/\.\w+$/, "") === nameNoExt);
+    if (src) return src;
+    // Match by document code pattern (e.g., "С-ГК-В5-02" found in both text and filename)
+    const codeMatch = n.match(/[А-ЯA-Z][\w-]*(?:В\d|У\d|Б\d)[\w-]*/i);
+    if (codeMatch) {
+      const code = codeMatch[0].toLowerCase();
+      src = allSources.find((doc) => doc.filename.toLowerCase().includes(code));
+    }
     return src;
   };
 
@@ -279,10 +286,83 @@ function MessageBubble({
     }
   };
 
+  // Build patterns from source filenames to linkify in text
+  const linkifyContent = (text: string): string => {
+    if (allSources.length === 0) return text;
+
+    // Extract document codes from filenames (e.g., "С-НМГРЭС-В5-03", "И-ГК-В5-02", "Пл-ГК-В5-03")
+    const codePatterns: { code: string; sourceId: number }[] = [];
+    for (const src of allSources) {
+      // Match codes like: С-НМГРЭС-В5-03, И-ГК-В1/У6-02, Пл-ГК-В5-03, М-ГК-В1/У4-01
+      const codes = src.filename.match(/[А-ЯA-Zа-яa-z]{1,4}[-][А-ЯA-Zа-яa-z/]{1,10}[-][А-ЯA-Zа-яa-z0-9/]{1,6}[-]\d{1,3}/gi);
+      if (codes) {
+        for (const code of codes) {
+          codePatterns.push({ code, sourceId: src.id });
+        }
+      }
+    }
+
+    if (codePatterns.length === 0) return text;
+
+    // Sort by length descending so longer codes match first
+    codePatterns.sort((a, b) => b.code.length - a.code.length);
+
+    let result = text;
+    for (const { code, sourceId } of codePatterns) {
+      // Escape special regex chars in code
+      const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // Only match if not already inside a markdown link
+      const regex = new RegExp(`(?<!\\[[^\\]]*)(${escaped})(?![^\\[]*\\])`, "gi");
+      result = result.replace(regex, `[$1](source:${sourceId})`);
+    }
+
+    return result;
+  };
+
+  const processedContent = linkifyContent(message.content);
+
   return (
     <div className="message message-ai">
       <div className="message-content">
-        <ReactMarkdown>{message.content}</ReactMarkdown>
+        <ReactMarkdown
+          components={{
+            a: ({ children, href }) => {
+              // Handle our injected source: links
+              if (href?.startsWith("source:")) {
+                const id = parseInt(href.replace("source:", ""), 10);
+                const src = allSources.find((s) => s.id === id);
+                if (src) {
+                  return (
+                    <button
+                      className="source-link-btn"
+                      onClick={() => onViewSource(src)}
+                      title={`Открыть: ${src.filename}`}
+                    >
+                      {children}
+                    </button>
+                  );
+                }
+              }
+              // Handle any other links from AI
+              const linkText = String(children);
+              const src = findSource(linkText);
+              if (src) {
+                return (
+                  <button
+                    className="source-link-btn"
+                    onClick={() => onViewSource(src)}
+                    title={`Открыть: ${src.filename}`}
+                  >
+                    {children}
+                  </button>
+                );
+              }
+              return <span>{children}</span>;
+            },
+          }}
+        >
+          {processedContent}
+        </ReactMarkdown>
       </div>
       {message.sources && message.sources.length > 0 && (
         <div className="message-sources">
