@@ -945,7 +945,7 @@ export default function Chat() {
     const formData = new FormData();
     formData.append("file", file);
     try {
-      const res = await fetch("/api/parse", { method: "POST", body: formData });
+      const res = await fetch("/api/parse", { method: "POST", body: formData, headers: { "x-invite-code": inviteCode } });
       if (!res.ok) throw new Error("Parse failed");
       const data = await res.json();
       if (isPhoto) {
