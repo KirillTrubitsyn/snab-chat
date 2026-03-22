@@ -2037,6 +2037,9 @@ input, textarea {
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .message-infographic-btn {

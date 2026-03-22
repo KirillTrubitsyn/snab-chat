@@ -645,6 +645,7 @@ function MessageBubble({
   allSources,
   onViewSource,
   onCreateInfographic,
+  onExportDocx,
 }: {
   message: {
     id: string;
@@ -657,6 +658,7 @@ function MessageBubble({
   allSources: Source[];
   onViewSource: (source: Source) => void;
   onCreateInfographic?: (content: string) => void;
+  onExportDocx?: (content: string) => void;
 }) {
   const isUser = message.role === "user";
 
@@ -877,16 +879,33 @@ function MessageBubble({
           </div>
         </div>
       )}
-      {onCreateInfographic && (
+      {(onCreateInfographic || onExportDocx) && (
         <div className="message-infographic-row">
-          <button
-            className="message-infographic-btn"
-            onClick={() => onCreateInfographic(message.content)}
-            title="Создать инфографику на основе этого ответа"
-          >
-            <InfographicIcon size={14} />
-            Создать инфографику
-          </button>
+          {onCreateInfographic && (
+            <button
+              className="message-infographic-btn"
+              onClick={() => onCreateInfographic(message.content)}
+              title="Создать инфографику на основе этого ответа"
+            >
+              <InfographicIcon size={14} />
+              Создать инфографику
+            </button>
+          )}
+          {onExportDocx && (
+            <button
+              className="message-infographic-btn message-export-btn"
+              onClick={() => onExportDocx(message.content)}
+              title="Скачать ответ в формате DOCX"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="12" y1="18" x2="12" y2="12" />
+                <polyline points="9 15 12 18 15 15" />
+              </svg>
+              Скачать .docx
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -1016,6 +1035,37 @@ export default function Chat() {
     }
     router.push("/infographic");
   }, [router]);
+
+  const [docxDownloading, setDocxDownloading] = useState(false);
+  const handleExportDocx = useCallback(async (answerContent: string, questionContent: string) => {
+    if (docxDownloading) return;
+    setDocxDownloading(true);
+    try {
+      const res = await fetch("/api/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: questionContent, answer: answerContent }),
+      });
+      if (!res.ok) throw new Error("Export failed");
+      // Extract filename from Content-Disposition header
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const filenameMatch = disposition.match(/filename\*=UTF-8''(.+?)(?:;|$)/);
+      const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : `snabchat-${new Date().toISOString().slice(0, 10)}.docx`;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("DOCX export error:", e);
+    } finally {
+      setDocxDownloading(false);
+    }
+  }, [docxDownloading]);
 
   /* ── Refs ── */
   const convIdRef = useRef<string | null>(null);
@@ -1777,9 +1827,21 @@ export default function Chat() {
                   <div className="summary-notice">ℹ Ранние сообщения сжаты в резюме</div>
                 )}
                 {messages.length === 0 && !hasSummary && <EmptyState />}
-                {messages.map((m) => (
-                  <MessageBubble key={m.id} message={m} allSources={sources} onViewSource={setViewingSource} onCreateInfographic={m.role === "assistant" ? navigateToInfographic : undefined} />
-                ))}
+                {messages.map((m, idx) => {
+                  const prevUserMsg = m.role === "assistant"
+                    ? [...messages].slice(0, idx).reverse().find((pm) => pm.role === "user")
+                    : undefined;
+                  return (
+                    <MessageBubble
+                      key={m.id}
+                      message={m}
+                      allSources={sources}
+                      onViewSource={setViewingSource}
+                      onCreateInfographic={m.role === "assistant" ? navigateToInfographic : undefined}
+                      onExportDocx={m.role === "assistant" ? (content: string) => handleExportDocx(content, prevUserMsg?.content || "Запрос") : undefined}
+                    />
+                  );
+                })}
                 {isSending && <TypingBubble />}
                 {chatError && (
                   <div className="message message-error" style={{ background: "var(--error-bg, #fef2f2)", border: "1px solid var(--error-border, #fecaca)", borderRadius: 12, padding: "12px 18px", margin: "8px 0", color: "var(--error-text, #991b1b)", fontSize: 14 }}>
@@ -2072,7 +2134,7 @@ export default function Chat() {
 
         {/* ── Footer ── */}
         <footer className="app-footer">
-          <span className="footer-full">СнабЧат · Дирекция по закупкам · 2026 · </span>
+          <span className="footer-full">СнабЧат · Дирекция по ресурсному обеспечению · 2026 · </span>
           Разработка @Кирилл Трубицын
         </footer>
       </div>
