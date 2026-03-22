@@ -122,6 +122,12 @@ function SearchIcon() {
 
 function cleanMarkdown(text: string): string {
   let s = text;
+  // Remove backslash escapes from mammoth: \( \) \. \- etc.
+  s = s.replace(/\\([().,;:!?\-\[\]{}+=#])/g, "$1");
+  // Decode URL-encoded strings (%D1%81%D1%80... → readable text)
+  s = s.replace(/%[0-9A-Fa-f]{2}(?:%[0-9A-Fa-f]{2})*/g, (match) => {
+    try { return decodeURIComponent(match); } catch { return match; }
+  });
   // Remove HTML tags (anchors, spans, etc.)
   s = s.replace(/<[^>]+>/g, "");
   // Remove markdown heading markers
@@ -1546,6 +1552,13 @@ export default function Chat() {
                               marginTop: -2,
                             }}
                           >
+                            <button
+                              className="btn-secondary"
+                              style={{ width: "100%", padding: "5px 0", fontSize: 12, marginBottom: 8 }}
+                              onClick={(e) => { e.stopPropagation(); setViewingSource(doc); }}
+                            >
+                              Просмотр документа
+                            </button>
                             <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>Теги</div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
                               {(doc.tags || []).map((tag) => (
