@@ -78,7 +78,7 @@ create or replace function hybrid_search(
   filter_tags text[] default null
 )
 returns table (
-  id uuid,
+  id text,
   content text,
   source_filename text,
   chunk_index integer,
@@ -91,7 +91,7 @@ begin
   return query
   with vector_results as (
     select
-      c.id,
+      c.id::text as id,
       c.content,
       c.source_filename,
       c.chunk_index,
@@ -104,7 +104,7 @@ begin
   ),
   fts_results as (
     select
-      c.id,
+      c.id::text as id,
       c.content,
       c.source_filename,
       c.chunk_index,
