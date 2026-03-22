@@ -1736,7 +1736,8 @@ input, textarea {
 /* ── Header ── */
 
 .admin-header {
-  background: #1A1D23;
+  background: #FFFFFF;
+  border-bottom: 1px solid #E8EAED;
   padding: 20px 32px;
   display: flex;
   align-items: center;
@@ -1755,7 +1756,7 @@ input, textarea {
   font-size: 22px;
   font-weight: 700;
   margin: 0;
-  color: #FFFFFF;
+  color: var(--text-primary);
 }
 
 .admin-title-accent {
@@ -1764,7 +1765,7 @@ input, textarea {
 
 .admin-subtitle {
   font-size: 13px;
-  color: #8B8F96;
+  color: var(--text-secondary);
   margin: 0;
 }
 
@@ -1776,12 +1777,12 @@ input, textarea {
 
 .admin-user-name {
   font-size: 13px;
-  color: #A0A4AB;
+  color: var(--text-secondary);
 }
 
 .admin-header-link {
   font-size: 13px;
-  color: #A0A4AB;
+  color: var(--text-secondary);
   text-decoration: none;
   cursor: pointer;
   transition: color var(--transition);
@@ -1792,7 +1793,7 @@ input, textarea {
 }
 
 .admin-header-link:hover {
-  color: #FFFFFF;
+  color: var(--text-primary);
 }
 
 /* ── Spinner ── */
@@ -1817,32 +1818,34 @@ input, textarea {
 
 .admin-tabs {
   display: flex;
-  gap: 4px;
-  background: #1A1D23;
-  padding: 0 32px;
-  border-bottom: none;
+  gap: 6px;
+  background: #FFFFFF;
+  padding: 0 32px 12px;
+  border-bottom: 1px solid #E8EAED;
 }
 
 .admin-tab {
-  padding: 10px 22px;
+  padding: 8px 20px;
   font-size: 14px;
   font-weight: 500;
-  color: #8B8F96;
-  border: none;
-  background: none;
+  color: var(--text-secondary);
+  border: 1px solid #D5D8DC;
+  background: #FFFFFF;
   cursor: pointer;
-  border-radius: 8px 8px 0 0;
-  transition: color var(--transition), background var(--transition);
+  border-radius: 8px;
+  transition: color var(--transition), background var(--transition), border-color var(--transition);
 }
 
 .admin-tab:hover {
-  color: #FFFFFF;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  background: #F0F2F5;
+  border-color: #C0C4CA;
 }
 
 .admin-tab.active {
   color: #FFFFFF;
   background: var(--accent);
+  border-color: var(--accent);
   font-weight: 600;
 }
 
