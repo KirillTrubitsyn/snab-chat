@@ -54,6 +54,15 @@ interface AdminPanelProps {
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
   return d.toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function formatDateTime(dateStr: string): string {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("ru-RU", {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -73,6 +82,11 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [newUses, setNewUses] = useState("");
   const [creating, setCreating] = useState(false);
 
+  // Edit modal state
+  const [editingCode, setEditingCode] = useState<InviteCode | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editUses, setEditUses] = useState("");
+
   // Activity state
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
@@ -91,6 +105,9 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [uploadStage, setUploadStage] = useState<"idle" | "parsing" | "review" | "ingesting" | "done">("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Search/filter state
+  const [searchName, setSearchName] = useState("");
 
   const headers = { "x-admin-code": adminCode };
 
@@ -182,9 +199,32 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     } catch { /* ignore */ }
   };
 
+  const saveEdit = async () => {
+    if (!editingCode) return;
+    try {
+      await fetch(`/api/admin/invite-codes?id=${editingCode.id}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editName.trim(),
+          uses_remaining: editUses ? parseInt(editUses) : null,
+        }),
+      });
+      setEditingCode(null);
+      loadCodes();
+    } catch { /* ignore */ }
+  };
+
+  const openEdit = (c: InviteCode) => {
+    setEditingCode(c);
+    setEditName(c.name);
+    setEditUses(c.uses_remaining !== null ? String(c.uses_remaining) : "");
+  };
+
   /* ── Document actions ── */
 
   const deleteSource = async (sourceId: number) => {
+    if (!confirm("Удалить этот документ из базы знаний?")) return;
     try {
       await fetch(`/api/sources?id=${sourceId}`, {
         method: "DELETE",
@@ -277,6 +317,12 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     );
   };
 
+  // Filter codes
+  const filteredCodes = codes.filter((c) => {
+    if (searchName && !c.name.toLowerCase().includes(searchName.toLowerCase()) && !c.code.toLowerCase().includes(searchName.toLowerCase())) return false;
+    return true;
+  });
+
   /* ── Render ── */
 
   return (
@@ -284,12 +330,15 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
       {/* Header */}
       <header className="admin-header">
         <div className="admin-header-left">
-          <h1 className="admin-title">СнабЧат — Администрирование</h1>
-          <span className="admin-user-name">{userName}</span>
+          <h1 className="admin-title">
+            <span className="admin-title-accent">СнабЧат</span> Admin Panel
+          </h1>
+          <p className="admin-subtitle">Управление инвайт-кодами и база знаний</p>
         </div>
         <div className="admin-header-right">
-          <a href="/" className="admin-chat-link">К чату</a>
-          <button onClick={onLogout} className="admin-logout-btn">Выйти</button>
+          <span className="admin-user-name">{userName}</span>
+          <a href="/" className="admin-header-link">К чату</a>
+          <button onClick={onLogout} className="admin-header-link">Выйти</button>
         </div>
       </header>
 
@@ -321,223 +370,310 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
         {/* ── Tab: Invite Codes ── */}
         {tab === "codes" && (
           <div>
-            {/* Create form */}
-            <div className="admin-card" style={{ marginBottom: 24 }}>
-              <h3 style={{ marginBottom: 12 }}>Создать новый код</h3>
+            {/* Create form card */}
+            <div className="admin-card">
+              <h3 className="admin-card-title">Создать инвайт-код</h3>
               <div className="admin-form-row">
+                <div className="admin-form-field">
+                  <label>Код *</label>
+                  <input
+                    placeholder="напр. ИВАНОВ-2024"
+                    value={newCode}
+                    onChange={(e) => setNewCode(e.target.value.toUpperCase())}
+                  />
+                </div>
+                <div className="admin-form-field" style={{ flex: 2 }}>
+                  <label>ФИО получателя *</label>
+                  <input
+                    placeholder="Иванов Иван Иванович"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                  />
+                </div>
+                <div className="admin-form-field" style={{ width: 160 }}>
+                  <label>Лимит</label>
+                  <input
+                    placeholder="безлимит"
+                    value={newUses}
+                    onChange={(e) => setNewUses(e.target.value.replace(/\D/g, ""))}
+                  />
+                </div>
+                <div className="admin-form-field admin-form-field-btn">
+                  <button
+                    onClick={createCode}
+                    disabled={creating || !newCode.trim() || !newName.trim()}
+                    className="admin-btn-primary"
+                  >
+                    {creating ? "Создание..." : "Создать"}
+                  </button>
+                </div>
+              </div>
+              <p className="admin-hint">Пусто = без лимита использований</p>
+            </div>
+
+            {/* Filters */}
+            <div className="admin-card admin-filters">
+              <div className="admin-form-field">
+                <label>Поиск</label>
                 <input
-                  placeholder="Код (напр. ИВАНОВ-2024)"
-                  value={newCode}
-                  onChange={(e) => setNewCode(e.target.value.toUpperCase())}
-                  className="admin-input"
+                  placeholder="Поиск по имени или коду..."
+                  value={searchName}
+                  onChange={(e) => setSearchName(e.target.value)}
                 />
-                <input
-                  placeholder="ФИО получателя"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  className="admin-input"
-                  style={{ flex: 2 }}
-                />
-                <input
-                  placeholder="Лимит (пусто = безлимит)"
-                  value={newUses}
-                  onChange={(e) => setNewUses(e.target.value.replace(/\D/g, ""))}
-                  className="admin-input"
-                  style={{ width: 160 }}
-                />
-                <button
-                  onClick={createCode}
-                  disabled={creating || !newCode.trim() || !newName.trim()}
-                  className="admin-btn-primary"
-                >
-                  {creating ? "..." : "Создать"}
-                </button>
               </div>
             </div>
 
-            {/* Codes list */}
-            {codesLoading ? (
-              <div className="admin-loading-text">Загрузка...</div>
-            ) : codes.length === 0 ? (
-              <div className="admin-empty">Нет инвайт-кодов</div>
-            ) : (
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Код</th>
-                    <th>ФИО</th>
-                    <th>Лимит</th>
-                    <th>Диалоги</th>
-                    <th>Статус</th>
-                    <th>Создан</th>
-                    <th>Действия</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {codes.map((c) => (
-                    <tr key={c.id}>
-                      <td><code className="admin-code-badge">{c.code}</code></td>
-                      <td>{c.name}</td>
-                      <td>{c.uses_remaining === null ? "безлимит" : c.uses_remaining}</td>
-                      <td>{c.conversation_count}</td>
-                      <td>
-                        <span className={`admin-status ${c.is_active ? "active" : "inactive"}`}>
-                          {c.is_active ? "Активен" : "Отключён"}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: 12 }}>{formatDate(c.created_at)}</td>
-                      <td>
-                        <div style={{ display: "flex", gap: 4 }}>
-                          <button
-                            className="admin-btn-sm"
-                            onClick={() => toggleCodeActive(c.id, c.is_active)}
-                          >
-                            {c.is_active ? "Отключить" : "Включить"}
-                          </button>
-                          <button
-                            className="admin-btn-sm admin-btn-danger"
-                            onClick={() => deleteCode(c.id)}
-                          >
-                            Удалить
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            {/* Codes table */}
+            <div className="admin-card admin-card-table">
+              <div className="admin-table-header">
+                <h3 className="admin-card-title">
+                  Инвайт-коды ({filteredCodes.length})
+                </h3>
+                <button className="admin-btn-secondary" onClick={loadCodes} disabled={codesLoading}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+                  Обновить
+                </button>
+              </div>
+
+              {codesLoading ? (
+                <div className="admin-loading-text">
+                  <div className="admin-spinner" />
+                  Загрузка...
+                </div>
+              ) : filteredCodes.length === 0 ? (
+                <div className="admin-empty">
+                  {codes.length === 0 ? "Нет инвайт-кодов" : "Ничего не найдено"}
+                </div>
+              ) : (
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Код</th>
+                        <th>Имя</th>
+                        <th>Лимит</th>
+                        <th>Диалогов</th>
+                        <th>Статус</th>
+                        <th>Создан</th>
+                        <th>Действия</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredCodes.map((c) => (
+                        <tr key={c.id} className={!c.is_active ? "admin-row-inactive" : ""}>
+                          <td>
+                            <span className="admin-code-badge">{c.code}</span>
+                          </td>
+                          <td className="admin-cell-name">{c.name}</td>
+                          <td>
+                            {c.uses_remaining === null ? (
+                              <span className="admin-text-muted">безлимит</span>
+                            ) : (
+                              <span className={c.uses_remaining <= 0 ? "admin-text-danger" : ""}>
+                                {c.uses_remaining}
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <span className={c.conversation_count > 0 ? "admin-text-accent" : "admin-text-muted"}>
+                              {c.conversation_count || "—"}
+                            </span>
+                          </td>
+                          <td>
+                            <span className={`admin-status ${c.is_active ? "active" : "inactive"}`}>
+                              {c.is_active ? "Активен" : "Отключён"}
+                            </span>
+                          </td>
+                          <td className="admin-cell-date">{formatDate(c.created_at)}</td>
+                          <td>
+                            <div className="admin-actions">
+                              <button className="admin-action-link" onClick={() => openEdit(c)}>
+                                Изменить
+                              </button>
+                              <button
+                                className="admin-action-link admin-action-warning"
+                                onClick={() => toggleCodeActive(c.id, c.is_active)}
+                              >
+                                {c.is_active ? "Отключить" : "Включить"}
+                              </button>
+                              <button
+                                className="admin-action-link admin-action-danger"
+                                onClick={() => deleteCode(c.id)}
+                              >
+                                Удалить
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
         {/* ── Tab: Activity ── */}
         {tab === "activity" && (
           <div>
-            {activityLoading ? (
-              <div className="admin-loading-text">Загрузка...</div>
-            ) : activity.length === 0 ? (
-              <div className="admin-empty">Нет активности</div>
-            ) : (
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Диалог</th>
-                    <th>Пользователь</th>
-                    <th>Сообщений</th>
-                    <th>Создан</th>
-                    <th>Обновлён</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activity.map((a) => (
-                    <tr key={a.id}>
-                      <td style={{ maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {a.title}
-                      </td>
-                      <td>{a.invite_code_label}</td>
-                      <td>{a.message_count}</td>
-                      <td style={{ fontSize: 12 }}>{formatDate(a.created_at)}</td>
-                      <td style={{ fontSize: 12 }}>{formatDate(a.updated_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            <div className="admin-card admin-card-table">
+              <div className="admin-table-header">
+                <h3 className="admin-card-title">
+                  Последние диалоги ({activity.length})
+                </h3>
+                <button className="admin-btn-secondary" onClick={loadActivity} disabled={activityLoading}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+                  Обновить
+                </button>
+              </div>
+
+              {activityLoading ? (
+                <div className="admin-loading-text">
+                  <div className="admin-spinner" />
+                  Загрузка...
+                </div>
+              ) : activity.length === 0 ? (
+                <div className="admin-empty">Нет активности</div>
+              ) : (
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Диалог</th>
+                        <th>Пользователь</th>
+                        <th>Сообщений</th>
+                        <th>Создан</th>
+                        <th>Обновлён</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activity.map((a) => (
+                        <tr key={a.id}>
+                          <td className="admin-cell-title">
+                            {a.title || "Без названия"}
+                          </td>
+                          <td>{a.invite_code_label}</td>
+                          <td>
+                            <span className={a.message_count > 0 ? "admin-text-accent" : "admin-text-muted"}>
+                              {a.message_count || "—"}
+                            </span>
+                          </td>
+                          <td className="admin-cell-date">{formatDateTime(a.created_at)}</td>
+                          <td className="admin-cell-date">{formatDateTime(a.updated_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
         {/* ── Tab: Documents ── */}
         {tab === "documents" && (
           <div>
-            <div style={{ marginBottom: 16, display: "flex", gap: 8 }}>
-              <button
-                className="admin-btn-primary"
-                onClick={() => setShowUpload(true)}
-              >
-                Загрузить документы
-              </button>
-              <span style={{ alignSelf: "center", color: "var(--text-muted)", fontSize: 13 }}>
-                {sources.length} документов
-              </span>
-            </div>
-
-            {sourcesLoading ? (
-              <div className="admin-loading-text">Загрузка...</div>
-            ) : sources.length === 0 ? (
-              <div className="admin-empty">Нет загруженных документов</div>
-            ) : (
-              <div className="admin-docs-list">
-                {sources.map((doc) => {
-                  const isExpanded = expandedSourceId === doc.id;
-                  return (
-                    <div key={doc.id} className="admin-doc-item">
-                      <div
-                        className="admin-doc-header"
-                        onClick={() => {
-                          setExpandedSourceId(isExpanded ? null : doc.id);
-                          setSourceTagInput("");
-                        }}
-                      >
-                        <div className={`doc-icon ${doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : "docx"}`}>
-                          {doc.mime_type?.includes("pdf") ? "P" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "X" : "W"}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {doc.filename}
-                          </div>
-                          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                            {doc.tags?.length || 0} тегов | {formatDate(doc.created_at)}
-                          </div>
-                        </div>
-                        <button
-                          className="admin-btn-sm admin-btn-danger"
-                          onClick={(e) => { e.stopPropagation(); deleteSource(doc.id); }}
-                        >
-                          Удалить
-                        </button>
-                      </div>
-                      {isExpanded && (
-                        <div className="admin-doc-details">
-                          <div style={{ fontSize: 12, marginBottom: 4, fontWeight: 500 }}>Теги:</div>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
-                            {(doc.tags || []).map((tag) => (
-                              <span key={tag} className="tag" style={{ fontSize: 12 }}>
-                                {tag}
-                                <button
-                                  onClick={() => updateSourceTags(doc.id, doc.tags.filter((t) => t !== tag))}
-                                  style={{ marginLeft: 4, fontSize: 13, color: "var(--text-muted)" }}
-                                >
-                                  x
-                                </button>
-                              </span>
-                            ))}
-                            <form
-                              style={{ display: "inline-flex", gap: 4 }}
-                              onSubmit={(e) => {
-                                e.preventDefault();
-                                const t = sourceTagInput.trim();
-                                if (t && !(doc.tags || []).includes(t)) {
-                                  updateSourceTags(doc.id, [...(doc.tags || []), t]);
-                                  setSourceTagInput("");
-                                }
-                              }}
-                            >
-                              <input
-                                value={sourceTagInput}
-                                onChange={(e) => setSourceTagInput(e.target.value)}
-                                placeholder="+ тег"
-                                className="admin-input"
-                                style={{ width: 100, fontSize: 12, padding: "2px 6px" }}
-                              />
-                            </form>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+            <div className="admin-card admin-card-table">
+              <div className="admin-table-header">
+                <h3 className="admin-card-title">
+                  База знаний ({sources.length} документов)
+                </h3>
+                <div className="admin-table-header-actions">
+                  <button className="admin-btn-primary" onClick={() => setShowUpload(true)}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Загрузить
+                  </button>
+                  <button className="admin-btn-secondary" onClick={loadSources} disabled={sourcesLoading}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+                    Обновить
+                  </button>
+                </div>
               </div>
-            )}
+
+              {sourcesLoading ? (
+                <div className="admin-loading-text">
+                  <div className="admin-spinner" />
+                  Загрузка...
+                </div>
+              ) : sources.length === 0 ? (
+                <div className="admin-empty">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.3, marginBottom: 12 }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <p>Нет загруженных документов</p>
+                  <p style={{ fontSize: 12, marginTop: 4 }}>Нажмите «Загрузить» чтобы добавить документы в базу знаний</p>
+                </div>
+              ) : (
+                <div className="admin-docs-list">
+                  {sources.map((doc) => {
+                    const isExpanded = expandedSourceId === doc.id;
+                    const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : "docx";
+                    return (
+                      <div key={doc.id} className={`admin-doc-item ${isExpanded ? "expanded" : ""}`}>
+                        <div
+                          className="admin-doc-header"
+                          onClick={() => {
+                            setExpandedSourceId(isExpanded ? null : doc.id);
+                            setSourceTagInput("");
+                          }}
+                        >
+                          <div className={`doc-icon ${ext}`}>
+                            {ext === "pdf" ? "PDF" : ext === "xlsx" ? "XLS" : "DOC"}
+                          </div>
+                          <div className="admin-doc-info">
+                            <div className="admin-doc-name">{doc.filename}</div>
+                            <div className="admin-doc-meta">
+                              {doc.tags?.length || 0} тегов &middot; {formatDate(doc.created_at)}
+                            </div>
+                          </div>
+                          <button
+                            className="admin-action-link admin-action-danger"
+                            onClick={(e) => { e.stopPropagation(); deleteSource(doc.id); }}
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                        {isExpanded && (
+                          <div className="admin-doc-details">
+                            <div className="admin-doc-tags-label">Теги:</div>
+                            <div className="admin-doc-tags">
+                              {(doc.tags || []).map((tag) => (
+                                <span key={tag} className="admin-tag">
+                                  {tag}
+                                  <button
+                                    onClick={() => updateSourceTags(doc.id, doc.tags.filter((t) => t !== tag))}
+                                    className="admin-tag-remove"
+                                  >
+                                    &times;
+                                  </button>
+                                </span>
+                              ))}
+                              <form
+                                className="admin-tag-form"
+                                onSubmit={(e) => {
+                                  e.preventDefault();
+                                  const t = sourceTagInput.trim();
+                                  if (t && !(doc.tags || []).includes(t)) {
+                                    updateSourceTags(doc.id, [...(doc.tags || []), t]);
+                                    setSourceTagInput("");
+                                  }
+                                }}
+                              >
+                                <input
+                                  value={sourceTagInput}
+                                  onChange={(e) => setSourceTagInput(e.target.value)}
+                                  placeholder="+ добавить тег"
+                                  className="admin-tag-input"
+                                />
+                              </form>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* Upload Modal */}
             {showUpload && (
@@ -545,7 +681,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                 <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
                   <div className="admin-modal-header">
                     <h3>Загрузка документов</h3>
-                    <button onClick={() => { setShowUpload(false); setUploadStage("idle"); setParsedFiles([]); setUploadFiles([]); }} className="admin-modal-close">x</button>
+                    <button onClick={() => { setShowUpload(false); setUploadStage("idle"); setParsedFiles([]); setUploadFiles([]); }} className="admin-modal-close">&times;</button>
                   </div>
                   <div className="admin-modal-body">
                     {uploadStage === "idle" && (
@@ -558,53 +694,62 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                           style={{ display: "none" }}
                           onChange={(e) => handleFilesSelected(e.target.files)}
                         />
-                        <button className="admin-btn-primary" onClick={() => fileInputRef.current?.click()}>
-                          Выбрать файлы (DOCX, PDF, Excel)
-                        </button>
+                        <div className="admin-upload-area" onClick={() => fileInputRef.current?.click()}>
+                          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4, marginBottom: 8 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                          <p>Нажмите для выбора файлов</p>
+                          <p className="hint">DOCX, PDF, Excel</p>
+                        </div>
                       </div>
                     )}
                     {uploadStage === "parsing" && (
-                      <div className="admin-loading-text">Парсинг файлов...</div>
+                      <div className="admin-loading-text">
+                        <div className="admin-spinner" />
+                        Парсинг файлов...
+                      </div>
                     )}
                     {uploadStage === "review" && (
                       <div>
-                        <p style={{ marginBottom: 12 }}>Готово к загрузке: {parsedFiles.length} файлов</p>
+                        <p style={{ marginBottom: 16, fontWeight: 500 }}>Готово к загрузке: {parsedFiles.length} файлов</p>
                         {parsedFiles.map((pf, i) => (
                           <div key={i} className="admin-card" style={{ marginBottom: 8 }}>
                             <div style={{ fontWeight: 500, marginBottom: 4 }}>{pf.filename}</div>
-                            <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>
+                            <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>
                               {pf.totalChunks} чанков
                             </div>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                            <div className="admin-doc-tags">
                               {pf.tags.map((tag) => (
-                                <span key={tag} className="tag" style={{ fontSize: 11 }}>
+                                <span key={tag} className="admin-tag">
                                   {tag}
                                   <button
                                     onClick={() => updateParsedFileTags(i, pf.tags.filter((t) => t !== tag))}
-                                    style={{ marginLeft: 3, fontSize: 12 }}
+                                    className="admin-tag-remove"
                                   >
-                                    x
+                                    &times;
                                   </button>
                                 </span>
                               ))}
                             </div>
                           </div>
                         ))}
-                        <button className="admin-btn-primary" onClick={ingestFiles} style={{ marginTop: 12 }}>
+                        <button className="admin-btn-primary" onClick={ingestFiles} style={{ marginTop: 16, width: "100%" }}>
                           Загрузить в базу знаний
                         </button>
                       </div>
                     )}
                     {uploadStage === "ingesting" && (
                       <div>
-                        <div className="admin-loading-text">Индексация...</div>
+                        <div className="admin-loading-text">
+                          <div className="admin-spinner" />
+                          Индексация...
+                        </div>
                         <div className="admin-progress-bar">
                           <div className="admin-progress-fill" style={{ width: `${uploadProgress}%` }} />
                         </div>
                       </div>
                     )}
                     {uploadStage === "done" && (
-                      <div className="admin-loading-text" style={{ color: "var(--success)" }}>
+                      <div className="admin-loading-text admin-success-text">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                         Готово!
                       </div>
                     )}
@@ -615,6 +760,39 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
           </div>
         )}
       </div>
+
+      {/* Edit Modal */}
+      {editingCode && (
+        <div className="admin-modal-overlay" onClick={() => setEditingCode(null)}>
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3>Редактирование: {editingCode.code}</h3>
+              <button onClick={() => setEditingCode(null)} className="admin-modal-close">&times;</button>
+            </div>
+            <div className="admin-modal-body">
+              <div className="admin-form-group">
+                <label>ФИО</label>
+                <input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                />
+              </div>
+              <div className="admin-form-group">
+                <label>Лимит использований</label>
+                <input
+                  value={editUses}
+                  onChange={(e) => setEditUses(e.target.value.replace(/\D/g, ""))}
+                  placeholder="Пусто = безлимит"
+                />
+              </div>
+              <div className="admin-modal-actions">
+                <button className="admin-btn-secondary" onClick={() => setEditingCode(null)}>Отмена</button>
+                <button className="admin-btn-primary" onClick={saveEdit}>Сохранить</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
