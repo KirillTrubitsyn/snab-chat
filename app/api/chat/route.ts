@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { google } from "@/app/lib/google-ai";
-import { streamText, generateText } from "ai";
+import { streamText } from "ai";
 import { hybridSearch, filterByRelevance } from "@/app/lib/retrieval";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
 
@@ -27,7 +27,6 @@ export async function POST(req: NextRequest) {
 
   // Phase 1: Filter by relevance
   const { results: relevantChunks, lowConfidence } = filterByRelevance(searchResults);
-  console.log("filterByRelevance:", relevantChunks.length, "chunks, lowConfidence =", lowConfidence);
 
   // Phase 3a: Structured XML context format
   const ragContext = relevantChunks.length
@@ -105,43 +104,25 @@ ${ragContext || "В базе знаний не найдено релевантн
     }
   }
 
-  console.log("modelMessages count =", modelMessages.length, "systemPrompt length =", systemPrompt.length);
+  // Phase 3c: Stream response from Gemini
+  const result = streamText({
+    model: google("gemini-3-flash-preview"),
+    system: systemPrompt,
+    messages: modelMessages,
+    temperature: 0,
+    async onFinish({ text }) {
+      if (conversationId) {
+        await saveMessage(conversationId, "assistant", text);
+      }
+    },
+  });
 
   // Build source filenames from filtered relevant chunks (not all 20)
   const sourceFilenames = [...new Set(relevantChunks.map((r) => r.source_filename))];
 
-  // DEBUG: Use generateText to test if Gemini responds at all
-  try {
-    const { text } = await generateText({
-      model: google("gemini-3-flash"),
-      system: systemPrompt,
-      messages: modelMessages,
-      temperature: 0,
-    });
-
-    console.log("generateText SUCCESS: text length =", text.length, "preview =", text.slice(0, 300));
-
-    if (conversationId) {
-      await saveMessage(conversationId, "assistant", text);
-    }
-
-    // Return as data stream format manually
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(`0:${JSON.stringify(text)}\n`));
-        controller.close();
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "X-Sources": encodeURIComponent(JSON.stringify(sourceFilenames)),
-      },
-    });
-  } catch (err) {
-    console.error("generateText ERROR:", err);
-    return new Response(JSON.stringify({ error: String(err) }), { status: 500 });
-  }
+  return result.toDataStreamResponse({
+    headers: {
+      "X-Sources": encodeURIComponent(JSON.stringify(sourceFilenames)),
+    },
+  });
 }
