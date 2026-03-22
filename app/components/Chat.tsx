@@ -268,6 +268,13 @@ function MessageBubble({
     // Match without extension
     const nameNoExt = normName.replace(/\.\w+$/, "");
     src = allSources.find((doc) => normalize(doc.filename).replace(/\.\w+$/, "") === nameNoExt);
+    if (src) return src;
+    // Match by document code pattern (e.g., "С-ГК-В5-02" found in both text and filename)
+    const codeMatch = n.match(/[А-ЯA-Z][\w-]*(?:В\d|У\d|Б\d)[\w-]*/i);
+    if (codeMatch) {
+      const code = codeMatch[0].toLowerCase();
+      src = allSources.find((doc) => doc.filename.toLowerCase().includes(code));
+    }
     return src;
   };
 
@@ -282,7 +289,29 @@ function MessageBubble({
   return (
     <div className="message message-ai">
       <div className="message-content">
-        <ReactMarkdown>{message.content}</ReactMarkdown>
+        <ReactMarkdown
+          components={{
+            a: ({ children }) => {
+              const linkText = String(children);
+              const src = findSource(linkText);
+              if (src) {
+                return (
+                  <button
+                    className="source-link-btn"
+                    onClick={() => onViewSource(src)}
+                    title={`Открыть: ${src.filename}`}
+                  >
+                    {children}
+                  </button>
+                );
+              }
+              // No matching source — render as styled text, not a dead link
+              return <span style={{ color: "var(--accent)" }}>{children}</span>;
+            },
+          }}
+        >
+          {message.content}
+        </ReactMarkdown>
       </div>
       {message.sources && message.sources.length > 0 && (
         <div className="message-sources">
