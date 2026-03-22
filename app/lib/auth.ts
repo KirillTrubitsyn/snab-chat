@@ -86,7 +86,8 @@ export async function consumeInviteCodeFallback(
 export function requireAdmin(
   req: NextRequest
 ): { adminName: string } | NextResponse {
-  const code = req.headers.get("x-admin-code") ?? "";
+  const rawCode = req.headers.get("x-admin-code") ?? "";
+  const code = decodeURIComponent(rawCode);
   const name = getAdminName(code);
   if (!name) {
     return NextResponse.json(
@@ -104,8 +105,10 @@ export function requireAdmin(
 export async function getInviteCodeFromHeader(
   req: NextRequest
 ): Promise<InviteCode | null> {
-  const code = req.headers.get("x-invite-code") ?? "";
-  if (!code) return null;
+  const rawCode = req.headers.get("x-invite-code") ?? "";
+  if (!rawCode) return null;
+  // Decode URI-encoded header (Cyrillic characters are not valid in HTTP headers)
+  const code = decodeURIComponent(rawCode);
 
   // Админы тоже могут пользоваться чатом
   if (isAdminCode(code)) {
@@ -139,7 +142,8 @@ export async function getInviteCodeFromHeader(
 export async function requireAuth(
   req: NextRequest
 ): Promise<{ inviteCodeId: string | null; isAdmin: boolean } | NextResponse> {
-  const code = req.headers.get("x-invite-code") ?? "";
+  const rawCode = req.headers.get("x-invite-code") ?? "";
+  const code = decodeURIComponent(rawCode);
 
   if (isAdminCode(code)) {
     return { inviteCodeId: null, isAdmin: true };

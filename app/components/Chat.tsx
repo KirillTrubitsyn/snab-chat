@@ -921,7 +921,7 @@ export default function Chat() {
     id: activeConvId ?? chatKey,
     api: "/api/chat",
     body: { conversationId: convIdRef.current },
-    headers: { "x-invite-code": inviteCodeRef.current },
+    headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
   });
 
   /* ── Load conversations ── */
@@ -929,7 +929,7 @@ export default function Chat() {
     if (!inviteCode) return;
     try {
       const res = await fetch("/api/conversations", {
-        headers: { "x-invite-code": inviteCodeRef.current },
+        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
       });
       const data = await res.json();
       if (Array.isArray(data)) setConversations(data);
@@ -966,7 +966,7 @@ export default function Chat() {
 
       try {
         const res = await fetch(`/api/conversations/messages?id=${convId}`, {
-          headers: { "x-invite-code": inviteCodeRef.current },
+          headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
         });
         const data = await res.json();
         setHasSummary(data.conversation?.hasSummary ?? false);
@@ -995,7 +995,7 @@ export default function Chat() {
     async (title?: string) => {
       const res = await fetch("/api/conversations", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-invite-code": inviteCodeRef.current },
+        headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
         body: JSON.stringify({ title: title || "Новый диалог" }),
       });
       if (!res.ok) {
@@ -1021,7 +1021,7 @@ export default function Chat() {
       e?.stopPropagation();
       await fetch(`/api/conversations?id=${convId}`, {
         method: "DELETE",
-        headers: { "x-invite-code": inviteCodeRef.current },
+        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
       });
       setConversations((prev) => prev.filter((c) => c.id !== convId));
       if (activeConvId === convId) {
@@ -1045,7 +1045,7 @@ export default function Chat() {
     const formData = new FormData();
     formData.append("file", file);
     try {
-      const res = await fetch("/api/parse", { method: "POST", body: formData, headers: { "x-invite-code": inviteCodeRef.current } });
+      const res = await fetch("/api/parse", { method: "POST", body: formData, headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) } });
       if (!res.ok) throw new Error("Parse failed");
       const data = await res.json();
       if (isPhoto) {
@@ -1150,7 +1150,7 @@ export default function Chat() {
     const ids = Array.from(selectedConvIds);
     await fetch("/api/conversations", {
       method: "DELETE",
-      headers: { "Content-Type": "application/json", "x-invite-code": inviteCodeRef.current },
+      headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
       body: JSON.stringify({ ids }),
     });
     setConversations((prev) => prev.filter((c) => !selectedConvIds.has(c.id)));
@@ -1166,7 +1166,7 @@ export default function Chat() {
   }, [selectedConvIds, activeConvId, setMessages]);
 
   const deleteAllConversations = useCallback(async () => {
-    await fetch("/api/conversations?all=true", { method: "DELETE", headers: { "x-invite-code": inviteCodeRef.current } });
+    await fetch("/api/conversations?all=true", { method: "DELETE", headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) } });
     setConversations([]);
     setActiveConvId(null);
     convIdRef.current = null;
@@ -1233,7 +1233,7 @@ export default function Chat() {
         try {
           const res = await fetch("/api/chat", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "x-invite-code": inviteCodeRef.current },
+            headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
             body: JSON.stringify({
               messages: [{ role: "user", content: messageText }],
               conversationId: newId,
@@ -1312,7 +1312,7 @@ export default function Chat() {
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-invite-code": inviteCodeRef.current },
+          headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
           body: JSON.stringify({
             messages: currentMessages.map((m) => ({
               role: m.role,
