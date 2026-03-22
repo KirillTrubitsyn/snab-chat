@@ -1148,7 +1148,7 @@ input, textarea {
 .source-link-btn {
   background: none;
   border: none;
-  color: var(--primary);
+  color: var(--accent);
   cursor: pointer;
   font-size: inherit;
   font-family: inherit;
@@ -1156,9 +1156,11 @@ input, textarea {
   text-decoration-style: dotted;
   text-underline-offset: 2px;
   padding: 0;
-  transition: color var(--transition);
+  transition: color var(--transition), background var(--transition);
+  border-radius: 2px;
 }
 
 .source-link-btn:hover {
-  color: var(--primary-dark, #1a5c45);
+  color: var(--accent-hover);
+  background: var(--accent-soft);
 }
