@@ -1548,14 +1548,15 @@ export default function Chat() {
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {hasSummary && <span className="memory-pill">Память активна</span>}
             <button
-              className="header-action-btn infographic-header-btn"
+              className="header-labeled-btn accent"
               onClick={() => navigateToInfographic()}
               title="Генератор инфографики"
             >
               <InfographicIcon />
+              <span className="btn-label">Инфографика</span>
             </button>
             <button
-              className="header-action-btn"
+              className="header-labeled-btn"
               onClick={() => {
                 setActiveConvId(null);
                 convIdRef.current = null;
@@ -1565,10 +1566,11 @@ export default function Chat() {
               }}
               title="Новый чат"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 20h9" />
                 <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
               </svg>
+              <span className="btn-label">Новый чат</span>
             </button>
             <button className="menu-btn" onClick={() => setRightOpen((o) => !o)}>
               <HistoryIcon />

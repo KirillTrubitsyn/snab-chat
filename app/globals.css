@@ -369,7 +369,7 @@ input, textarea {
 }
 
 .chat-column {
-  max-width: 760px;
+  max-width: 960px;
   width: 100%;
   margin: 0 auto;
   flex: 1;
@@ -1385,6 +1385,63 @@ input, textarea {
   color: var(--text-primary);
 }
 
+/* Header labeled button (desktop: icon + text, mobile: icon only) */
+.header-labeled-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font-body);
+  color: var(--text-secondary);
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  white-space: nowrap;
+}
+
+.header-labeled-btn:hover {
+  background: var(--bg-sidebar-hover);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+.header-labeled-btn.accent {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+
+.header-labeled-btn.accent:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.header-labeled-btn svg {
+  flex-shrink: 0;
+}
+
+.header-labeled-btn .btn-label {
+  display: inline;
+}
+
+@media (max-width: 768px) {
+  .header-labeled-btn .btn-label {
+    display: none;
+  }
+  .header-labeled-btn {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+  }
+}
+
 /* ── Animations ── */
 
 @keyframes fadeInUp {
@@ -2076,9 +2133,7 @@ input, textarea {
   align-self: center;
 }
 
-.infographic-header-btn {
-  color: var(--accent);
-}
+/* infographic-header-btn: now handled by .header-labeled-btn.accent */
 
 /* ── Infographic Page ── */
 
