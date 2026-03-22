@@ -1,18 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#2563EB"/>
-  <g transform="translate(256,256)">
-    <!-- Cube icon -->
-    <g fill="none" stroke="#fff" stroke-width="24" stroke-linejoin="round" stroke-linecap="round">
-      <path d="M0-100 L87 -50 L87 50 L0 100 L-87 50 L-87 -50Z"/>
-      <line x1="0" y1="-100" x2="0" y2="100"/>
-      <line x1="0" y1="-100" x2="87" y2="-50"/>
-      <line x1="0" y1="-100" x2="-87" y2="-50"/>
-      <line x1="0" y1="100" x2="87" y2="50"/>
-      <line x1="0" y1="100" x2="-87" y2="50"/>
-    </g>
-    <!-- Chat bubble dots -->
-    <circle cx="-30" cy="15" r="8" fill="#fff"/>
-    <circle cx="0" cy="15" r="8" fill="#fff"/>
-    <circle cx="30" cy="15" r="8" fill="#fff"/>
+  <defs>
+    <clipPath id="squircle">
+      <rect width="512" height="512" rx="112" ry="112"/>
+    </clipPath>
+  </defs>
+  <rect width="512" height="512" rx="112" ry="112" fill="#F0F4FA"/>
+  <g clip-path="url(#squircle)">
+    <!-- Back card -->
+    <rect x="120" y="100" width="200" height="260" rx="28" fill="#0D47A1"/>
+    <!-- Middle card -->
+    <rect x="160" y="140" width="200" height="260" rx="28" fill="#1976D2"/>
+    <!-- Front card -->
+    <rect x="200" y="180" width="200" height="260" rx="28" fill="#42A5F5"/>
+    <!-- Chat bubble on front card -->
+    <rect x="328" y="368" width="52" height="40" rx="12" fill="#FFFFFF"/>
+    <polygon points="338,408 328,424 348,408" fill="#FFFFFF"/>
   </g>
 </svg>

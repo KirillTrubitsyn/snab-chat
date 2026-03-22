@@ -98,12 +98,15 @@ function formatDate(dateStr: string): string {
 
 /* ── Inline SVG icons ── */
 
-function CubeIcon() {
+function SpektrIcon({ size = 24 }: { size?: number }) {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-      <line x1="12" y1="22.08" x2="12" y2="12" />
+    <svg width={size} height={size} viewBox="0 0 512 512" fill="none">
+      <rect width="512" height="512" rx="112" fill="#F0F4FA"/>
+      <rect x="120" y="100" width="200" height="260" rx="28" fill="#0D47A1"/>
+      <rect x="160" y="140" width="200" height="260" rx="28" fill="#1976D2"/>
+      <rect x="200" y="180" width="200" height="260" rx="28" fill="#42A5F5"/>
+      <rect x="328" y="368" width="52" height="40" rx="12" fill="#fff"/>
+      <polygon points="338,408 328,424 348,408" fill="#fff"/>
     </svg>
   );
 }
@@ -1421,7 +1424,7 @@ export default function Chat() {
             <button className="menu-btn" onClick={() => setLeftOpen((o) => !o)}>
               <MenuIcon />
             </button>
-            <CubeIcon />
+            <SpektrIcon size={28} />
             <span style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17 }}>
               СнабЧат
             </span>

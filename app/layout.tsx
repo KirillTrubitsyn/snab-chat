@@ -11,13 +11,17 @@ export const metadata: Metadata = {
     title: "СнабЧат",
   },
   icons: {
-    icon: "/icons/icon-192.png",
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icons/icon.svg", type: "image/svg+xml" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
     apple: "/icons/apple-touch-icon.png",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#2563EB",
+  themeColor: "#1976D2",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,

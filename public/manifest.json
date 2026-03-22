@@ -4,8 +4,8 @@
   "description": "ИИ-ассистент Дирекции по закупкам с RAG-поиском по базе знаний",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#FAFAFA",
-  "theme_color": "#2563EB",
+  "background_color": "#F0F4FA",
+  "theme_color": "#1976D2",
   "orientation": "portrait-primary",
   "icons": [
     {
