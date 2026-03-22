@@ -1565,6 +1565,31 @@ export default function Chat() {
                                 </button>
                               </form>
                             </div>
+                            <div style={{ display: "flex", gap: 6, marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+                              <button
+                                className="btn-secondary"
+                                style={{ flex: 1, fontSize: 12, padding: "5px 10px", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}
+                                onClick={(e) => { e.stopPropagation(); setViewingSource(doc); }}
+                              >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                  <circle cx="12" cy="12" r="3" />
+                                </svg>
+                                Просмотреть
+                              </button>
+                              <button
+                                className="btn-secondary"
+                                style={{ flex: 1, fontSize: 12, padding: "5px 10px", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}
+                                onClick={(e) => { e.stopPropagation(); window.open(`/api/sources/download?id=${doc.id}&action=download`, "_blank"); }}
+                              >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                  <polyline points="7 10 12 15 17 10" />
+                                  <line x1="12" y1="15" x2="12" y2="3" />
+                                </svg>
+                                Скачать
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>

@@ -293,14 +293,12 @@ input, textarea {
 }
 
 .doc-item .doc-delete-btn,
-.doc-item .doc-action-btn,
 .sidebar-item .doc-delete-btn {
   opacity: 0;
   transition: opacity var(--transition);
 }
 
 .doc-item:hover .doc-delete-btn,
-.doc-item:hover .doc-action-btn,
 .sidebar-item:hover .doc-delete-btn {
   opacity: 1;
 }
