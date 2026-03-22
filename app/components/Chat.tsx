@@ -896,10 +896,27 @@ function MessageBubble({
 function EmptyState() {
   return (
     <div className="empty-state">
-      <SearchIcon />
-      <div className="empty-title">Задайте вопрос по документам</div>
-      <div className="empty-sub">
-        Загрузите DOCX или PDF в базу знаний, а затем задайте вопрос — ИИ найдёт ответ в ваших документах.
+      <div className="welcome-logo-glow">
+        <SpektrIcon size={96} />
+      </div>
+      <div className="welcome-dept">Дирекция по ресурсному обеспечению</div>
+      <div className="welcome-brand">
+        <span style={{ color: '#003A7A' }}>Снаб</span><span style={{ color: '#0099CC' }}>Чат</span>
+      </div>
+      <div className="welcome-divider" />
+      <div className="welcome-role">Ваш ИИ-ассистент по закупкам</div>
+      <div className="welcome-desc">
+        Помогу разобраться в процедурах, найти нужный документ, подготовить ответ или проверить соответствие требованиям
+      </div>
+      <div className="welcome-chips">
+        <div className="welcome-chips-row">
+          <button className="welcome-chip" type="button">Как провести закупку?</button>
+          <button className="welcome-chip" type="button">Сроки подачи заявок</button>
+        </div>
+        <div className="welcome-chips-row">
+          <button className="welcome-chip" type="button">Проверить ТЗ</button>
+          <button className="welcome-chip" type="button">Требования к поставщикам</button>
+        </div>
       </div>
     </div>
   );
