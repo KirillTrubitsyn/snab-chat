@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { useChat } from "ai/react";
 import ReactMarkdown from "react-markdown";
 import InviteGate from "./InviteGate";
@@ -140,6 +141,16 @@ function SearchIcon() {
     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="11" cy="11" r="8" />
       <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
+function InfographicIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <line x1="3" y1="9" x2="21" y2="9" />
+      <line x1="9" y1="21" x2="9" y2="9" />
     </svg>
   );
 }
@@ -535,10 +546,12 @@ function MessageBubble({
   message,
   allSources,
   onViewSource,
+  onCreateInfographic,
 }: {
   message: { id: string; role: string; content: string; sources?: string[]; attachments?: string[] };
   allSources: Source[];
   onViewSource: (source: Source) => void;
+  onCreateInfographic?: (content: string) => void;
 }) {
   const isUser = message.role === "user";
 
@@ -722,6 +735,18 @@ function MessageBubble({
           </div>
         </div>
       )}
+      {onCreateInfographic && (
+        <div className="message-infographic-row">
+          <button
+            className="message-infographic-btn"
+            onClick={() => onCreateInfographic(message.content)}
+            title="Создать инфографику на основе этого ответа"
+          >
+            <InfographicIcon size={14} />
+            Создать инфографику
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -810,6 +835,19 @@ export default function Chat() {
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
   const [convBulkMode, setConvBulkMode] = useState(false);
+
+  const router = useRouter();
+
+  /* ── Infographic navigation ── */
+  const navigateToInfographic = useCallback((content?: string) => {
+    if (content) {
+      sessionStorage.setItem(
+        "infographic_context",
+        JSON.stringify({ documentText: content })
+      );
+    }
+    router.push("/infographic");
+  }, [router]);
 
   /* ── Refs ── */
   const convIdRef = useRef<string | null>(null);
@@ -1307,6 +1345,13 @@ export default function Chat() {
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {hasSummary && <span className="memory-pill">Память активна</span>}
             <button
+              className="header-action-btn infographic-header-btn"
+              onClick={() => navigateToInfographic()}
+              title="Генератор инфографики"
+            >
+              <InfographicIcon />
+            </button>
+            <button
               className="header-action-btn"
               onClick={() => {
                 setActiveConvId(null);
@@ -1528,7 +1573,7 @@ export default function Chat() {
                 )}
                 {messages.length === 0 && !hasSummary && <EmptyState />}
                 {messages.map((m) => (
-                  <MessageBubble key={m.id} message={m} allSources={sources} onViewSource={setViewingSource} />
+                  <MessageBubble key={m.id} message={m} allSources={sources} onViewSource={setViewingSource} onCreateInfographic={m.role === "assistant" ? navigateToInfographic : undefined} />
                 ))}
                 {isSending && <TypingBubble />}
               </div>
