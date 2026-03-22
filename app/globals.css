@@ -547,7 +547,8 @@ input, textarea {
   background: var(--bg-white);
   border: 1px solid var(--border);
   border-radius: var(--radius-input);
-  padding: 6px 6px 6px 20px;
+  padding: 6px;
+  gap: 4px;
   box-shadow: var(--shadow);
   transition: border-color var(--transition);
   display: flex;
@@ -560,6 +561,8 @@ input, textarea {
 
 .chat-input {
   flex: 1;
+  min-width: 0;
+  padding-left: 8px;
   font-family: var(--font-body);
   font-size: 15px;
   color: var(--text-primary);
