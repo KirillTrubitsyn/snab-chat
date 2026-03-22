@@ -7,7 +7,7 @@ export const maxDuration = 120;
 
 const client = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
 
-const MODEL = "gemini-2.0-flash-preview-image-generation";
+const MODEL = "gemini-3.1-flash-image-preview";
 
 const INFOGRAPHIC_STYLE_PROMPTS: Record<string, string> = {
   business_infographic:
@@ -31,13 +31,27 @@ const INFOGRAPHIC_STYLE_PROMPTS: Record<string, string> = {
 const SYSTEM_PROMPT = `Ты профессиональный дизайнер инфографики. Создавай наглядные, информативные инфографики на русском языке.
 
 ВАЖНЫЕ ПРАВИЛА:
-1. Весь текст на инфографике ДОЛЖЕН быть на русском языке
-2. Текст должен быть чётким, читаемым, без ошибок
+1. Весь текст на инфографике ДОЛЖЕН быть на русском языке (кириллица)
+2. Текст должен быть чётким, читаемым, без ошибок и опечаток
 3. Используй профессиональный деловой стиль
 4. Структурируй информацию визуально: блоки, стрелки, иконки, нумерация
 5. Минимум текста — максимум наглядности
 6. Цветовая палитра: профессиональная, корпоративная (синий, серый, белый, акцентные цвета)
-7. Не используй латинские буквы вместо похожих русских (а, е, о, с, р, х и т.д.)`;
+7. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать латинские буквы-двойники вместо русских (а→a, е→e, о→o, с→c, р→p, х→x и т.д.). Все буквы должны быть кириллическими
+8. Шрифты должны быть достаточно крупными для удобного чтения`;
+
+/**
+ * Fix Cyrillic lookalike characters — replace Latin chars that look like
+ * Cyrillic with their proper Cyrillic counterparts in Russian text.
+ */
+function fixCyrillicLookalikes(text: string): string {
+  const map: Record<string, string> = {
+    A: "А", B: "В", C: "С", E: "Е", H: "Н", K: "К",
+    M: "М", O: "О", P: "Р", T: "Т", X: "Х",
+    a: "а", c: "с", e: "е", o: "о", p: "р", x: "х", y: "у",
+  };
+  return text.replace(/[ABCEHKMOPTXaceopxy]/g, (ch) => map[ch] ?? ch);
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -53,29 +67,32 @@ export async function POST(req: NextRequest) {
     const styleInstruction =
       INFOGRAPHIC_STYLE_PROMPTS[style] || style || "";
 
-    let userPrompt = `Создай инфографику на тему: ${topic}`;
-    if (styleInstruction) {
-      userPrompt += `\n\nСтиль и формат: ${styleInstruction}`;
-    }
-    if (documentText && typeof documentText === "string") {
-      const excerpt = documentText.slice(0, 30000);
-      userPrompt += `\n\nИспользуй следующие данные как основу для инфографики:\n${excerpt}`;
-    }
-
-    // Aspect ratio hint
-    const arHints: Record<string, string> = {
-      "16:9": "Горизонтальная ориентация (16:9, широкоформатная)",
-      "1:1": "Квадратный формат (1:1)",
-      "9:16": "Вертикальная ориентация (9:16, для мобильных устройств)",
-    };
-    if (aspectRatio && arHints[aspectRatio]) {
-      userPrompt += `\n\nФормат изображения: ${arHints[aspectRatio]}`;
-    }
-
     const maxRetries = 3;
     let lastError: string | null = null;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
+      // Progressive simplification: reduce document context on retries
+      const docLimit = attempt === 0 ? 30000 : attempt === 1 ? 10000 : 0;
+
+      let userPrompt = `Создай инфографику на тему: ${topic}`;
+      if (styleInstruction) {
+        userPrompt += `\n\nСтиль и формат: ${styleInstruction}`;
+      }
+      if (documentText && typeof documentText === "string" && docLimit > 0) {
+        const excerpt = documentText.slice(0, docLimit);
+        userPrompt += `\n\nИспользуй следующие данные как основу для инфографики:\n${excerpt}`;
+      }
+
+      // Aspect ratio hint
+      const arHints: Record<string, string> = {
+        "16:9": "Горизонтальная ориентация (16:9, широкоформатная)",
+        "1:1": "Квадратный формат (1:1)",
+        "9:16": "Вертикальная ориентация (9:16, для мобильных устройств)",
+      };
+      if (aspectRatio && arHints[aspectRatio]) {
+        userPrompt += `\n\nФормат изображения: ${arHints[aspectRatio]}`;
+      }
+
       try {
         const result = await withGoogleApiLimit(async () => {
           const response = await client.models.generateContent({
@@ -106,6 +123,9 @@ export async function POST(req: NextRequest) {
 
         if (!imageBase64) {
           lastError = "Модель не вернула изображение";
+          console.warn(
+            `No image in response (attempt ${attempt + 1}/${maxRetries})`
+          );
           if (attempt < maxRetries - 1) {
             await new Promise((r) => setTimeout(r, 2 ** attempt * 1000));
             continue;
@@ -115,11 +135,15 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({
           image_base64: imageBase64,
-          description: description.trim(),
+          description: fixCyrillicLookalikes(description.trim()),
         });
       } catch (err) {
         lastError =
           err instanceof Error ? err.message : "Ошибка генерации";
+        console.error(
+          `Infographic generation error (attempt ${attempt + 1}/${maxRetries}):`,
+          err
+        );
         if (attempt < maxRetries - 1) {
           await new Promise((r) => setTimeout(r, 2 ** attempt * 1000));
           continue;
