@@ -716,6 +716,7 @@ export default function Chat() {
   const [sources, setSources] = useState<Source[]>([]);
   const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);
   const [sourceTagInput, setSourceTagInput] = useState("");
+  const [isSending, setIsSending] = useState(false);
 
   /* ── Refs ── */
   const convIdRef = useRef<string | null>(null);
@@ -869,7 +870,9 @@ export default function Chat() {
     async (e?: FormEvent) => {
       e?.preventDefault();
       const text = input.trim();
-      if (!text || isLoading) return;
+      if (!text || isLoading || isSending) return;
+
+      setIsSending(true);
 
       if (!convIdRef.current) {
         pendingSubmitRef.current = text;
@@ -941,6 +944,7 @@ export default function Chat() {
         }
 
         pendingSubmitRef.current = null;
+        setIsSending(false);
         loadConversations();
         return;
       }
@@ -1011,9 +1015,11 @@ export default function Chat() {
         }
       } catch (err) {
         console.error("Stream error:", err);
+      } finally {
+        setIsSending(false);
       }
     },
-    [input, isLoading, messages, setInput, setMessages, createConversation, loadConversations]
+    [input, isLoading, isSending, messages, setInput, setMessages, createConversation, loadConversations]
   );
 
   /* ── Auto-scroll ── */
@@ -1268,7 +1274,7 @@ export default function Chat() {
                 {messages.map((m) => (
                   <MessageBubble key={m.id} message={m} />
                 ))}
-                {isLoading && lastIsUser && <TypingBubble />}
+                {isSending && <TypingBubble />}
               </div>
 
               <form className="input-area" onSubmit={handleSubmit}>
@@ -1290,7 +1296,7 @@ export default function Chat() {
                   />
                   <button
                     type="submit"
-                    disabled={isLoading || !input.trim()}
+                    disabled={isLoading || isSending || !input.trim()}
                     className="send-btn"
                   >
                     <ArrowUpIcon />
