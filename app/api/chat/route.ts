@@ -3,7 +3,8 @@ import { google } from "@/app/lib/google-ai";
 import { streamText } from "ai";
 import { hybridSearch, filterByRelevance } from "@/app/lib/retrieval";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
-import { getInviteCodeFromHeader } from "@/app/lib/auth";
+import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
+import { createServiceClient } from "@/app/lib/supabase";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,20 @@ export async function POST(req: NextRequest) {
   }
 
   const { messages, conversationId, attachedDocuments } = await req.json();
+
+  // Проверяем принадлежность диалога (если не админ)
+  if (conversationId && !isAdminCode(invite.code)) {
+    const supabase = createServiceClient();
+    const { data: conv } = await supabase
+      .from("conversations")
+      .select("invite_code_id")
+      .eq("id", conversationId)
+      .single();
+
+    if (!conv || conv.invite_code_id !== invite.id) {
+      return NextResponse.json({ error: "Диалог не найден" }, { status: 404 });
+    }
+  }
 
   const userMessage = messages[messages.length - 1];
   const hasAttachments = Array.isArray(attachedDocuments) && attachedDocuments.length > 0;
