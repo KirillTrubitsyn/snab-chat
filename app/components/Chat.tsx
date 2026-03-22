@@ -723,6 +723,78 @@ function UploadModal({
   );
 }
 
+/* ── Document Viewer Modal ── */
+
+function cleanDocumentText(text: string): string {
+  return text
+    // Remove backslash escapes from markdown: \( \) \. \- \, etc.
+    .replace(/\\([().,;:!?\-\[\]{}+=#])/g, "$1")
+    // Decode URL-encoded strings (e.g. %20%D1%81... -> readable text)
+    .replace(/%[0-9A-Fa-f]{2}(?:%[0-9A-Fa-f]{2})*/g, (match) => {
+      try {
+        return decodeURIComponent(match);
+      } catch {
+        return match;
+      }
+    })
+    // Remove leftover markdown link syntax with encoded URLs
+    .replace(/\[([^\]]*)\]\(([^)]*)\)/g, "$1")
+    // Clean up multiple blank lines
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+function DocumentViewer({
+  sourceId,
+  onClose,
+}: {
+  sourceId: number;
+  onClose: () => void;
+}) {
+  const [text, setText] = useState("");
+  const [filename, setFilename] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`/api/sources/text?id=${sourceId}`);
+        if (!res.ok) throw new Error("Failed to load");
+        const data = await res.json();
+        setFilename(data.filename || "");
+        setText(cleanDocumentText(data.text || ""));
+      } catch {
+        setText("Ошибка загрузки документа");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [sourceId]);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="doc-viewer-card" onClick={(e) => e.stopPropagation()}>
+        <div className="doc-viewer-header">
+          <div className="doc-viewer-filename" title={filename}>
+            {filename}
+          </div>
+          <button className="btn-secondary" onClick={onClose}>
+            Закрыть
+          </button>
+        </div>
+        <div className="doc-viewer-body">
+          {loading ? (
+            <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
+              <div className="spinner" />
+            </div>
+          ) : (
+            <div className="doc-viewer-text">{text}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════
    Main Chat component
    ═══════════════════════════════════════════════ */
@@ -737,6 +809,7 @@ export default function Chat() {
   const [leftCollapsed, setLeftCollapsed] = useState(true);
   const [rightCollapsed, setRightCollapsed] = useState(true);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [viewingSourceId, setViewingSourceId] = useState<number | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);
   const [sourceTagInput, setSourceTagInput] = useState("");
@@ -1209,6 +1282,13 @@ export default function Chat() {
                               marginTop: -2,
                             }}
                           >
+                            <button
+                              className="btn-secondary"
+                              style={{ width: "100%", padding: "5px 0", fontSize: 12, marginBottom: 8 }}
+                              onClick={(e) => { e.stopPropagation(); setViewingSourceId(doc.id); }}
+                            >
+                              Просмотр документа
+                            </button>
                             <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>Теги</div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
                               {(doc.tags || []).map((tag) => (
@@ -1419,6 +1499,14 @@ export default function Chat() {
             loadSources();
             setShowUploadModal(false);
           }}
+        />
+      )}
+
+      {/* ── Document Viewer ── */}
+      {viewingSourceId !== null && (
+        <DocumentViewer
+          sourceId={viewingSourceId}
+          onClose={() => setViewingSourceId(null)}
         />
       )}
     </>
