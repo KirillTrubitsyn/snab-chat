@@ -1048,6 +1048,8 @@ export default function Chat() {
   /* ── State ── */
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  // Unique key for useChat to avoid stale message cache when starting new chats
+  const [chatKey, setChatKey] = useState(() => `new-${Date.now()}`);
   const [hasSummary, setHasSummary] = useState(false);
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
@@ -1077,7 +1079,7 @@ export default function Chat() {
     isLoading,
     setInput,
   } = useChat({
-    id: activeConvId ?? undefined,
+    id: activeConvId ?? chatKey,
     api: "/api/chat",
     body: { conversationId: convIdRef.current },
   });
@@ -1427,6 +1429,7 @@ export default function Chat() {
               onClick={() => {
                 setActiveConvId(null);
                 convIdRef.current = null;
+                setChatKey(`new-${Date.now()}`);
                 setMessages([]);
                 setHasSummary(false);
               }}
@@ -1825,6 +1828,7 @@ export default function Chat() {
                     onClick={() => {
                       setActiveConvId(null);
                       convIdRef.current = null;
+                      setChatKey(`new-${Date.now()}`);
                       setMessages([]);
                       setHasSummary(false);
                     }}
