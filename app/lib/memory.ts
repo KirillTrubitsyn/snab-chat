@@ -1,5 +1,5 @@
 import { createServiceClient } from "./supabase";
-import { google } from "@/app/lib/google-ai";
+import { google, withGoogleApiLimit } from "@/app/lib/google-ai";
 import { generateText } from "ai";
 
 const HISTORY_TOKEN_BUDGET = 30000;
@@ -25,17 +25,26 @@ export async function loadConversationContext(
 ): Promise<ConversationContext> {
   const supabase = createServiceClient();
 
-  const { data: conv } = await supabase
-    .from("conversations")
-    .select("summary")
-    .eq("id", conversationId)
-    .single();
+  // Load conversation and messages in parallel; limit messages to avoid loading huge histories
+  const MAX_MESSAGES_LOAD = 50;
 
-  const { data: msgs } = await supabase
-    .from("messages")
-    .select("role, content")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true });
+  const [{ data: conv }, { data: msgs }] = await Promise.all([
+    supabase
+      .from("conversations")
+      .select("summary")
+      .eq("id", conversationId)
+      .single(),
+    supabase
+      .from("messages")
+      .select("role, content")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(MAX_MESSAGES_LOAD)
+      .then((res) => ({
+        ...res,
+        data: res.data?.reverse() ?? null,
+      })),
+  ]);
 
   const messages: Message[] = msgs ?? [];
   const hasSummary = !!conv?.summary;
@@ -63,10 +72,10 @@ export async function loadConversationContext(
       ? `Предыдущее резюме:\n${conv.summary}\n\nНовые сообщения:\n${oldText}`
       : oldText;
 
-    const { text: summary } = await generateText({
+    const { text: summary } = await withGoogleApiLimit(() => generateText({
       model: google("gemini-3-flash-preview"),
       prompt: `Кратко суммаризируй этот диалог, сохранив ключевые факты, решения и контекст. Пиши на русском, компактно (до 500 слов):\n\n${contextForSummary}`,
-    });
+    }));
 
     // Save summary and delete old messages
     await supabase

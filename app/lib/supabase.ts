@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 function getEnvOrThrow(name: string): string {
   const value = process.env[name];
@@ -22,13 +22,21 @@ function validateSupabaseUrl(url: string): string {
   return url;
 }
 
-export function createServiceClient() {
-  const url = validateSupabaseUrl(getEnvOrThrow("NEXT_PUBLIC_SUPABASE_URL"));
-  const key = getEnvOrThrow("SUPABASE_SERVICE_ROLE_KEY");
-  return createClient(url, key);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let serviceClientInstance: SupabaseClient<any> | null = null;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createServiceClient(): SupabaseClient<any> {
+  if (!serviceClientInstance) {
+    const url = validateSupabaseUrl(getEnvOrThrow("NEXT_PUBLIC_SUPABASE_URL"));
+    const key = getEnvOrThrow("SUPABASE_SERVICE_ROLE_KEY");
+    serviceClientInstance = createClient(url, key);
+  }
+  return serviceClientInstance;
 }
 
-export function createBrowserClient() {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createBrowserClient(): SupabaseClient<any> {
   const url = validateSupabaseUrl(getEnvOrThrow("NEXT_PUBLIC_SUPABASE_URL"));
   const key = getEnvOrThrow("NEXT_PUBLIC_SUPABASE_ANON_KEY");
   return createClient(url, key);

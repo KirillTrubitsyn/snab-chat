@@ -229,7 +229,14 @@ function UploadModal({
       formData.append("file", results[i].file);
 
       try {
-        const res = await fetch("/api/parse", { method: "POST", body: formData });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 120000);
+        const res = await fetch("/api/parse", {
+          method: "POST",
+          body: formData,
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
         if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
         const data: ParsedFile = await res.json();
         results[i] = { ...results[i], status: "parsed", parsed: data, tags: data.tags };
@@ -237,7 +244,9 @@ function UploadModal({
         results[i] = {
           ...results[i],
           status: "error",
-          error: err instanceof Error ? err.message : "Ошибка обработки",
+          error: err instanceof Error
+            ? (err.name === "AbortError" ? "Таймаут: сервер не ответил за 2 мин" : err.message)
+            : "Ошибка обработки",
         };
       }
       setEntries([...results]);
@@ -267,6 +276,8 @@ function UploadModal({
 
       try {
         const p = updated[i].parsed!;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 300000);
         const res = await fetch("/api/ingest", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -276,7 +287,9 @@ function UploadModal({
             markdown: p.markdown,
             tags: updated[i].tags,
           }),
+          signal: controller.signal,
         });
+        clearTimeout(timeout);
         if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
         updated[i] = { ...updated[i], status: "done" };
         successCount++;
@@ -284,7 +297,9 @@ function UploadModal({
         updated[i] = {
           ...updated[i],
           status: "error",
-          error: err instanceof Error ? err.message : "Ошибка загрузки",
+          error: err instanceof Error
+            ? (err.name === "AbortError" ? "Таймаут: загрузка заняла больше 5 мин" : err.message)
+            : "Ошибка загрузки",
         };
       }
       setEntries([...updated]);
@@ -329,7 +344,14 @@ function UploadModal({
       formData.append("file", all[i].file);
 
       try {
-        const res = await fetch("/api/parse", { method: "POST", body: formData });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 120000);
+        const res = await fetch("/api/parse", {
+          method: "POST",
+          body: formData,
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
         if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
         const data: ParsedFile = await res.json();
         all[i] = { ...all[i], status: "parsed", parsed: data, tags: data.tags };
@@ -337,7 +359,9 @@ function UploadModal({
         all[i] = {
           ...all[i],
           status: "error",
-          error: err instanceof Error ? err.message : "Ошибка обработки",
+          error: err instanceof Error
+            ? (err.name === "AbortError" ? "Таймаут: сервер не ответил за 2 мин" : err.message)
+            : "Ошибка обработки",
         };
       }
       setEntries([...all]);
