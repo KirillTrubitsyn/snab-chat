@@ -1519,9 +1519,9 @@ export default function Chat() {
             <button className="menu-btn" onClick={() => setLeftOpen((o) => !o)}>
               <MenuIcon />
             </button>
-            <SpektrIcon size={28} />
-            <span style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 17 }}>
-              СнабЧат
+            <SpektrIcon size={36} />
+            <span style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontWeight: 700, fontSize: 22, letterSpacing: '-0.02em', lineHeight: 1 }}>
+              <span style={{ color: '#003A7A' }}>Снаб</span><span style={{ color: '#0099CC' }}>Чат</span>
             </span>
             <div className="header-divider" />
             <span style={{ fontFamily: "var(--font-body)", fontSize: 14, color: "var(--text-secondary)" }}>
