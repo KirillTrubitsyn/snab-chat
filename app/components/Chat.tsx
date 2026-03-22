@@ -42,6 +42,15 @@ interface ChatFile {
   error?: string;
 }
 
+interface ChatPhoto {
+  id: string;
+  file: File;
+  preview: string;
+  markdown: string;
+  parsing: boolean;
+  error?: string;
+}
+
 /* ── SpeechRecognition types ── */
 
 interface SpeechRecognitionEvent extends Event {
@@ -263,6 +272,171 @@ function VoiceButton({ onTranscript, disabled }: { onTranscript: (text: string) 
         </svg>
       )}
     </button>
+  );
+}
+
+/* ── CameraButton (mobile only) ── */
+
+function CameraButton({
+  onCapture,
+  disabled,
+  maxPhotos = 10,
+  currentPhotoCount = 0,
+}: {
+  onCapture: (file: File) => void;
+  disabled?: boolean;
+  maxPhotos?: number;
+  currentPhotoCount?: number;
+}) {
+  const [showCamera, setShowCamera] = useState(false);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const isLimitReached = currentPhotoCount >= maxPhotos;
+
+  const startCamera = useCallback(async () => {
+    try {
+      setError(null);
+      setReady(false);
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false,
+      });
+      setStream(mediaStream);
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current
+            ?.play()
+            .then(() => setReady(true))
+            .catch(() => setError("Не удалось запустить видео"));
+        };
+      }
+    } catch {
+      setError("Нет доступа к камере");
+    }
+  }, [facingMode, stream]);
+
+  const stopCamera = useCallback(() => {
+    stream?.getTracks().forEach((t) => t.stop());
+    setStream(null);
+    setReady(false);
+  }, [stream]);
+
+  const openCamera = () => {
+    if (isLimitReached) return;
+    setShowCamera(true);
+    setTimeout(() => startCamera(), 100);
+  };
+
+  const closeCamera = () => {
+    stopCamera();
+    setShowCamera(false);
+    setError(null);
+  };
+
+  const capture = () => {
+    if (!videoRef.current || !canvasRef.current || !ready) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          onCapture(new File([blob], `photo_${Date.now()}.jpg`, { type: "image/jpeg" }));
+          closeCamera();
+        }
+      },
+      "image/jpeg",
+      0.85
+    );
+  };
+
+  const switchCam = () => {
+    stopCamera();
+    setFacingMode((f) => (f === "environment" ? "user" : "environment"));
+    setTimeout(() => startCamera(), 100);
+  };
+
+  // Only render on mobile (CSS hides on desktop via .camera-btn)
+  return (
+    <>
+      <button
+        onClick={openCamera}
+        disabled={disabled || isLimitReached}
+        type="button"
+        className="camera-btn"
+        title="Сделать фото документа"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+          <circle cx="12" cy="13" r="4" />
+        </svg>
+        {currentPhotoCount > 0 && <span className="camera-badge">{currentPhotoCount}</span>}
+      </button>
+
+      {showCamera && (
+        <div className="camera-overlay">
+          {/* Header */}
+          <div className="camera-header">
+            <button onClick={closeCamera} className="camera-close" type="button">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+            <span className="camera-counter">{currentPhotoCount + 1} / {maxPhotos}</span>
+            <button onClick={switchCam} className="camera-switch" type="button">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
+                <path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5" />
+                <polyline points="16 17 21 12 16 7" />
+                <polyline points="8 7 3 12 8 17" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Video / Error */}
+          {error ? (
+            <div className="camera-error">
+              <p>{error}</p>
+              <button onClick={startCamera} className="camera-retry" type="button">Повторить</button>
+            </div>
+          ) : (
+            <>
+              <video ref={videoRef} autoPlay playsInline muted className="camera-video" />
+              {!ready && (
+                <div className="camera-loading">
+                  <div className="camera-spinner" />
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Capture */}
+          <div className="camera-bottom">
+            <button onClick={capture} disabled={!ready} className={`camera-shutter ${!ready ? "disabled" : ""}`} type="button">
+              <div className="camera-shutter-inner" />
+            </button>
+          </div>
+
+          <canvas ref={canvasRef} style={{ display: "none" }} />
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1225,6 +1399,7 @@ export default function Chat() {
   const [selectedSourceIds, setSelectedSourceIds] = useState<Set<number>>(new Set());
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [chatFiles, setChatFiles] = useState<ChatFile[]>([]);
+  const [chatPhotos, setChatPhotos] = useState<ChatPhoto[]>([]);
 
   /* ── Refs ── */
   const convIdRef = useRef<string | null>(null);
@@ -1394,27 +1569,75 @@ export default function Chat() {
 
   /* ── Chat file attach handlers ── */
   const MAX_CHAT_FILES = 5;
+  const MAX_CHAT_PHOTOS = 10;
   const MAX_CHAT_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
-  const ACCEPTED_CHAT_TYPES = ".pdf,.docx,.xlsx,.xls";
+  const ACCEPTED_CHAT_TYPES = ".pdf,.docx,.xlsx,.xls,.jpg,.jpeg,.png,.gif,.bmp,.webp";
+  const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "bmp", "webp"];
+
+  const parseFileViaApi = useCallback(async (file: File, fileId: string, isPhoto: boolean) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await fetch("/api/parse", { method: "POST", body: formData });
+      if (!res.ok) throw new Error("Parse failed");
+      const data = await res.json();
+      if (isPhoto) {
+        setChatPhotos((prev) =>
+          prev.map((p) => (p.id === fileId ? { ...p, markdown: data.markdown, parsing: false } : p))
+        );
+      } else {
+        setChatFiles((prev) =>
+          prev.map((f) => (f.id === fileId ? { ...f, markdown: data.markdown, parsing: false } : f))
+        );
+      }
+    } catch {
+      if (isPhoto) {
+        setChatPhotos((prev) =>
+          prev.map((p) => (p.id === fileId ? { ...p, parsing: false, error: "Ошибка распознавания" } : p))
+        );
+      } else {
+        setChatFiles((prev) =>
+          prev.map((f) => (f.id === fileId ? { ...f, parsing: false, error: "Ошибка обработки" } : f))
+        );
+      }
+    }
+  }, []);
 
   const handleChatFileSelect = useCallback(
     async (files: FileList) => {
       const newFiles = Array.from(files);
-      const currentCount = chatFiles.length;
 
       for (const file of newFiles) {
-        if (currentCount + chatFiles.length >= MAX_CHAT_FILES) {
-          alert(`Максимум ${MAX_CHAT_FILES} файлов`);
-          break;
-        }
         if (file.size > MAX_CHAT_FILE_SIZE) {
           alert(`Файл "${file.name}" превышает 25 МБ`);
           continue;
         }
-        const ext = file.name.split(".").pop()?.toLowerCase();
-        if (!["pdf", "docx", "xlsx", "xls"].includes(ext || "")) {
-          alert(`Формат .${ext} не поддерживается. Допустимые: PDF, DOCX, XLSX`);
+        const ext = file.name.split(".").pop()?.toLowerCase() || "";
+
+        // Route images to photos
+        if (IMAGE_EXTENSIONS.includes(ext)) {
+          if (chatPhotos.length >= MAX_CHAT_PHOTOS) {
+            alert(`Максимум ${MAX_CHAT_PHOTOS} фото`);
+            continue;
+          }
+          const photoId = `cp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          const preview = URL.createObjectURL(file);
+          setChatPhotos((prev) => {
+            if (prev.length >= MAX_CHAT_PHOTOS) return prev;
+            return [...prev, { id: photoId, file, preview, markdown: "", parsing: true }];
+          });
+          parseFileViaApi(file, photoId, true);
           continue;
+        }
+
+        // Documents
+        if (!["pdf", "docx", "xlsx", "xls"].includes(ext)) {
+          alert(`Формат .${ext} не поддерживается. Допустимые: PDF, DOCX, XLSX, изображения`);
+          continue;
+        }
+        if (chatFiles.length >= MAX_CHAT_FILES) {
+          alert(`Максимум ${MAX_CHAT_FILES} файлов`);
+          break;
         }
 
         const fileId = `cf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -1422,33 +1645,36 @@ export default function Chat() {
           if (prev.length >= MAX_CHAT_FILES) return prev;
           return [...prev, { id: fileId, file, filename: file.name, markdown: "", parsing: true }];
         });
-
-        // Parse file via existing /api/parse endpoint
-        const formData = new FormData();
-        formData.append("file", file);
-        try {
-          const res = await fetch("/api/parse", { method: "POST", body: formData });
-          if (!res.ok) throw new Error("Parse failed");
-          const data = await res.json();
-          setChatFiles((prev) =>
-            prev.map((f) =>
-              f.id === fileId ? { ...f, markdown: data.markdown, parsing: false } : f
-            )
-          );
-        } catch {
-          setChatFiles((prev) =>
-            prev.map((f) =>
-              f.id === fileId ? { ...f, parsing: false, error: "Ошибка обработки" } : f
-            )
-          );
-        }
+        parseFileViaApi(file, fileId, false);
       }
     },
-    [chatFiles.length]
+    [chatFiles.length, chatPhotos.length, parseFileViaApi]
+  );
+
+  const handlePhotoCapture = useCallback(
+    (file: File) => {
+      if (chatPhotos.length >= MAX_CHAT_PHOTOS) return;
+      const photoId = `cp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const preview = URL.createObjectURL(file);
+      setChatPhotos((prev) => {
+        if (prev.length >= MAX_CHAT_PHOTOS) return prev;
+        return [...prev, { id: photoId, file, preview, markdown: "", parsing: true }];
+      });
+      parseFileViaApi(file, photoId, true);
+    },
+    [chatPhotos.length, parseFileViaApi]
   );
 
   const removeChatFile = useCallback((fileId: string) => {
     setChatFiles((prev) => prev.filter((f) => f.id !== fileId));
+  }, []);
+
+  const removeChatPhoto = useCallback((photoId: string) => {
+    setChatPhotos((prev) => {
+      const photo = prev.find((p) => p.id === photoId);
+      if (photo?.preview) URL.revokeObjectURL(photo.preview);
+      return prev.filter((p) => p.id !== photoId);
+    });
   }, []);
 
   /* ── Submit handler with pending logic ── */
@@ -1457,18 +1683,29 @@ export default function Chat() {
       e?.preventDefault();
       const text = input.trim();
       const hasFiles = chatFiles.filter((f) => !f.parsing && !f.error && f.markdown).length > 0;
-      if ((!text && !hasFiles) || isLoading || isSending) return;
+      const hasPhotos = chatPhotos.filter((p) => !p.parsing && !p.error && p.markdown).length > 0;
+      if ((!text && !hasFiles && !hasPhotos) || isLoading || isSending) return;
 
       setIsSending(true);
 
-      // Prepare attached documents from chatFiles
+      // Prepare attached documents from chatFiles + chatPhotos
       const readyFiles = chatFiles.filter((f) => !f.parsing && !f.error && f.markdown);
-      const attachedDocuments = readyFiles.map((f) => ({ filename: f.filename, markdown: f.markdown }));
-      const attachmentNames = readyFiles.map((f) => f.filename);
+      const readyPhotos = chatPhotos.filter((p) => !p.parsing && !p.error && p.markdown);
+      const attachedDocuments = [
+        ...readyFiles.map((f) => ({ filename: f.filename, markdown: f.markdown })),
+        ...readyPhotos.map((p, i) => ({ filename: p.file.name || `Фото ${i + 1}`, markdown: p.markdown })),
+      ];
+      const attachmentNames = [
+        ...readyFiles.map((f) => f.filename),
+        ...readyPhotos.map((p) => p.file.name || "Фото"),
+      ];
       const messageText = text || (attachmentNames.length > 0 ? `Проверь ${attachmentNames.length === 1 ? "документ" : "документы"}: ${attachmentNames.join(", ")}` : "");
 
-      // Clear files and input immediately
+      // Clear files, photos and input immediately
       setChatFiles([]);
+      // Revoke photo preview URLs before clearing
+      chatPhotos.forEach((p) => { if (p.preview) URL.revokeObjectURL(p.preview); });
+      setChatPhotos([]);
 
       if (!convIdRef.current) {
         pendingSubmitRef.current = messageText;
@@ -2015,6 +2252,46 @@ export default function Chat() {
               </div>
 
               <form className="input-area" onSubmit={handleSubmit}>
+                {/* Photo previews */}
+                {chatPhotos.length > 0 && (
+                  <div className="photo-preview-bar">
+                    <div className="photo-preview-header">
+                      <span className="photo-preview-count">Фото: {chatPhotos.length}/{MAX_CHAT_PHOTOS}</span>
+                      {chatPhotos.some((p) => p.parsing) && <span className="photo-preview-processing">Распознавание...</span>}
+                    </div>
+                    <div className="photo-preview-grid">
+                      {chatPhotos.map((p) => (
+                        <div key={p.id} className="photo-preview-item">
+                          <img src={p.preview} alt="Фото" className="photo-preview-img" />
+                          {p.parsing && (
+                            <div className="photo-preview-overlay">
+                              <div className="chip-spinner" />
+                            </div>
+                          )}
+                          {!p.parsing && !p.error && p.markdown && (
+                            <div className="photo-preview-badge photo-preview-success">
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            </div>
+                          )}
+                          {p.error && (
+                            <div className="photo-preview-badge photo-preview-error">
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                              </svg>
+                            </div>
+                          )}
+                          <button type="button" className="photo-preview-remove" onClick={() => removeChatPhoto(p.id)} title="Удалить">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {/* Chat file chips */}
                 {chatFiles.length > 0 && (
                   <div className="chat-files-bar">
@@ -2056,19 +2333,26 @@ export default function Chat() {
                     type="button"
                     className="attach-btn"
                     onClick={() => chatFileInputRef.current?.click()}
-                    disabled={chatFiles.length >= MAX_CHAT_FILES || isSending}
-                    title={`Прикрепить документ (до ${MAX_CHAT_FILES} файлов)`}
+                    disabled={isSending}
+                    title="Прикрепить файл или фото"
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
                     </svg>
                   </button>
+                  {/* Camera button (mobile only) */}
+                  <CameraButton
+                    onCapture={handlePhotoCapture}
+                    disabled={isSending}
+                    maxPhotos={MAX_CHAT_PHOTOS}
+                    currentPhotoCount={chatPhotos.length}
+                  />
                   <textarea
                     ref={inputRef}
                     value={input}
                     onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
-                    placeholder={chatFiles.length > 0 ? "Опишите что проверить или нажмите отправить..." : "Задайте вопрос..."}
+                    placeholder={chatFiles.length > 0 || chatPhotos.length > 0 ? "Опишите что проверить или нажмите отправить..." : "Задайте вопрос..."}
                     rows={1}
                     className="chat-input"
                     style={{ maxHeight: 160 }}
@@ -2085,7 +2369,7 @@ export default function Chat() {
                   />
                   <button
                     type="submit"
-                    disabled={isLoading || isSending || (!input.trim() && chatFiles.filter((f) => !f.parsing && !f.error && f.markdown).length === 0)}
+                    disabled={isLoading || isSending || (!input.trim() && chatFiles.filter((f) => !f.parsing && !f.error && f.markdown).length === 0 && chatPhotos.filter((p) => !p.parsing && !p.error && p.markdown).length === 0)}
                     className="send-btn"
                   >
                     <ArrowUpIcon />
