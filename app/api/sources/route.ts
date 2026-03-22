@@ -9,7 +9,7 @@ export async function GET() {
       .from("sources")
       .select("id, filename, mime_type, tags, storage_path, folder_path, created_at")
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(200);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

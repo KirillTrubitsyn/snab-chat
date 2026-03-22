@@ -472,6 +472,15 @@ input, textarea {
   color: var(--primary);
 }
 
+.message-source-tag.source-unlinked {
+  opacity: 0.7;
+}
+
+.message-source-tag.source-unlinked:hover {
+  border-color: var(--text-muted);
+  color: var(--text-secondary);
+}
+
 .message-content code {
   font-family: var(--font-mono);
   background: var(--bg-code);
