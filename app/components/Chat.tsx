@@ -734,7 +734,7 @@ export default function Chat() {
   const [hasSummary, setHasSummary] = useState(false);
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [leftCollapsed, setLeftCollapsed] = useState(true);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [sources, setSources] = useState<Source[]>([]);
