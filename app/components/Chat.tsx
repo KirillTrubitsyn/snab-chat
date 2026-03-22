@@ -33,6 +33,41 @@ interface ParsedFile {
   totalChunks: number;
 }
 
+interface ChatFile {
+  id: string;
+  file: File;
+  filename: string;
+  markdown: string;
+  parsing: boolean;
+  error?: string;
+}
+
+/* ── SpeechRecognition types ── */
+
+interface SpeechRecognitionEvent extends Event {
+  resultIndex: number;
+  results: SpeechRecognitionResultList;
+}
+interface SpeechRecognitionResultList { length: number; [index: number]: SpeechRecognitionResult; }
+interface SpeechRecognitionResult { isFinal: boolean; [index: number]: { transcript: string }; }
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((e: SpeechRecognitionEvent) => void) | null;
+  onerror: ((e: Event) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+  abort(): void;
+}
+declare global {
+  interface Window {
+    SpeechRecognition?: new () => SpeechRecognition;
+    webkitSpeechRecognition?: new () => SpeechRecognition;
+  }
+}
+
 /* ── Helpers ── */
 
 function formatDate(dateStr: string): string {
@@ -115,6 +150,119 @@ function SearchIcon() {
       <circle cx="11" cy="11" r="8" />
       <line x1="21" y1="21" x2="16.65" y2="16.65" />
     </svg>
+  );
+}
+
+/* ── VoiceButton ── */
+
+function VoiceButton({ onTranscript, disabled }: { onTranscript: (text: string) => void; disabled?: boolean }) {
+  const [isRecording, setIsRecording] = useState(false);
+  const [supported, setSupported] = useState(false);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const shouldContinueRef = useRef(false);
+  const transcriptRef = useRef("");
+
+  useEffect(() => {
+    const API = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (API) {
+      setSupported(true);
+      const rec = new API();
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.lang = "ru-RU";
+
+      rec.onresult = (e: SpeechRecognitionEvent) => {
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i].isFinal) {
+            const text = e.results[i][0].transcript;
+            transcriptRef.current = transcriptRef.current
+              ? transcriptRef.current + " " + text
+              : text;
+          }
+        }
+      };
+
+      rec.onerror = (e: Event) => {
+        const error = e as Event & { error?: string };
+        if (error.error === "no-speech" || error.error === "aborted") return;
+        shouldContinueRef.current = false;
+        setIsRecording(false);
+      };
+
+      rec.onend = () => {
+        if (shouldContinueRef.current) {
+          try { rec.start(); }
+          catch {
+            if (transcriptRef.current) {
+              onTranscript(transcriptRef.current);
+              transcriptRef.current = "";
+            }
+            shouldContinueRef.current = false;
+            setIsRecording(false);
+          }
+        } else {
+          if (transcriptRef.current) {
+            onTranscript(transcriptRef.current);
+            transcriptRef.current = "";
+          }
+          setIsRecording(false);
+        }
+      };
+
+      recognitionRef.current = rec;
+    }
+    return () => {
+      shouldContinueRef.current = false;
+      recognitionRef.current?.abort();
+    };
+  }, [onTranscript]);
+
+  const toggle = () => {
+    if (!recognitionRef.current || disabled) return;
+    if (isRecording) {
+      shouldContinueRef.current = false;
+      recognitionRef.current.stop();
+    } else {
+      transcriptRef.current = "";
+      shouldContinueRef.current = true;
+      try {
+        recognitionRef.current.start();
+        setIsRecording(true);
+      } catch {
+        recognitionRef.current.stop();
+        setTimeout(() => {
+          if (recognitionRef.current && shouldContinueRef.current) {
+            recognitionRef.current.start();
+            setIsRecording(true);
+          }
+        }, 100);
+      }
+    }
+  };
+
+  if (!supported) return null;
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={disabled}
+      type="button"
+      className={`voice-btn ${isRecording ? "recording" : ""}`}
+      title={isRecording ? "Остановить запись" : "Голосовой ввод"}
+    >
+      {isRecording ? (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+          <rect x="6" y="6" width="12" height="12" rx="2" />
+        </svg>
+      ) : (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+          <line x1="12" y1="19" x2="12" y2="23" />
+          <line x1="8" y1="23" x2="16" y2="23" />
+        </svg>
+      )}
+    </button>
   );
 }
 
@@ -232,7 +380,7 @@ function MessageBubble({
   allSources,
   onViewSource,
 }: {
-  message: { id: string; role: string; content: string; sources?: string[] };
+  message: { id: string; role: string; content: string; sources?: string[]; attachments?: string[] };
   allSources: Source[];
   onViewSource: (source: Source) => void;
 }) {
@@ -241,6 +389,19 @@ function MessageBubble({
   if (isUser) {
     return (
       <div className="message message-user">
+        {message.attachments && message.attachments.length > 0 && (
+          <div className="message-attachments">
+            {message.attachments.map((name, i) => (
+              <span key={i} className="message-attachment-badge">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+                {name}
+              </span>
+            ))}
+          </div>
+        )}
         <div className="message-content">{message.content}</div>
       </div>
     );
@@ -1040,12 +1201,14 @@ export default function Chat() {
   const [viewingSource, setViewingSource] = useState<Source | null>(null);
   const [selectedSourceIds, setSelectedSourceIds] = useState<Set<number>>(new Set());
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
+  const [chatFiles, setChatFiles] = useState<ChatFile[]>([]);
 
   /* ── Refs ── */
   const convIdRef = useRef<string | null>(null);
   const pendingSubmitRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
 
   /* ── useChat ── */
   const {
@@ -1206,24 +1369,93 @@ export default function Chat() {
     [activeConvId, setMessages]
   );
 
+  /* ── Chat file attach handlers ── */
+  const MAX_CHAT_FILES = 5;
+  const MAX_CHAT_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+  const ACCEPTED_CHAT_TYPES = ".pdf,.docx,.xlsx,.xls";
+
+  const handleChatFileSelect = useCallback(
+    async (files: FileList) => {
+      const newFiles = Array.from(files);
+      const currentCount = chatFiles.length;
+
+      for (const file of newFiles) {
+        if (currentCount + chatFiles.length >= MAX_CHAT_FILES) {
+          alert(`Максимум ${MAX_CHAT_FILES} файлов`);
+          break;
+        }
+        if (file.size > MAX_CHAT_FILE_SIZE) {
+          alert(`Файл "${file.name}" превышает 25 МБ`);
+          continue;
+        }
+        const ext = file.name.split(".").pop()?.toLowerCase();
+        if (!["pdf", "docx", "xlsx", "xls"].includes(ext || "")) {
+          alert(`Формат .${ext} не поддерживается. Допустимые: PDF, DOCX, XLSX`);
+          continue;
+        }
+
+        const fileId = `cf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        setChatFiles((prev) => {
+          if (prev.length >= MAX_CHAT_FILES) return prev;
+          return [...prev, { id: fileId, file, filename: file.name, markdown: "", parsing: true }];
+        });
+
+        // Parse file via existing /api/parse endpoint
+        const formData = new FormData();
+        formData.append("file", file);
+        try {
+          const res = await fetch("/api/parse", { method: "POST", body: formData });
+          if (!res.ok) throw new Error("Parse failed");
+          const data = await res.json();
+          setChatFiles((prev) =>
+            prev.map((f) =>
+              f.id === fileId ? { ...f, markdown: data.markdown, parsing: false } : f
+            )
+          );
+        } catch {
+          setChatFiles((prev) =>
+            prev.map((f) =>
+              f.id === fileId ? { ...f, parsing: false, error: "Ошибка обработки" } : f
+            )
+          );
+        }
+      }
+    },
+    [chatFiles.length]
+  );
+
+  const removeChatFile = useCallback((fileId: string) => {
+    setChatFiles((prev) => prev.filter((f) => f.id !== fileId));
+  }, []);
+
   /* ── Submit handler with pending logic ── */
   const handleSubmit = useCallback(
     async (e?: FormEvent) => {
       e?.preventDefault();
       const text = input.trim();
-      if (!text || isLoading || isSending) return;
+      const hasFiles = chatFiles.filter((f) => !f.parsing && !f.error && f.markdown).length > 0;
+      if ((!text && !hasFiles) || isLoading || isSending) return;
 
       setIsSending(true);
 
+      // Prepare attached documents from chatFiles
+      const readyFiles = chatFiles.filter((f) => !f.parsing && !f.error && f.markdown);
+      const attachedDocuments = readyFiles.map((f) => ({ filename: f.filename, markdown: f.markdown }));
+      const attachmentNames = readyFiles.map((f) => f.filename);
+      const messageText = text || (attachmentNames.length > 0 ? `Проверь ${attachmentNames.length === 1 ? "документ" : "документы"}: ${attachmentNames.join(", ")}` : "");
+
+      // Clear files and input immediately
+      setChatFiles([]);
+
       if (!convIdRef.current) {
-        pendingSubmitRef.current = text;
+        pendingSubmitRef.current = messageText;
         setInput("");
-        const title = text.slice(0, 50) + (text.length > 50 ? "..." : "");
+        const title = messageText.slice(0, 50) + (messageText.length > 50 ? "..." : "");
         const newId = await createConversation(title);
 
         setMessages((prev) => [
           ...prev,
-          { id: `temp-user-${Date.now()}`, role: "user", content: text },
+          { id: `temp-user-${Date.now()}`, role: "user", content: messageText, ...(attachmentNames.length > 0 && { attachments: attachmentNames }) },
         ]);
 
         try {
@@ -1231,8 +1463,9 @@ export default function Chat() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              messages: [{ role: "user", content: text }],
+              messages: [{ role: "user", content: messageText }],
               conversationId: newId,
+              ...(attachedDocuments.length > 0 && { attachedDocuments }),
             }),
           });
 
@@ -1292,7 +1525,7 @@ export default function Chat() {
 
       const currentMessages = [
         ...messages,
-        { id: `temp-user-${Date.now()}`, role: "user" as const, content: text },
+        { id: `temp-user-${Date.now()}`, role: "user" as const, content: messageText, ...(attachmentNames.length > 0 && { attachments: attachmentNames }) },
       ];
       setMessages(currentMessages);
       setInput("");
@@ -1307,6 +1540,7 @@ export default function Chat() {
               content: m.content,
             })),
             conversationId: convIdRef.current,
+            ...(attachedDocuments.length > 0 && { attachedDocuments }),
           }),
         });
 
@@ -1360,7 +1594,7 @@ export default function Chat() {
         setIsSending(false);
       }
     },
-    [input, isLoading, isSending, messages, setInput, setMessages, createConversation, loadConversations]
+    [input, isLoading, isSending, messages, chatFiles, setInput, setMessages, createConversation, loadConversations]
   );
 
   /* ── Auto-scroll ── */
@@ -1757,13 +1991,60 @@ export default function Chat() {
               </div>
 
               <form className="input-area" onSubmit={handleSubmit}>
+                {/* Chat file chips */}
+                {chatFiles.length > 0 && (
+                  <div className="chat-files-bar">
+                    {chatFiles.map((f) => (
+                      <div key={f.id} className={`chat-file-chip ${f.parsing ? "parsing" : ""} ${f.error ? "error" : ""}`}>
+                        {f.parsing ? (
+                          <div className="chip-spinner" />
+                        ) : (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14 2 14 8 20 8" />
+                          </svg>
+                        )}
+                        <span className="chip-name" title={f.filename}>{f.filename}</span>
+                        <span className="chip-size">{(f.file.size / 1024 / 1024).toFixed(1)} МБ</span>
+                        <button type="button" className="chip-remove" onClick={() => removeChatFile(f.id)} title="Удалить">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="input-wrapper">
+                  {/* Attach file button */}
+                  <input
+                    ref={chatFileInputRef}
+                    type="file"
+                    accept={ACCEPTED_CHAT_TYPES}
+                    multiple
+                    onChange={(e) => {
+                      if (e.target.files) handleChatFileSelect(e.target.files);
+                      e.target.value = "";
+                    }}
+                    style={{ display: "none" }}
+                  />
+                  <button
+                    type="button"
+                    className="attach-btn"
+                    onClick={() => chatFileInputRef.current?.click()}
+                    disabled={chatFiles.length >= MAX_CHAT_FILES || isSending}
+                    title={`Прикрепить документ (до ${MAX_CHAT_FILES} файлов)`}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                    </svg>
+                  </button>
                   <textarea
                     ref={inputRef}
                     value={input}
                     onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
-                    placeholder="Задайте вопрос..."
+                    placeholder={chatFiles.length > 0 ? "Опишите что проверить или нажмите отправить..." : "Задайте вопрос..."}
                     rows={1}
                     className="chat-input"
                     style={{ maxHeight: 160 }}
@@ -1773,9 +2054,14 @@ export default function Chat() {
                       t.style.height = Math.min(t.scrollHeight, 160) + "px";
                     }}
                   />
+                  {/* Voice input button */}
+                  <VoiceButton
+                    onTranscript={(text) => setInput((prev) => (prev ? prev + " " + text : text))}
+                    disabled={isSending}
+                  />
                   <button
                     type="submit"
-                    disabled={isLoading || isSending || !input.trim()}
+                    disabled={isLoading || isSending || (!input.trim() && chatFiles.filter((f) => !f.parsing && !f.error && f.markdown).length === 0)}
                     className="send-btn"
                   >
                     <ArrowUpIcon />
