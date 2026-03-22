@@ -121,6 +121,12 @@ ${ragContext || "В базе знаний не найдено релевантн
     },
   });
 
+  // Log stream errors (does not consume the stream)
+  result.text.then(
+    (text) => console.log("stream completed: text length =", text.length),
+    (error) => console.error("stream error:", error)
+  );
+
   // Build source filenames from filtered relevant chunks (not all 20)
   const sourceFilenames = [...new Set(relevantChunks.map((r) => r.source_filename))];
 
