@@ -71,8 +71,12 @@ create table if not exists messages (
   role text not null check (role in ('user', 'assistant', 'system')),
   content text not null,
   token_estimate integer default 0,
+  metadata jsonb default null,
   created_at timestamptz default now()
 );
+
+-- Миграция (для существующей БД):
+-- ALTER TABLE messages ADD COLUMN IF NOT EXISTS metadata jsonb default null;
 
 create index if not exists messages_conversation_id_idx
   on messages (conversation_id, created_at);

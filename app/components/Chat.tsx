@@ -566,7 +566,14 @@ function MessageBubble({
   onViewSource,
   onCreateInfographic,
 }: {
-  message: { id: string; role: string; content: string; sources?: string[]; attachments?: string[] };
+  message: {
+    id: string;
+    role: string;
+    content: string;
+    sources?: string[];
+    attachments?: string[];
+    metadata?: { type?: string; image_base64?: string; topic?: string; style?: string } | null;
+  };
   allSources: Source[];
   onViewSource: (source: Source) => void;
   onCreateInfographic?: (content: string) => void;
@@ -590,6 +597,43 @@ function MessageBubble({
           </div>
         )}
         <div className="message-content">{message.content}</div>
+      </div>
+    );
+  }
+
+  // Render infographic card for messages with metadata.type === "infographic"
+  if (message.metadata?.type === "infographic" && message.metadata.image_base64) {
+    const handleDownloadInfographic = () => {
+      const link = document.createElement("a");
+      link.href = message.metadata!.image_base64!;
+      link.download = `infographic-${Date.now()}.png`;
+      link.click();
+    };
+
+    return (
+      <div className="message message-ai">
+        <div className="message-infographic-card">
+          <div className="message-infographic-label">
+            <InfographicIcon size={14} />
+            Инфографика{message.metadata.topic ? `: ${message.metadata.topic}` : ""}
+          </div>
+          <img
+            src={message.metadata.image_base64}
+            alt={message.metadata.topic || "Инфографика"}
+            className="message-infographic-image"
+          />
+          {message.content && (
+            <div className="message-infographic-desc">{message.content}</div>
+          )}
+          <button className="message-infographic-download" onClick={handleDownloadInfographic}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Скачать PNG
+          </button>
+        </div>
       </div>
     );
   }
@@ -1430,11 +1474,11 @@ export default function Chat() {
 
   /* ── Infographic navigation ── */
   const navigateToInfographic = useCallback((content?: string) => {
-    if (content) {
-      sessionStorage.setItem(
-        "infographic_context",
-        JSON.stringify({ documentText: content })
-      );
+    const ctx: Record<string, string> = {};
+    if (content) ctx.documentText = content;
+    if (convIdRef.current) ctx.conversationId = convIdRef.current;
+    if (Object.keys(ctx).length > 0) {
+      sessionStorage.setItem("infographic_context", JSON.stringify(ctx));
     }
     router.push("/infographic");
   }, [router]);
@@ -1555,10 +1599,12 @@ export default function Chat() {
         if (data.messages) {
           setMessages(
             data.messages.map(
-              (m: { id: string; role: string; content: string }) => ({
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (m: { id: string; role: string; content: string; metadata?: any }) => ({
                 id: m.id,
                 role: m.role as "user" | "assistant",
                 content: m.content,
+                ...(m.metadata ? { metadata: m.metadata } : {}),
               })
             )
           );

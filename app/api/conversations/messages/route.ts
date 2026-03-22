@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   const [messagesResult, convResult] = await Promise.all([
     supabase
       .from("messages")
-      .select("id, role, content, created_at")
+      .select("id, role, content, metadata, created_at")
       .eq("conversation_id", id)
       .order("created_at", { ascending: true }),
     supabase

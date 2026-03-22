@@ -26,7 +26,9 @@ export default function InfographicPage() {
   const [style, setStyle] = useState("business_infographic");
   const [aspectRatio, setAspectRatio] = useState("16:9");
   const [documentText, setDocumentText] = useState("");
+  const [conversationId, setConversationId] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [savedToHistory, setSavedToHistory] = useState(false);
   const [resultImage, setResultImage] = useState("");
   const [resultDescription, setResultDescription] = useState("");
   const [error, setError] = useState("");
@@ -37,6 +39,7 @@ export default function InfographicPage() {
       try {
         const parsed = JSON.parse(ctx);
         if (parsed.documentText) setDocumentText(parsed.documentText);
+        if (parsed.conversationId) setConversationId(parsed.conversationId);
         if (parsed.topic) setTopic(parsed.topic);
       } catch {
         setDocumentText(ctx);
@@ -64,6 +67,7 @@ export default function InfographicPage() {
           style,
           aspectRatio,
           documentText,
+          conversationId: conversationId || undefined,
         }),
       });
 
@@ -76,6 +80,7 @@ export default function InfographicPage() {
 
       setResultImage(data.image_base64);
       setResultDescription(data.description || "");
+      if (data.conversationId) setSavedToHistory(true);
     } catch {
       setError("Ошибка сети. Попробуйте ещё раз.");
     } finally {
@@ -124,6 +129,14 @@ export default function InfographicPage() {
               {resultDescription && (
                 <p className="infographic-result-desc">{resultDescription}</p>
               )}
+              {savedToHistory && (
+                <div className="infographic-saved-badge">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  Сохранено в истории диалога
+                </div>
+              )}
               <div className="infographic-result-actions">
                 <button className="infographic-btn primary" onClick={handleDownload}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -133,11 +146,20 @@ export default function InfographicPage() {
                   </svg>
                   Скачать PNG
                 </button>
+                {savedToHistory && (
+                  <button className="infographic-btn primary" onClick={() => router.push("/")}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="15 18 9 12 15 6" />
+                    </svg>
+                    Вернуться в чат
+                  </button>
+                )}
                 <button
                   className="infographic-btn secondary"
                   onClick={() => {
                     setResultImage("");
                     setResultDescription("");
+                    setSavedToHistory(false);
                   }}
                 >
                   Создать ещё

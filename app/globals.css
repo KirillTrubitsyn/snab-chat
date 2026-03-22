@@ -1637,6 +1637,80 @@ input, textarea {
   color: #fff;
 }
 
+/* ── Infographic card in chat history ── */
+
+.message-infographic-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 480px;
+}
+
+.message-infographic-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+.message-infographic-image {
+  width: 100%;
+  max-width: 480px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: transform var(--transition);
+}
+
+.message-infographic-image:hover {
+  transform: scale(1.02);
+}
+
+.message-infographic-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.message-infographic-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+  align-self: flex-start;
+}
+
+.message-infographic-download:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ── Saved badge on infographic page ── */
+
+.infographic-saved-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #16a34a;
+  background: rgba(22, 163, 74, 0.08);
+  border-radius: var(--radius-pill);
+  padding: 6px 14px;
+  align-self: center;
+}
+
 .infographic-header-btn {
   color: var(--accent);
 }

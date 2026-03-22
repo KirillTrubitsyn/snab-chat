@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 import { withGoogleApiLimit } from "@/app/lib/google-ai";
+import { saveMessage } from "@/app/lib/memory";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -55,7 +56,7 @@ function fixCyrillicLookalikes(text: string): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { topic, style, aspectRatio, documentText } = await req.json();
+    const { topic, style, aspectRatio, documentText, conversationId } = await req.json();
 
     if (!topic || typeof topic !== "string" || topic.trim().length < 3) {
       return NextResponse.json(
@@ -133,9 +134,31 @@ export async function POST(req: NextRequest) {
           break;
         }
 
+        const descText = fixCyrillicLookalikes(description.trim());
+
+        // Save infographic as a message in conversation history
+        if (conversationId && typeof conversationId === "string") {
+          try {
+            await saveMessage(
+              conversationId,
+              "assistant",
+              descText || `Инфографика: ${topic}`,
+              {
+                type: "infographic",
+                image_base64: imageBase64,
+                topic: topic.trim(),
+                style: style || "business_infographic",
+              }
+            );
+          } catch (saveErr) {
+            console.error("Failed to save infographic to history:", saveErr);
+          }
+        }
+
         return NextResponse.json({
           image_base64: imageBase64,
-          description: fixCyrillicLookalikes(description.trim()),
+          description: descText,
+          conversationId: conversationId || null,
         });
       } catch (err) {
         lastError =
