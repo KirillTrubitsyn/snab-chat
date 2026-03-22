@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { parseToMarkdown } from "@/app/lib/parser";
 import { autoTag } from "@/app/lib/tagging";
 import { chunkMarkdown } from "@/app/lib/chunking";
-import { requireAdmin } from "@/app/lib/auth";
+import { requireAuth } from "@/app/lib/auth";
 
 export async function POST(req: NextRequest) {
-  const adminCheck = requireAdmin(req);
-  if (adminCheck instanceof NextResponse) return adminCheck;
+  const authCheck = await requireAuth(req);
+  if (authCheck instanceof NextResponse) return authCheck;
 
   try {
     const formData = await req.formData();
