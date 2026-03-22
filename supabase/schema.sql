@@ -13,8 +13,17 @@ create table if not exists sources (
   mime_type text not null,
   tags text[] default '{}',
   content_preview text default '',
+  storage_path text,
+  folder_path text,
   created_at timestamptz default now()
 );
+
+-- 2b. Supabase Storage bucket для оригинальных файлов
+-- Создайте bucket "documents" в Supabase Dashboard → Storage → New bucket
+-- Или выполните:
+insert into storage.buckets (id, name, public)
+values ('documents', 'documents', false)
+on conflict (id) do nothing;
 
 -- 3. Таблица чанков (фрагменты документов с эмбеддингами)
 create table if not exists chunks (

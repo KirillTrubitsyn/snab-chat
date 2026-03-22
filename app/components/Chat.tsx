@@ -19,6 +19,8 @@ interface Source {
   filename: string;
   mime_type: string;
   tags: string[];
+  storage_path: string | null;
+  folder_path: string | null;
   created_at: string;
 }
 
@@ -118,20 +120,187 @@ function SearchIcon() {
 
 /* ── Sub-components ── */
 
-function MessageBubble({ message }: { message: { id: string; role: string; content: string; sources?: string[] } }) {
-  const isUser = message.role === "user";
+function cleanMarkdown(text: string): string {
+  let s = text;
+  // Remove backslash escapes from mammoth: \( \) \. \- etc.
+  s = s.replace(/\\([().,;:!?\-\[\]{}+=#])/g, "$1");
+  // Decode URL-encoded strings (%D1%81%D1%80... → readable text)
+  s = s.replace(/%[0-9A-Fa-f]{2}(?:%[0-9A-Fa-f]{2})*/g, (match) => {
+    try { return decodeURIComponent(match); } catch { return match; }
+  });
+  // Remove HTML tags (anchors, spans, etc.)
+  s = s.replace(/<[^>]+>/g, "");
+  // Remove markdown heading markers
+  s = s.replace(/^#{1,6}\s+/gm, "");
+  // Remove bold/italic markers
+  s = s.replace(/\*{1,3}([^*]+)\*{1,3}/g, "$1");
+  s = s.replace(/_{1,3}([^_]+)_{1,3}/g, "$1");
+  // Remove strikethrough
+  s = s.replace(/~~([^~]+)~~/g, "$1");
+  // Remove inline code backticks
+  s = s.replace(/`([^`]+)`/g, "$1");
+  // Remove link syntax [text](url) → text
+  s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  // Remove image syntax ![alt](url)
+  s = s.replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1");
+  // Remove horizontal rules
+  s = s.replace(/^[-*_]{3,}\s*$/gm, "");
+  // Remove blockquote markers
+  s = s.replace(/^>\s?/gm, "");
+  // Clean up multiple blank lines
+  s = s.replace(/\n{3,}/g, "\n\n");
+  return s.trim();
+}
+
+function DocumentViewer({
+  source,
+  onClose,
+}: {
+  source: Source;
+  onClose: () => void;
+}) {
+  const [content, setContent] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const isPdf = source.mime_type?.includes("pdf");
+  const hasOriginal = !!source.storage_path;
+
+  useEffect(() => {
+    if (isPdf && hasOriginal) {
+      setLoading(false);
+      return;
+    }
+    fetch(`/api/sources/content?id=${source.id}`)
+      .then((r) => r.json())
+      .then((d) => setContent(cleanMarkdown(d.markdown || "")))
+      .catch(() => setContent("Не удалось загрузить содержимое"))
+      .finally(() => setLoading(false));
+  }, [source.id, isPdf, hasOriginal]);
+
   return (
-    <div className={`message ${isUser ? "message-user" : "message-ai"}`}>
-      <div className="message-content">
-        {isUser ? message.content : <ReactMarkdown>{message.content}</ReactMarkdown>}
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="document-viewer-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="document-viewer-header">
+          <div className="document-viewer-title">{source.filename}</div>
+          <div className="document-viewer-actions">
+            <button
+              className="btn-primary"
+              style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13 }}
+              onClick={() =>
+                window.open(
+                  `/api/sources/download?id=${source.id}&action=download`,
+                  "_blank"
+                )
+              }
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              {hasOriginal ? `Скачать (${source.filename.split('.').pop()?.toUpperCase()})` : "Скачать (.md)"}
+            </button>
+            <button className="btn-secondary" onClick={onClose}>
+              Закрыть
+            </button>
+          </div>
+        </div>
+        <div className="document-viewer-body">
+          {loading ? (
+            <div className="document-viewer-loading">Загрузка...</div>
+          ) : isPdf && hasOriginal ? (
+            <iframe
+              src={`/api/sources/download?id=${source.id}&action=view`}
+              className="document-viewer-iframe"
+              title={source.filename}
+            />
+          ) : (
+            <div className="document-viewer-content" style={{ whiteSpace: "pre-wrap" }}>
+              {content || ""}
+            </div>
+          )}
+        </div>
       </div>
-      {!isUser && message.sources && message.sources.length > 0 && (
+    </div>
+  );
+}
+
+function MessageBubble({
+  message,
+  allSources,
+  onViewSource,
+}: {
+  message: { id: string; role: string; content: string; sources?: string[] };
+  allSources: Source[];
+  onViewSource: (source: Source) => void;
+}) {
+  const isUser = message.role === "user";
+
+  if (isUser) {
+    return (
+      <div className="message message-user">
+        <div className="message-content">{message.content}</div>
+      </div>
+    );
+  }
+
+  // Find source by filename with flexible matching
+  const findSource = (name: string): Source | undefined => {
+    if (!name) return undefined;
+    const n = name.trim();
+    // Exact match
+    let src = allSources.find((doc) => doc.filename === n);
+    if (src) return src;
+    // Case-insensitive match
+    const lower = n.toLowerCase();
+    src = allSources.find((doc) => doc.filename.toLowerCase() === lower);
+    if (src) return src;
+    // Normalize whitespace and compare
+    const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+    const normName = normalize(n);
+    src = allSources.find((doc) => normalize(doc.filename) === normName);
+    if (src) return src;
+    // Partial match: contains
+    src = allSources.find((doc) => normalize(doc.filename).includes(normName) || normName.includes(normalize(doc.filename)));
+    if (src) return src;
+    // Match without extension
+    const nameNoExt = normName.replace(/\.\w+$/, "");
+    src = allSources.find((doc) => normalize(doc.filename).replace(/\.\w+$/, "") === nameNoExt);
+    return src;
+  };
+
+  // Make all source tags clickable — if no exact source found, open download search
+  const handleSourceClick = (sourceName: string) => {
+    const src = findSource(sourceName);
+    if (src) {
+      onViewSource(src);
+    }
+  };
+
+  return (
+    <div className="message message-ai">
+      <div className="message-content">
+        <ReactMarkdown>{message.content}</ReactMarkdown>
+      </div>
+      {message.sources && message.sources.length > 0 && (
         <div className="message-sources">
           <div className="message-sources-label">Источники:</div>
           <div className="message-sources-list">
-            {message.sources.map((s, i) => (
-              <span key={i} className="message-source-tag">{s}</span>
-            ))}
+            {message.sources.map((s, i) => {
+              const src = findSource(s);
+              return (
+                <button
+                  key={i}
+                  className={`message-source-tag source-clickable${!src ? " source-unlinked" : ""}`}
+                  onClick={() => handleSourceClick(s)}
+                  title={src ? "Открыть документ" : "Документ не найден в базе"}
+                >
+                  {s}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -167,6 +336,7 @@ function TypingBubble() {
 
 interface FileEntry {
   file: File;
+  relativePath: string;
   status: "pending" | "parsing" | "parsed" | "ingesting" | "done" | "error";
   parsed?: ParsedFile;
   tags: string[];
@@ -209,8 +379,18 @@ function UploadModal({
   const handleFileSelect = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
-    const newEntries: FileEntry[] = Array.from(files).map((file) => ({
+    const supportedExts = [".pdf", ".docx", ".xlsx", ".xls"];
+    const validFiles = Array.from(files).filter((f) => {
+      const ext = f.name.toLowerCase().slice(f.name.lastIndexOf("."));
+      return supportedExts.includes(ext);
+    });
+    if (validFiles.length === 0) {
+      setGlobalError("Нет поддерживаемых файлов (PDF, DOCX, XLSX)");
+      return;
+    }
+    const newEntries: FileEntry[] = validFiles.map((file) => ({
       file,
+      relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
       status: "pending" as const,
       tags: [],
     }));
@@ -278,15 +458,19 @@ function UploadModal({
         const p = updated[i].parsed!;
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 300000);
+        const fd = new FormData();
+        fd.append("file", updated[i].file);
+        fd.append("filename", p.filename);
+        fd.append("mimeType", p.mimeType);
+        fd.append("markdown", p.markdown);
+        fd.append("tags", JSON.stringify(updated[i].tags));
+        // Send folder path (directory part of relative path)
+        const relPath = updated[i].relativePath;
+        const folderPath = relPath.includes("/") ? relPath.substring(0, relPath.lastIndexOf("/")) : "";
+        if (folderPath) fd.append("folderPath", folderPath);
         const res = await fetch("/api/ingest", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            filename: p.filename,
-            mimeType: p.mimeType,
-            markdown: p.markdown,
-            tags: updated[i].tags,
-          }),
+          body: fd,
           signal: controller.signal,
         });
         clearTimeout(timeout);
@@ -310,9 +494,14 @@ function UploadModal({
   }, [entries]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const openFilePicker = () => {
     fileInputRef.current?.click();
+  };
+
+  const openFolderPicker = () => {
+    folderInputRef.current?.click();
   };
 
   const retry = () => {
@@ -327,9 +516,16 @@ function UploadModal({
 
   const handleAddMoreChange = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    const supportedExts = [".pdf", ".docx", ".xlsx", ".xls"];
+    const validFiles = Array.from(files).filter((f) => {
+      const ext = f.name.toLowerCase().slice(f.name.lastIndexOf("."));
+      return supportedExts.includes(ext);
+    });
+    if (validFiles.length === 0) return;
     const startIdx = entries.length;
-    const newOnes: FileEntry[] = Array.from(files).map((file) => ({
+    const newOnes: FileEntry[] = validFiles.map((file) => ({
       file,
+      relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
       status: "pending" as const,
       tags: [],
     }));
@@ -428,6 +624,14 @@ function UploadModal({
           onChange={(e) => { handleFileSelect(e.target.files); e.target.value = ""; }}
         />
         <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => { handleFileSelect(e.target.files); e.target.value = ""; }}
+          {...{ webkitdirectory: "" } as React.InputHTMLAttributes<HTMLInputElement>}
+        />
+        <input
           ref={addMoreRef}
           type="file"
           accept=".pdf,.docx,.xlsx,.xls"
@@ -438,18 +642,30 @@ function UploadModal({
 
         {/* ── idle ── */}
         {stage === "idle" && (
-          <div
-            className={`drop-zone ${dragActive ? "active" : ""}`}
-            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={(e) => { e.preventDefault(); setDragActive(false); handleFileSelect(e.dataTransfer.files); }}
-            onClick={openFilePicker}
-          >
-            <UploadIcon />
-            <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }}>
-              Перетащите файлы или нажмите для выбора
-            </p>
-            <p style={{ fontSize: 12, color: "var(--text-muted)" }}>DOCX, PDF, Excel · можно выбрать несколько</p>
+          <div>
+            <div
+              className={`drop-zone ${dragActive ? "active" : ""}`}
+              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={(e) => { e.preventDefault(); setDragActive(false); handleFileSelect(e.dataTransfer.files); }}
+              onClick={openFilePicker}
+            >
+              <UploadIcon />
+              <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 4 }}>
+                Перетащите файлы или нажмите для выбора
+              </p>
+              <p style={{ fontSize: 12, color: "var(--text-muted)" }}>DOCX, PDF, Excel · можно выбрать несколько</p>
+            </div>
+            <button
+              className="btn-secondary"
+              onClick={(e) => { e.stopPropagation(); openFolderPicker(); }}
+              style={{ width: "100%", marginTop: 8, padding: "10px 16px", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+              Загрузить папку целиком
+            </button>
           </div>
         )}
 
@@ -478,8 +694,8 @@ function UploadModal({
                 >
                   {fileTypeLabel(entry)}
                 </div>
-                <div style={{ flex: 1, minWidth: 0, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {entry.file.name}
+                <div style={{ flex: 1, minWidth: 0, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={entry.relativePath}>
+                  {entry.relativePath !== entry.file.name ? entry.relativePath : entry.file.name}
                 </div>
                 {entry.status === "parsing" && <div className="spinner" style={{ width: 16, height: 16 }} />}
                 {entry.status === "parsed" && (
@@ -723,78 +939,6 @@ function UploadModal({
   );
 }
 
-/* ── Document Viewer Modal ── */
-
-function cleanDocumentText(text: string): string {
-  return text
-    // Remove backslash escapes from markdown: \( \) \. \- \, etc.
-    .replace(/\\([().,;:!?\-\[\]{}+=#])/g, "$1")
-    // Decode URL-encoded strings (e.g. %20%D1%81... -> readable text)
-    .replace(/%[0-9A-Fa-f]{2}(?:%[0-9A-Fa-f]{2})*/g, (match) => {
-      try {
-        return decodeURIComponent(match);
-      } catch {
-        return match;
-      }
-    })
-    // Remove leftover markdown link syntax with encoded URLs
-    .replace(/\[([^\]]*)\]\(([^)]*)\)/g, "$1")
-    // Clean up multiple blank lines
-    .replace(/\n{3,}/g, "\n\n");
-}
-
-function DocumentViewer({
-  sourceId,
-  onClose,
-}: {
-  sourceId: number;
-  onClose: () => void;
-}) {
-  const [text, setText] = useState("");
-  const [filename, setFilename] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(`/api/sources/text?id=${sourceId}`);
-        if (!res.ok) throw new Error("Failed to load");
-        const data = await res.json();
-        setFilename(data.filename || "");
-        setText(cleanDocumentText(data.text || ""));
-      } catch {
-        setText("Ошибка загрузки документа");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [sourceId]);
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="doc-viewer-card" onClick={(e) => e.stopPropagation()}>
-        <div className="doc-viewer-header">
-          <div className="doc-viewer-filename" title={filename}>
-            {filename}
-          </div>
-          <button className="btn-secondary" onClick={onClose}>
-            Закрыть
-          </button>
-        </div>
-        <div className="doc-viewer-body">
-          {loading ? (
-            <div style={{ display: "flex", justifyContent: "center", padding: 40 }}>
-              <div className="spinner" />
-            </div>
-          ) : (
-            <div className="doc-viewer-text">{text}</div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ═══════════════════════════════════════════════
    Main Chat component
    ═══════════════════════════════════════════════ */
@@ -809,11 +953,13 @@ export default function Chat() {
   const [leftCollapsed, setLeftCollapsed] = useState(true);
   const [rightCollapsed, setRightCollapsed] = useState(true);
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [viewingSourceId, setViewingSourceId] = useState<number | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);
   const [sourceTagInput, setSourceTagInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [viewingSource, setViewingSource] = useState<Source | null>(null);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<number>>(new Set());
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
 
   /* ── Refs ── */
   const convIdRef = useRef<string | null>(null);
@@ -863,6 +1009,24 @@ export default function Chat() {
     },
     []
   );
+
+  /* ── Bulk delete sources ── */
+  const deleteSelectedSources = useCallback(async () => {
+    if (selectedSourceIds.size === 0) return;
+    const ids = Array.from(selectedSourceIds);
+    try {
+      await fetch("/api/sources", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      setSources((prev) => prev.filter((s) => !selectedSourceIds.has(s.id)));
+      setSelectedSourceIds(new Set());
+      setBulkSelectMode(false);
+    } catch {
+      // ignore
+    }
+  }, [selectedSourceIds]);
 
   /* ── Update source tags ── */
   const updateSourceTags = useCallback(
@@ -1209,10 +1373,59 @@ export default function Chat() {
                     </span>
                   </span>
                 </div>
-                <div style={{ padding: "0 8px 8px" }}>
+                <div style={{ padding: "0 8px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
                   <button className="upload-btn" onClick={() => setShowUploadModal(true)}>
                     <UploadIcon /> Загрузить DOCX / PDF / Excel
                   </button>
+                  {sources.length > 0 && (
+                    <div style={{ display: "flex", gap: 4 }}>
+                      {!bulkSelectMode ? (
+                        <button
+                          className="btn-secondary"
+                          style={{ flex: 1, fontSize: 11, padding: "4px 8px" }}
+                          onClick={() => setBulkSelectMode(true)}
+                        >
+                          Выбрать
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            className="btn-secondary"
+                            style={{ flex: 1, fontSize: 11, padding: "4px 8px" }}
+                            onClick={() => {
+                              if (selectedSourceIds.size === sources.length) {
+                                setSelectedSourceIds(new Set());
+                              } else {
+                                setSelectedSourceIds(new Set(sources.map((s) => s.id)));
+                              }
+                            }}
+                          >
+                            {selectedSourceIds.size === sources.length ? "Снять всё" : "Выбрать все"}
+                          </button>
+                          <button
+                            className="btn-secondary"
+                            style={{
+                              flex: 1,
+                              fontSize: 11,
+                              padding: "4px 8px",
+                              color: selectedSourceIds.size > 0 ? "var(--error)" : undefined,
+                            }}
+                            disabled={selectedSourceIds.size === 0}
+                            onClick={deleteSelectedSources}
+                          >
+                            Удалить ({selectedSourceIds.size})
+                          </button>
+                          <button
+                            className="btn-secondary"
+                            style={{ fontSize: 11, padding: "4px 8px" }}
+                            onClick={() => { setSelectedSourceIds(new Set()); setBulkSelectMode(false); }}
+                          >
+                            ✕
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="sidebar-list">
                   {sources.map((doc) => {
@@ -1223,16 +1436,41 @@ export default function Chat() {
                           className="doc-item"
                           style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
                           onClick={() => {
+                            if (bulkSelectMode) {
+                              setSelectedSourceIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(doc.id)) next.delete(doc.id);
+                                else next.add(doc.id);
+                                return next;
+                              });
+                              return;
+                            }
                             setExpandedSourceId(isExpanded ? null : doc.id);
                             setSourceTagInput("");
                           }}
                         >
+                          {bulkSelectMode && (
+                            <input
+                              type="checkbox"
+                              checked={selectedSourceIds.has(doc.id)}
+                              onChange={() => {
+                                setSelectedSourceIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(doc.id)) next.delete(doc.id);
+                                  else next.add(doc.id);
+                                  return next;
+                                });
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ flexShrink: 0, cursor: "pointer" }}
+                            />
+                          )}
                           <div className={`doc-icon ${doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") || doc.filename?.endsWith(".xlsx") || doc.filename?.endsWith(".xls") ? "xlsx" : "docx"}`}>
                             {doc.mime_type?.includes("pdf") ? "P" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "X" : "W"}
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div
-                              title={doc.filename}
+                              title={doc.folder_path ? `${doc.folder_path}/${doc.filename}` : doc.filename}
                               style={{
                                 fontSize: 13,
                                 whiteSpace: "nowrap",
@@ -1242,7 +1480,12 @@ export default function Chat() {
                             >
                               {doc.filename}
                             </div>
-                            {!isExpanded && doc.tags && doc.tags.length > 0 && (
+                            {!isExpanded && doc.folder_path && (
+                              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {doc.folder_path}
+                              </div>
+                            )}
+                            {!isExpanded && !doc.folder_path && doc.tags && doc.tags.length > 0 && (
                               <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
                                 {doc.tags.length} {doc.tags.length === 1 ? "тег" : doc.tags.length < 5 ? "тега" : "тегов"}
                               </div>
@@ -1255,6 +1498,33 @@ export default function Chat() {
                           >
                             <polyline points="6 9 12 15 18 9" />
                           </svg>
+                          <button
+                            className="doc-action-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setViewingSource(doc);
+                            }}
+                            title="Просмотреть"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
+                          </button>
+                          <button
+                            className="doc-action-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              window.open(`/api/sources/download?id=${doc.id}&action=download`, "_blank");
+                            }}
+                            title="Скачать"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                              <polyline points="7 10 12 15 17 10" />
+                              <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                          </button>
                           <button
                             className="doc-delete-btn"
                             onClick={(e) => deleteSource(doc.id, e)}
@@ -1285,7 +1555,7 @@ export default function Chat() {
                             <button
                               className="btn-secondary"
                               style={{ width: "100%", padding: "5px 0", fontSize: 12, marginBottom: 8 }}
-                              onClick={(e) => { e.stopPropagation(); setViewingSourceId(doc.id); }}
+                              onClick={(e) => { e.stopPropagation(); setViewingSource(doc); }}
                             >
                               Просмотр документа
                             </button>
@@ -1340,6 +1610,31 @@ export default function Chat() {
                                 </button>
                               </form>
                             </div>
+                            <div style={{ display: "flex", gap: 6, marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+                              <button
+                                className="btn-secondary"
+                                style={{ flex: 1, fontSize: 12, padding: "5px 10px", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}
+                                onClick={(e) => { e.stopPropagation(); setViewingSource(doc); }}
+                              >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                  <circle cx="12" cy="12" r="3" />
+                                </svg>
+                                Просмотреть
+                              </button>
+                              <button
+                                className="btn-secondary"
+                                style={{ flex: 1, fontSize: 12, padding: "5px 10px", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}
+                                onClick={(e) => { e.stopPropagation(); window.open(`/api/sources/download?id=${doc.id}&action=download`, "_blank"); }}
+                              >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                  <polyline points="7 10 12 15 17 10" />
+                                  <line x1="12" y1="15" x2="12" y2="3" />
+                                </svg>
+                                Скачать
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1376,7 +1671,7 @@ export default function Chat() {
                 )}
                 {messages.length === 0 && !hasSummary && <EmptyState />}
                 {messages.map((m) => (
-                  <MessageBubble key={m.id} message={m} />
+                  <MessageBubble key={m.id} message={m} allSources={sources} onViewSource={setViewingSource} />
                 ))}
                 {isSending && <TypingBubble />}
               </div>
@@ -1501,12 +1796,10 @@ export default function Chat() {
           }}
         />
       )}
-
-      {/* ── Document Viewer ── */}
-      {viewingSourceId !== null && (
+      {viewingSource && (
         <DocumentViewer
-          sourceId={viewingSourceId}
-          onClose={() => setViewingSourceId(null)}
+          source={viewingSource}
+          onClose={() => setViewingSource(null)}
         />
       )}
     </>

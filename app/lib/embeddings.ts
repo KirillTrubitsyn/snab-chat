@@ -20,7 +20,7 @@ export async function embedQuery(text: string): Promise<number[]> {
   });
 }
 
-const MAX_CONCURRENT_EMBEDDINGS = 3;
+const MAX_CONCURRENT_EMBEDDINGS = 5;
 
 export async function embedDocuments(texts: string[]): Promise<number[][]> {
   const results: number[][] = new Array(texts.length);
