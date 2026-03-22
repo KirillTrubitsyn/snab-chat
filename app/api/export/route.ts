@@ -225,32 +225,49 @@ function parseMarkdownToParagraphs(text: string): BlockElement[] {
       // Remove wrapping quotes if present
       const cleanedQuote = quoteText.replace(/^["«]|["»]$/g, "").trim();
 
+      // Use a single-cell table for reliable background shading
       paragraphs.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: "«",
-              italics: true,
-              font: FONT_BODY,
-              size: 21,
-              color: "374151",
-            }),
-            ...parseQuoteFormatting(cleanedQuote),
-            new TextRun({
-              text: "»",
-              italics: true,
-              font: FONT_BODY,
-              size: 21,
-              color: "374151",
+        new Table({
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({
+                  children: [
+                    new Paragraph({
+                      children: [
+                        new TextRun({
+                          text: "«",
+                          italics: true,
+                          font: FONT_BODY,
+                          size: 21,
+                          color: "374151",
+                        }),
+                        ...parseQuoteFormatting(cleanedQuote),
+                        new TextRun({
+                          text: "»",
+                          italics: true,
+                          font: FONT_BODY,
+                          size: 21,
+                          color: "374151",
+                        }),
+                      ],
+                      alignment: AlignmentType.JUSTIFIED,
+                    }),
+                  ],
+                  shading: { type: ShadingType.CLEAR, fill: "EDF4FB" },
+                  borders: {
+                    top: { style: BorderStyle.NONE, size: 0 },
+                    bottom: { style: BorderStyle.NONE, size: 0 },
+                    right: { style: BorderStyle.NONE, size: 0 },
+                    left: { style: BorderStyle.SINGLE, size: 12, color: BRAND_CYAN },
+                  },
+                  margins: { top: 80, bottom: 80, left: 200, right: 120 },
+                  width: { size: 100, type: WidthType.PERCENTAGE },
+                }),
+              ],
             }),
           ],
-          spacing: { before: 120, after: 120 },
-          indent: { left: 480, right: 240 },
-          border: {
-            left: { style: BorderStyle.SINGLE, size: 12, color: BRAND_CYAN, space: 8 },
-          },
-          shading: { type: ShadingType.CLEAR, fill: "F0F7FC" },
-          alignment: AlignmentType.JUSTIFIED,
+          width: { size: 100, type: WidthType.PERCENTAGE },
         })
       );
       continue;
