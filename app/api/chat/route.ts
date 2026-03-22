@@ -1,14 +1,21 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { google } from "@/app/lib/google-ai";
 import { streamText } from "ai";
 import { hybridSearch, filterByRelevance } from "@/app/lib/retrieval";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
+import { getInviteCodeFromHeader } from "@/app/lib/auth";
 
 export const runtime = "nodejs";
 
 const MAX_UPLOADED_DOC_CHARS = 50000;
 
 export async function POST(req: NextRequest) {
+  // Проверка авторизации
+  const invite = await getInviteCodeFromHeader(req);
+  if (!invite) {
+    return NextResponse.json({ error: "Требуется инвайт-код" }, { status: 401 });
+  }
+
   const { messages, conversationId, attachedDocuments } = await req.json();
 
   const userMessage = messages[messages.length - 1];

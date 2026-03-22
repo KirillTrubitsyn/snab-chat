@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
+import { requireAdmin } from "@/app/lib/auth";
 
 export async function GET() {
   try {
@@ -23,6 +24,9 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
+  const adminCheck = requireAdmin(req);
+  if (adminCheck instanceof NextResponse) return adminCheck;
+
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
@@ -59,6 +63,9 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const adminCheck = requireAdmin(req);
+  if (adminCheck instanceof NextResponse) return adminCheck;
+
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
