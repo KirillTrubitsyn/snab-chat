@@ -16,12 +16,19 @@ export async function POST(req: NextRequest) {
 
     const supabase = createServiceClient();
 
-    // Upload original file to Supabase Storage if provided
+    // Ensure storage bucket exists (auto-create on first upload)
     let storagePath: string | null = null;
     if (file) {
       const buffer = Buffer.from(await file.arrayBuffer());
       const safeName = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
       storagePath = safeName;
+
+      // Try to create bucket if it doesn't exist
+      await supabase.storage.createBucket("documents", {
+        public: false,
+      }).catch(() => {
+        // Bucket already exists — ignore
+      });
 
       const { error: uploadError } = await supabase.storage
         .from("documents")
