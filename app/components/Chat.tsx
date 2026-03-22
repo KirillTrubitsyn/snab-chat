@@ -843,6 +843,7 @@ export default function Chat() {
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
   const [convBulkMode, setConvBulkMode] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
 
   const router = useRouter();
 
@@ -876,6 +877,7 @@ export default function Chat() {
     id: activeConvId ?? chatKey,
     api: "/api/chat",
     body: { conversationId: convIdRef.current },
+    headers: { "x-invite-code": inviteCodeRef.current },
   });
 
   /* ── Load conversations ── */
@@ -1102,7 +1104,7 @@ export default function Chat() {
     const ids = Array.from(selectedConvIds);
     await fetch("/api/conversations", {
       method: "DELETE",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-invite-code": inviteCodeRef.current },
       body: JSON.stringify({ ids }),
     });
     setConversations((prev) => prev.filter((c) => !selectedConvIds.has(c.id)));
@@ -1118,7 +1120,7 @@ export default function Chat() {
   }, [selectedConvIds, activeConvId, setMessages]);
 
   const deleteAllConversations = useCallback(async () => {
-    await fetch("/api/conversations?all=true", { method: "DELETE" });
+    await fetch("/api/conversations?all=true", { method: "DELETE", headers: { "x-invite-code": inviteCodeRef.current } });
     setConversations([]);
     setActiveConvId(null);
     convIdRef.current = null;
@@ -1139,6 +1141,7 @@ export default function Chat() {
       if ((!text && !hasFiles && !hasPhotos) || isLoading || isSending) return;
 
       setIsSending(true);
+      setChatError(null);
 
       // Prepare attached documents from chatFiles + chatPhotos
       const readyFiles = chatFiles.filter((f) => !f.parsing && !f.error && f.markdown);
@@ -1168,6 +1171,9 @@ export default function Chat() {
           newId = await createConversation(title);
         } catch (err) {
           console.error("Failed to create conversation:", err);
+          const errMsg = err instanceof Error ? err.message : "Не удалось создать диалог";
+          setChatError(errMsg.includes("401") ? "Ошибка авторизации. Попробуйте перелогиниться." : errMsg);
+          setInput(messageText);
           pendingSubmitRef.current = null;
           setIsSending(false);
           return;
@@ -1189,7 +1195,14 @@ export default function Chat() {
             }),
           });
 
-          if (!res.ok || !res.body) throw new Error("Stream failed");
+          if (!res.ok || !res.body) {
+            if (res.status === 401) {
+              setChatError("Ошибка авторизации. Попробуйте перелогиниться.");
+            } else {
+              setChatError("Не удалось получить ответ от ИИ. Попробуйте ещё раз.");
+            }
+            throw new Error(`Stream failed: ${res.status}`);
+          }
 
           // Parse sources from header
           let sources: string[] = [];
@@ -1264,7 +1277,14 @@ export default function Chat() {
           }),
         });
 
-        if (!res.ok || !res.body) throw new Error("Stream failed");
+        if (!res.ok || !res.body) {
+          if (res.status === 401) {
+            setChatError("Ошибка авторизации. Попробуйте перелогиниться.");
+          } else {
+            setChatError("Не удалось получить ответ от ИИ. Попробуйте ещё раз.");
+          }
+          throw new Error(`Stream failed: ${res.status}`);
+        }
 
         // Parse sources from header
         let sources: string[] = [];
@@ -1314,7 +1334,7 @@ export default function Chat() {
         setIsSending(false);
       }
     },
-    [input, isLoading, isSending, messages, chatFiles, setInput, setMessages, createConversation, loadConversations]
+    [input, isLoading, isSending, messages, chatFiles, chatPhotos, setInput, setMessages, createConversation, loadConversations]
   );
 
   /* ── Auto-scroll ── */
@@ -1598,6 +1618,12 @@ export default function Chat() {
                   <MessageBubble key={m.id} message={m} allSources={sources} onViewSource={setViewingSource} onCreateInfographic={m.role === "assistant" ? navigateToInfographic : undefined} />
                 ))}
                 {isSending && <TypingBubble />}
+                {chatError && (
+                  <div className="message message-error" style={{ background: "var(--error-bg, #fef2f2)", border: "1px solid var(--error-border, #fecaca)", borderRadius: 12, padding: "12px 18px", margin: "8px 0", color: "var(--error-text, #991b1b)", fontSize: 14 }}>
+                    {chatError}
+                    <button onClick={() => setChatError(null)} style={{ marginLeft: 12, background: "none", border: "none", cursor: "pointer", color: "inherit", fontWeight: 600 }}>×</button>
+                  </div>
+                )}
               </div>
 
               <form className="input-area" onSubmit={handleSubmit}>
