@@ -208,6 +208,39 @@ function MessageBubble({
     );
   }
 
+  // Find source by filename with flexible matching
+  const findSource = (name: string): Source | undefined => {
+    if (!name) return undefined;
+    const n = name.trim();
+    // Exact match
+    let src = allSources.find((doc) => doc.filename === n);
+    if (src) return src;
+    // Case-insensitive match
+    const lower = n.toLowerCase();
+    src = allSources.find((doc) => doc.filename.toLowerCase() === lower);
+    if (src) return src;
+    // Normalize whitespace and compare
+    const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+    const normName = normalize(n);
+    src = allSources.find((doc) => normalize(doc.filename) === normName);
+    if (src) return src;
+    // Partial match: contains
+    src = allSources.find((doc) => normalize(doc.filename).includes(normName) || normName.includes(normalize(doc.filename)));
+    if (src) return src;
+    // Match without extension
+    const nameNoExt = normName.replace(/\.\w+$/, "");
+    src = allSources.find((doc) => normalize(doc.filename).replace(/\.\w+$/, "") === nameNoExt);
+    return src;
+  };
+
+  // Make all source tags clickable — if no exact source found, open download search
+  const handleSourceClick = (sourceName: string) => {
+    const src = findSource(sourceName);
+    if (src) {
+      onViewSource(src);
+    }
+  };
+
   return (
     <div className="message message-ai">
       <div className="message-content">
@@ -218,19 +251,16 @@ function MessageBubble({
           <div className="message-sources-label">Источники:</div>
           <div className="message-sources-list">
             {message.sources.map((s, i) => {
-              const src = allSources.find(
-                (doc) => doc.filename === s || doc.filename.startsWith(s.split(".")[0])
-              );
-              return src ? (
+              const src = findSource(s);
+              return (
                 <button
                   key={i}
-                  className="message-source-tag source-clickable"
-                  onClick={() => onViewSource(src)}
+                  className={`message-source-tag source-clickable${!src ? " source-unlinked" : ""}`}
+                  onClick={() => handleSourceClick(s)}
+                  title={src ? "Открыть документ" : "Документ не найден в базе"}
                 >
                   {s}
                 </button>
-              ) : (
-                <span key={i} className="message-source-tag">{s}</span>
               );
             })}
           </div>
