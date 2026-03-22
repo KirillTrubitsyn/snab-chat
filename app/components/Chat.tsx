@@ -120,6 +120,32 @@ function SearchIcon() {
 
 /* ── Sub-components ── */
 
+function cleanMarkdown(text: string): string {
+  let s = text;
+  // Remove HTML tags (anchors, spans, etc.)
+  s = s.replace(/<[^>]+>/g, "");
+  // Remove markdown heading markers
+  s = s.replace(/^#{1,6}\s+/gm, "");
+  // Remove bold/italic markers
+  s = s.replace(/\*{1,3}([^*]+)\*{1,3}/g, "$1");
+  s = s.replace(/_{1,3}([^_]+)_{1,3}/g, "$1");
+  // Remove strikethrough
+  s = s.replace(/~~([^~]+)~~/g, "$1");
+  // Remove inline code backticks
+  s = s.replace(/`([^`]+)`/g, "$1");
+  // Remove link syntax [text](url) → text
+  s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  // Remove image syntax ![alt](url)
+  s = s.replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1");
+  // Remove horizontal rules
+  s = s.replace(/^[-*_]{3,}\s*$/gm, "");
+  // Remove blockquote markers
+  s = s.replace(/^>\s?/gm, "");
+  // Clean up multiple blank lines
+  s = s.replace(/\n{3,}/g, "\n\n");
+  return s.trim();
+}
+
 function DocumentViewer({
   source,
   onClose,
@@ -127,7 +153,7 @@ function DocumentViewer({
   source: Source;
   onClose: () => void;
 }) {
-  const [markdown, setMarkdown] = useState<string | null>(null);
+  const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const isPdf = source.mime_type?.includes("pdf");
   const hasOriginal = !!source.storage_path;
@@ -139,8 +165,8 @@ function DocumentViewer({
     }
     fetch(`/api/sources/content?id=${source.id}`)
       .then((r) => r.json())
-      .then((d) => setMarkdown(d.markdown || ""))
-      .catch(() => setMarkdown("Не удалось загрузить содержимое"))
+      .then((d) => setContent(cleanMarkdown(d.markdown || "")))
+      .catch(() => setContent("Не удалось загрузить содержимое"))
       .finally(() => setLoading(false));
   }, [source.id, isPdf, hasOriginal]);
 
@@ -185,8 +211,8 @@ function DocumentViewer({
               title={source.filename}
             />
           ) : (
-            <div className="document-viewer-content">
-              <ReactMarkdown>{markdown || ""}</ReactMarkdown>
+            <div className="document-viewer-content" style={{ whiteSpace: "pre-wrap" }}>
+              {content || ""}
             </div>
           )}
         </div>
