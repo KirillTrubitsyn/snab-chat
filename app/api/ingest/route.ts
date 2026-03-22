@@ -5,8 +5,36 @@ import { embedDocuments } from "@/app/lib/embeddings";
 
 export async function POST(req: NextRequest) {
   try {
-    const { filename, mimeType, markdown, tags } = await req.json();
+    const formData = await req.formData();
+    const file = formData.get("file") as File | null;
+    const filename = formData.get("filename") as string;
+    const mimeType = formData.get("mimeType") as string;
+    const markdown = formData.get("markdown") as string;
+    const tagsRaw = formData.get("tags") as string;
+    const tags: string[] = tagsRaw ? JSON.parse(tagsRaw) : [];
+
     const supabase = createServiceClient();
+
+    // Upload original file to Supabase Storage if provided
+    let storagePath: string | null = null;
+    if (file) {
+      const buffer = Buffer.from(await file.arrayBuffer());
+      const safeName = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      storagePath = safeName;
+
+      const { error: uploadError } = await supabase.storage
+        .from("documents")
+        .upload(storagePath, buffer, {
+          contentType: mimeType,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        console.error("Storage upload error:", uploadError);
+        // Continue without storage — file will still be indexed
+        storagePath = null;
+      }
+    }
 
     // Create source entry
     const { data: source, error: sourceError } = await supabase
@@ -16,6 +44,7 @@ export async function POST(req: NextRequest) {
         mime_type: mimeType,
         tags,
         content_preview: markdown.slice(0, 500),
+        storage_path: storagePath,
       })
       .select("id")
       .single();

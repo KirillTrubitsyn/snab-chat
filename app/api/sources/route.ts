@@ -7,7 +7,7 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from("sources")
-      .select("id, filename, mime_type, tags, created_at")
+      .select("id, filename, mime_type, tags, storage_path, created_at")
       .order("created_at", { ascending: false })
       .limit(50);
 
@@ -68,6 +68,18 @@ export async function DELETE(req: NextRequest) {
     }
 
     const supabase = createServiceClient();
+
+    // Get source to find storage path
+    const { data: source } = await supabase
+      .from("sources")
+      .select("storage_path")
+      .eq("id", id)
+      .single();
+
+    // Delete file from storage if exists
+    if (source?.storage_path) {
+      await supabase.storage.from("documents").remove([source.storage_path]);
+    }
 
     // Delete chunks first
     await supabase.from("chunks").delete().eq("source_id", id);
