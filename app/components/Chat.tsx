@@ -783,8 +783,14 @@ export default function Chat() {
   /* ── Auth State ── */
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [inviteCode, setInviteCode] = useState<string>("");
+  const inviteCodeRef = useRef<string>("");
   const [userName, setUserName] = useState<string>("");
   const [authLoading, setAuthLoading] = useState(true);
+
+  /* ── Keep inviteCodeRef in sync ── */
+  useEffect(() => {
+    inviteCodeRef.current = inviteCode;
+  }, [inviteCode]);
 
   /* ── Check existing auth on mount ── */
   useEffect(() => {
@@ -792,6 +798,7 @@ export default function Chat() {
     const name = localStorage.getItem("snabchat_user_name");
     if (code && name) {
       setInviteCode(code);
+      inviteCodeRef.current = code;
       setUserName(name);
       setIsAuthenticated(true);
     }
@@ -800,6 +807,7 @@ export default function Chat() {
 
   const handleAuthSuccess = useCallback((data: { type: string; code: string; userName: string }) => {
     setInviteCode(data.code);
+    inviteCodeRef.current = data.code;
     setUserName(data.userName);
     setIsAuthenticated(true);
   }, []);
@@ -875,7 +883,7 @@ export default function Chat() {
     if (!inviteCode) return;
     try {
       const res = await fetch("/api/conversations", {
-        headers: { "x-invite-code": inviteCode },
+        headers: { "x-invite-code": inviteCodeRef.current },
       });
       const data = await res.json();
       if (Array.isArray(data)) setConversations(data);
@@ -912,7 +920,7 @@ export default function Chat() {
 
       try {
         const res = await fetch(`/api/conversations/messages?id=${convId}`, {
-          headers: { "x-invite-code": inviteCode },
+          headers: { "x-invite-code": inviteCodeRef.current },
         });
         const data = await res.json();
         setHasSummary(data.conversation?.hasSummary ?? false);
@@ -939,10 +947,16 @@ export default function Chat() {
     async (title?: string) => {
       const res = await fetch("/api/conversations", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-invite-code": inviteCode },
+        headers: { "Content-Type": "application/json", "x-invite-code": inviteCodeRef.current },
         body: JSON.stringify({ title: title || "Новый диалог" }),
       });
+      if (!res.ok) {
+        throw new Error(`Не удалось создать диалог: ${res.status}`);
+      }
       const conv = await res.json();
+      if (!conv.id) {
+        throw new Error("Сервер не вернул ID диалога");
+      }
       setConversations((prev) => [conv, ...prev]);
       setActiveConvId(conv.id);
       convIdRef.current = conv.id;
@@ -959,7 +973,7 @@ export default function Chat() {
       e?.stopPropagation();
       await fetch(`/api/conversations?id=${convId}`, {
         method: "DELETE",
-        headers: { "x-invite-code": inviteCode },
+        headers: { "x-invite-code": inviteCodeRef.current },
       });
       setConversations((prev) => prev.filter((c) => c.id !== convId));
       if (activeConvId === convId) {
@@ -983,7 +997,7 @@ export default function Chat() {
     const formData = new FormData();
     formData.append("file", file);
     try {
-      const res = await fetch("/api/parse", { method: "POST", body: formData, headers: { "x-invite-code": inviteCode } });
+      const res = await fetch("/api/parse", { method: "POST", body: formData, headers: { "x-invite-code": inviteCodeRef.current } });
       if (!res.ok) throw new Error("Parse failed");
       const data = await res.json();
       if (isPhoto) {
@@ -1149,7 +1163,15 @@ export default function Chat() {
         pendingSubmitRef.current = messageText;
         setInput("");
         const title = messageText.slice(0, 50) + (messageText.length > 50 ? "..." : "");
-        const newId = await createConversation(title);
+        let newId: string;
+        try {
+          newId = await createConversation(title);
+        } catch (err) {
+          console.error("Failed to create conversation:", err);
+          pendingSubmitRef.current = null;
+          setIsSending(false);
+          return;
+        }
 
         setMessages((prev) => [
           ...prev,
@@ -1159,7 +1181,7 @@ export default function Chat() {
         try {
           const res = await fetch("/api/chat", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "x-invite-code": inviteCode },
+            headers: { "Content-Type": "application/json", "x-invite-code": inviteCodeRef.current },
             body: JSON.stringify({
               messages: [{ role: "user", content: messageText }],
               conversationId: newId,
@@ -1231,7 +1253,7 @@ export default function Chat() {
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-invite-code": inviteCode },
+          headers: { "Content-Type": "application/json", "x-invite-code": inviteCodeRef.current },
           body: JSON.stringify({
             messages: currentMessages.map((m) => ({
               role: m.role,
