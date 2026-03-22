@@ -529,10 +529,13 @@ input, textarea {
   text-decoration: underline;
 }
 .message-content blockquote {
-  border-left: 3px solid var(--border);
-  padding-left: 12px;
+  border-left: 3px solid var(--accent);
+  padding: 10px 16px;
+  margin: 0.8em 0 0.8em 8px;
+  background: rgba(0, 153, 204, 0.06);
+  border-radius: 0 6px 6px 0;
   color: var(--text-secondary);
-  margin: 0.6em 0;
+  font-style: italic;
 }
 
 /* User message overrides for code inside accent bubble */
