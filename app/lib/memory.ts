@@ -120,17 +120,22 @@ export async function loadConversationContext(
 export async function saveMessage(
   conversationId: string,
   role: "user" | "assistant",
-  content: string
+  content: string,
+  metadata?: Record<string, unknown>
 ): Promise<void> {
   const supabase = createServiceClient();
   const tokens = estimateTokens(content);
 
-  await supabase.from("messages").insert({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const row: Record<string, any> = {
     conversation_id: conversationId,
     role,
     content,
     token_estimate: tokens,
-  });
+  };
+  if (metadata) row.metadata = metadata;
+
+  await supabase.from("messages").insert(row);
 
   await supabase
     .from("conversations")
