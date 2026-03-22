@@ -593,6 +593,161 @@ input, textarea {
   transform: none;
 }
 
+/* ── Attach button ── */
+
+.attach-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: all var(--transition);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.attach-btn:hover {
+  color: var(--accent);
+  background: rgba(37, 99, 235, 0.06);
+}
+
+.attach-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* ── Chat file chips ── */
+
+.chat-files-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0 4px;
+}
+
+.chat-file-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: rgba(37, 99, 235, 0.06);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 220px;
+  animation: fadeInUp 200ms ease-out;
+}
+
+.chat-file-chip .chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-file-chip .chip-size {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.chat-file-chip.parsing {
+  opacity: 0.7;
+}
+
+.chat-file-chip.error {
+  border-color: var(--error);
+  background: rgba(220, 38, 38, 0.04);
+  color: var(--error);
+}
+
+.chip-remove {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+
+.chip-remove:hover {
+  color: var(--error);
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.chip-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ── Voice button ── */
+
+.voice-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: all var(--transition);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.voice-btn:hover {
+  color: var(--accent);
+  background: rgba(37, 99, 235, 0.06);
+}
+
+.voice-btn.recording {
+  background: #dc2626;
+  color: #fff;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.voice-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* ── Attachment badges in messages ── */
+
+.message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.message-attachment-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.message-attachment-badge svg {
+  flex-shrink: 0;
+}
+
 /* ── Footer ── */
 
 .app-footer {
