@@ -19,6 +19,7 @@ interface Source {
   filename: string;
   mime_type: string;
   tags: string[];
+  storage_path: string | null;
   created_at: string;
 }
 
@@ -118,20 +119,119 @@ function SearchIcon() {
 
 /* ── Sub-components ── */
 
-function MessageBubble({ message }: { message: { id: string; role: string; content: string; sources?: string[] } }) {
-  const isUser = message.role === "user";
+function DocumentViewer({
+  source,
+  onClose,
+}: {
+  source: Source;
+  onClose: () => void;
+}) {
+  const [markdown, setMarkdown] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const isPdf = source.mime_type?.includes("pdf");
+  const hasOriginal = !!source.storage_path;
+
+  useEffect(() => {
+    if (isPdf && hasOriginal) {
+      setLoading(false);
+      return;
+    }
+    fetch(`/api/sources/content?id=${source.id}`)
+      .then((r) => r.json())
+      .then((d) => setMarkdown(d.markdown || ""))
+      .catch(() => setMarkdown("Не удалось загрузить содержимое"))
+      .finally(() => setLoading(false));
+  }, [source.id, isPdf, hasOriginal]);
+
   return (
-    <div className={`message ${isUser ? "message-user" : "message-ai"}`}>
-      <div className="message-content">
-        {isUser ? message.content : <ReactMarkdown>{message.content}</ReactMarkdown>}
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="document-viewer-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="document-viewer-header">
+          <div className="document-viewer-title">{source.filename}</div>
+          <div className="document-viewer-actions">
+            <button
+              className="btn-secondary"
+              onClick={() =>
+                window.open(
+                  `/api/sources/download?id=${source.id}&action=download`,
+                  "_blank"
+                )
+              }
+            >
+              Скачать{hasOriginal ? "" : " (.md)"}
+            </button>
+            <button className="btn-secondary" onClick={onClose}>
+              Закрыть
+            </button>
+          </div>
+        </div>
+        <div className="document-viewer-body">
+          {loading ? (
+            <div className="document-viewer-loading">Загрузка...</div>
+          ) : isPdf && hasOriginal ? (
+            <iframe
+              src={`/api/sources/download?id=${source.id}&action=view`}
+              className="document-viewer-iframe"
+              title={source.filename}
+            />
+          ) : (
+            <div className="document-viewer-content">
+              <ReactMarkdown>{markdown || ""}</ReactMarkdown>
+            </div>
+          )}
+        </div>
       </div>
-      {!isUser && message.sources && message.sources.length > 0 && (
+    </div>
+  );
+}
+
+function MessageBubble({
+  message,
+  allSources,
+  onViewSource,
+}: {
+  message: { id: string; role: string; content: string; sources?: string[] };
+  allSources: Source[];
+  onViewSource: (source: Source) => void;
+}) {
+  const isUser = message.role === "user";
+
+  if (isUser) {
+    return (
+      <div className="message message-user">
+        <div className="message-content">{message.content}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="message message-ai">
+      <div className="message-content">
+        <ReactMarkdown>{message.content}</ReactMarkdown>
+      </div>
+      {message.sources && message.sources.length > 0 && (
         <div className="message-sources">
           <div className="message-sources-label">Источники:</div>
           <div className="message-sources-list">
-            {message.sources.map((s, i) => (
-              <span key={i} className="message-source-tag">{s}</span>
-            ))}
+            {message.sources.map((s, i) => {
+              const src = allSources.find(
+                (doc) => doc.filename === s || doc.filename.startsWith(s.split(".")[0])
+              );
+              return src ? (
+                <button
+                  key={i}
+                  className="message-source-tag source-clickable"
+                  onClick={() => onViewSource(src)}
+                >
+                  {s}
+                </button>
+              ) : (
+                <span key={i} className="message-source-tag">{s}</span>
+              );
+            })}
           </div>
         </div>
       )}
@@ -278,15 +378,15 @@ function UploadModal({
         const p = updated[i].parsed!;
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 300000);
+        const fd = new FormData();
+        fd.append("file", updated[i].file);
+        fd.append("filename", p.filename);
+        fd.append("mimeType", p.mimeType);
+        fd.append("markdown", p.markdown);
+        fd.append("tags", JSON.stringify(updated[i].tags));
         const res = await fetch("/api/ingest", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            filename: p.filename,
-            mimeType: p.mimeType,
-            markdown: p.markdown,
-            tags: updated[i].tags,
-          }),
+          body: fd,
           signal: controller.signal,
         });
         clearTimeout(timeout);
@@ -741,6 +841,7 @@ export default function Chat() {
   const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);
   const [sourceTagInput, setSourceTagInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [viewingSource, setViewingSource] = useState<Source | null>(null);
 
   /* ── Refs ── */
   const convIdRef = useRef<string | null>(null);
@@ -1183,6 +1284,33 @@ export default function Chat() {
                             <polyline points="6 9 12 15 18 9" />
                           </svg>
                           <button
+                            className="doc-action-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setViewingSource(doc);
+                            }}
+                            title="Просмотреть"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
+                          </button>
+                          <button
+                            className="doc-action-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              window.open(`/api/sources/download?id=${doc.id}&action=download`, "_blank");
+                            }}
+                            title="Скачать"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                              <polyline points="7 10 12 15 17 10" />
+                              <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                          </button>
+                          <button
                             className="doc-delete-btn"
                             onClick={(e) => deleteSource(doc.id, e)}
                             title="Удалить документ"
@@ -1296,7 +1424,7 @@ export default function Chat() {
                 )}
                 {messages.length === 0 && !hasSummary && <EmptyState />}
                 {messages.map((m) => (
-                  <MessageBubble key={m.id} message={m} />
+                  <MessageBubble key={m.id} message={m} allSources={sources} onViewSource={setViewingSource} />
                 ))}
                 {isSending && <TypingBubble />}
               </div>
@@ -1419,6 +1547,12 @@ export default function Chat() {
             loadSources();
             setShowUploadModal(false);
           }}
+        />
+      )}
+      {viewingSource && (
+        <DocumentViewer
+          source={viewingSource}
+          onClose={() => setViewingSource(null)}
         />
       )}
     </>
