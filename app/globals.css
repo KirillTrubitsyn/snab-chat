@@ -1587,6 +1587,94 @@ input, textarea {
   font-weight: 600;
 }
 
+/* ── Excel Viewer ── */
+
+.excel-viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.excel-sheet-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid #d0d0d0;
+  background: #f0f0f0;
+  padding: 0 8px;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.excel-sheet-tab {
+  padding: 8px 16px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  color: #555;
+  border-radius: 4px 4px 0 0;
+  white-space: nowrap;
+  position: relative;
+  bottom: -2px;
+}
+
+.excel-sheet-tab:hover {
+  background: #e4e4e4;
+}
+
+.excel-sheet-tab.active {
+  background: #fff;
+  border-color: #d0d0d0;
+  color: #1a7f37;
+  font-weight: 600;
+}
+
+.excel-table-wrapper {
+  overflow: auto;
+  flex: 1;
+  background: #fff;
+}
+
+.excel-table {
+  border-collapse: collapse;
+  font-family: "Calibri", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 12px;
+  white-space: nowrap;
+  min-width: 100%;
+}
+
+.excel-table td {
+  border: 1px solid #d4d4d4;
+  padding: 3px 6px;
+  height: 22px;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  color: #1a1a1a;
+  background: #fff;
+}
+
+.excel-table tr:first-child td,
+.excel-table tr:nth-child(2) td,
+.excel-table tr:nth-child(3) td {
+  font-weight: 500;
+}
+
+.excel-cell-empty {
+  background: #fff !important;
+}
+
+.excel-table tr:hover td {
+  background: #f0f7ff;
+}
+
+.excel-table tr:hover td.excel-cell-empty {
+  background: #f0f7ff;
+}
+
 /* ── Source Link in Chat Messages ── */
 
 .source-link-btn {
