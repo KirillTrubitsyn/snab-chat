@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
 
   // Phase 1: Filter by relevance
   const { results: relevantChunks, lowConfidence } = filterByRelevance(searchResults);
+  console.log("filterByRelevance:", relevantChunks.length, "chunks, lowConfidence =", lowConfidence);
 
   // Phase 3a: Structured XML context format
   const ragContext = relevantChunks.length
@@ -104,6 +105,8 @@ ${ragContext || "В базе знаний не найдено релевантн
     }
   }
 
+  console.log("modelMessages count =", modelMessages.length, "systemPrompt length =", systemPrompt.length);
+
   // Phase 3c: Extract actually cited sources from response
   const result = streamText({
     model: google("gemini-3-flash"),
@@ -111,6 +114,7 @@ ${ragContext || "В базе знаний не найдено релевантн
     messages: modelMessages,
     temperature: 0,
     async onFinish({ text }) {
+      console.log("streamText onFinish: text length =", text.length, "preview =", text.slice(0, 200));
       if (conversationId) {
         await saveMessage(conversationId, "assistant", text);
       }
