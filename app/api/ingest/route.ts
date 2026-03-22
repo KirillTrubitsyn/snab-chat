@@ -59,8 +59,8 @@ export async function POST(req: NextRequest) {
 
     const chunks = chunkMarkdown(markdown);
 
-    // Embed in batches of 5
-    const batchSize = 5;
+    // Embed in batches of 10 (embeddings are parallelized internally)
+    const batchSize = 10;
     let insertedCount = 0;
 
     for (let i = 0; i < chunks.length; i += batchSize) {

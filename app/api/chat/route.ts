@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { google } from "@/app/lib/google-ai";
 import { streamText } from "ai";
-import { hybridSearch } from "@/app/lib/retrieval";
+import { hybridSearch, filterByRelevance } from "@/app/lib/retrieval";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
 
 export const runtime = "nodejs";
@@ -11,40 +11,66 @@ export async function POST(req: NextRequest) {
 
   const userMessage = messages[messages.length - 1];
 
-  // Save user message
-  if (conversationId) {
-    await saveMessage(conversationId, "user", userMessage.content);
-  }
+  // Run save, context load, and RAG search in parallel
+  const [, contextResult, searchResults] = await Promise.all([
+    conversationId
+      ? saveMessage(conversationId, "user", userMessage.content)
+      : Promise.resolve(),
+    conversationId
+      ? loadConversationContext(conversationId)
+      : Promise.resolve(null),
+    hybridSearch(userMessage.content, 20),
+  ]);
 
-  // Load conversation context
-  let contextMessages: { role: string; content: string }[] = [];
-  if (conversationId) {
-    const ctx = await loadConversationContext(conversationId);
-    contextMessages = ctx.messages;
-  }
+  const contextMessages: { role: string; content: string }[] =
+    contextResult?.messages ?? [];
 
-  // RAG search
-  const searchResults = await hybridSearch(userMessage.content, 5);
+  // Phase 1: Filter by relevance
+  const { results: relevantChunks, lowConfidence } = filterByRelevance(searchResults);
 
-  const ragContext = searchResults.length
-    ? searchResults
+  // Phase 3a: Structured XML context format
+  const ragContext = relevantChunks.length
+    ? `<documents>\n${relevantChunks
         .map(
           (r, i) =>
-            `[Источник ${i + 1}: ${r.source_filename}]\n${r.content}`
+            `<document id="${i + 1}" filename="${r.source_filename}" chunk="${r.chunk_index}" similarity="${r.similarity.toFixed(2)}">\n${r.content}\n</document>`
         )
-        .join("\n\n---\n\n")
+        .join("\n")}\n</documents>`
+    : "";
+
+  // Phase 3b: System prompt with citation protocol and few-shot examples
+  const lowConfidenceWarning = lowConfidence
+    ? `\n\n⚠️ ВНИМАНИЕ: Найденные документы имеют НИЗКУЮ релевантность к вопросу пользователя. Скорее всего, ответа в базе знаний нет. Сообщи об этом пользователю явно.`
     : "";
 
   const systemPrompt = `Ты СнабЧат — ИИ-ассистент Дирекции по закупкам. Ты помогаешь сотрудникам с вопросами о закупках, снабжении, договорах, нормативных документах и внутренних процедурах.
 
-Правила:
-- Отвечай точно и по существу, опираясь на предоставленный контекст из базы знаний
-- Если в контексте нет информации для ответа, честно скажи об этом
-- Используй деловой, но дружелюбный тон
-- Форматируй ответы с использованием Markdown
-- Если цитируешь документ, указывай источник
+КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА (ОБЯЗАТЕЛЬНЫ К ИСПОЛНЕНИЮ):
+1. Ты ДОЛЖЕН отвечать ИСКЛЮЧИТЕЛЬНО на основе предоставленных ниже документов (<documents>). Это твой ЕДИНСТВЕННЫЙ источник информации.
+2. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать свои общие знания, обучающие данные или делать предположения для дополнения ответа. Даже если ты "знаешь" что-то по теме — НЕ используй это.
+3. Если информации в документах НЕДОСТАТОЧНО — прямо укажи это. НЕ пытайся заполнить пробелы.
+4. Если вопрос частично покрыт документами — ответь только на покрытую часть и явно укажи, что остальное в документах отсутствует.
+5. При цитировании — приводи ДОСЛОВНЫЕ цитаты из документов.
+6. Перед каждым утверждением мысленно проверь: есть ли для него ПРЯМОЕ подтверждение в <documents>? Если нет — НЕ включай его в ответ.
+7. НЕ вставляй ссылки на источники вида [doc:N] в текст ответа. Источники отображаются отдельно в интерфейсе.
 
-${ragContext ? `База знаний (результаты поиска):\n\n${ragContext}` : "В базе знаний не найдено релевантных документов."}`;
+ФОРМАТ ОТВЕТА:
+- Используй Markdown для форматирования
+- Для дословных цитат используй формат: > "цитата"
+- Деловой, но дружелюбный тон
+- НЕ добавляй [doc:1], [doc:2] и подобные ссылки в текст
+
+ПРИМЕР ОТВЕТА:
+Вопрос: Какой срок рассмотрения заявок?
+Ответ: Согласно регламенту, срок рассмотрения заявок составляет 10 рабочих дней. При этом комиссия вправе продлить срок на 5 дней при наличии обоснования.
+
+> "Заявки участников рассматриваются в течение 10 (десяти) рабочих дней с даты окончания приёма"
+
+ПРИМЕР ОТКАЗА (когда информации нет):
+Вопрос: Какова средняя зарплата в отделе закупок?
+Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${lowConfidenceWarning}
+
+${ragContext || "В базе знаний не найдено релевантных документов по данному запросу. Сообщи пользователю, что по его вопросу документы не найдены."}`;
 
   // Build messages for the model
   const modelMessages = [
@@ -78,10 +104,12 @@ ${ragContext ? `База знаний (результаты поиска):\n\n${
     }
   }
 
+  // Phase 3c: Stream response from Gemini
   const result = streamText({
-    model: google("gemini-3.1-flash-lite-preview"),
+    model: google("gemini-3-flash-preview"),
     system: systemPrompt,
     messages: modelMessages,
+    temperature: 0,
     async onFinish({ text }) {
       if (conversationId) {
         await saveMessage(conversationId, "assistant", text);
@@ -89,5 +117,12 @@ ${ragContext ? `База знаний (результаты поиска):\n\n${
     },
   });
 
-  return result.toDataStreamResponse();
+  // Build source filenames from filtered relevant chunks (not all 20)
+  const sourceFilenames = [...new Set(relevantChunks.map((r) => r.source_filename))];
+
+  return result.toDataStreamResponse({
+    headers: {
+      "X-Sources": encodeURIComponent(JSON.stringify(sourceFilenames)),
+    },
+  });
 }

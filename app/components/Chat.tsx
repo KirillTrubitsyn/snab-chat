@@ -190,11 +190,11 @@ function DocumentViewer({
 
 function MessageBubble({
   message,
-  sources,
+  allSources,
   onViewSource,
 }: {
-  message: { id: string; role: string; content: string };
-  sources: Source[];
+  message: { id: string; role: string; content: string; sources?: string[] };
+  allSources: Source[];
   onViewSource: (source: Source) => void;
 }) {
   const isUser = message.role === "user";
@@ -207,65 +207,34 @@ function MessageBubble({
     );
   }
 
-  // Parse source references and make them clickable
-  const renderContent = (text: string) => {
-    // Split by source reference pattern [Источник N: filename]
-    const parts = text.split(/(\[Источник \d+:\s*[^\]]+\])/g);
-    if (parts.length === 1) {
-      return <ReactMarkdown>{text}</ReactMarkdown>;
-    }
-
-    const processed = parts
-      .map((part, idx) => {
-        const match = part.match(/\[Источник \d+:\s*([^\]]+)\]/);
-        if (match) {
-          const fname = match[1].trim();
-          const src = sources.find(
-            (s) => s.filename === fname || s.filename.startsWith(fname.split(".")[0])
-          );
-          if (src) {
-            return `[${part}](/api/sources/download?id=${src.id}&action=view "source-link-${src.id}")`;
-          }
-        }
-        return part;
-      })
-      .join("");
-
-    return (
-      <ReactMarkdown
-        components={{
-          a: ({ href, title, children }) => {
-            if (title?.startsWith("source-link-")) {
-              const srcId = parseInt(title.replace("source-link-", ""), 10);
-              const src = sources.find((s) => s.id === srcId);
-              return (
-                <button
-                  className="source-link-btn"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (src) onViewSource(src);
-                  }}
-                >
-                  {children}
-                </button>
-              );
-            }
-            return (
-              <a href={href} target="_blank" rel="noopener noreferrer">
-                {children}
-              </a>
-            );
-          },
-        }}
-      >
-        {processed}
-      </ReactMarkdown>
-    );
-  };
-
   return (
     <div className="message message-ai">
-      <div className="message-content">{renderContent(message.content)}</div>
+      <div className="message-content">
+        <ReactMarkdown>{message.content}</ReactMarkdown>
+      </div>
+      {message.sources && message.sources.length > 0 && (
+        <div className="message-sources">
+          <div className="message-sources-label">Источники:</div>
+          <div className="message-sources-list">
+            {message.sources.map((s, i) => {
+              const src = allSources.find(
+                (doc) => doc.filename === s || doc.filename.startsWith(s.split(".")[0])
+              );
+              return src ? (
+                <button
+                  key={i}
+                  className="message-source-tag source-clickable"
+                  onClick={() => onViewSource(src)}
+                >
+                  {s}
+                </button>
+              ) : (
+                <span key={i} className="message-source-tag">{s}</span>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -360,7 +329,14 @@ function UploadModal({
       formData.append("file", results[i].file);
 
       try {
-        const res = await fetch("/api/parse", { method: "POST", body: formData });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 120000);
+        const res = await fetch("/api/parse", {
+          method: "POST",
+          body: formData,
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
         if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
         const data: ParsedFile = await res.json();
         results[i] = { ...results[i], status: "parsed", parsed: data, tags: data.tags };
@@ -368,7 +344,9 @@ function UploadModal({
         results[i] = {
           ...results[i],
           status: "error",
-          error: err instanceof Error ? err.message : "Ошибка обработки",
+          error: err instanceof Error
+            ? (err.name === "AbortError" ? "Таймаут: сервер не ответил за 2 мин" : err.message)
+            : "Ошибка обработки",
         };
       }
       setEntries([...results]);
@@ -398,6 +376,8 @@ function UploadModal({
 
       try {
         const p = updated[i].parsed!;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 300000);
         const fd = new FormData();
         fd.append("file", updated[i].file);
         fd.append("filename", p.filename);
@@ -407,7 +387,9 @@ function UploadModal({
         const res = await fetch("/api/ingest", {
           method: "POST",
           body: fd,
+          signal: controller.signal,
         });
+        clearTimeout(timeout);
         if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
         updated[i] = { ...updated[i], status: "done" };
         successCount++;
@@ -415,7 +397,9 @@ function UploadModal({
         updated[i] = {
           ...updated[i],
           status: "error",
-          error: err instanceof Error ? err.message : "Ошибка загрузки",
+          error: err instanceof Error
+            ? (err.name === "AbortError" ? "Таймаут: загрузка заняла больше 5 мин" : err.message)
+            : "Ошибка загрузки",
         };
       }
       setEntries([...updated]);
@@ -425,13 +409,10 @@ function UploadModal({
     if (successCount === 0) setGlobalError("Не удалось загрузить ни один файл");
   }, [entries]);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const openFilePicker = () => {
-    const inp = document.createElement("input");
-    inp.type = "file";
-    inp.accept = ".pdf,.docx,.xlsx,.xls";
-    inp.multiple = true;
-    inp.onchange = () => handleFileSelect(inp.files);
-    inp.click();
+    fileInputRef.current?.click();
   };
 
   const retry = () => {
@@ -442,46 +423,53 @@ function UploadModal({
     setExpandedIdx(null);
   };
 
-  const addMoreFiles = () => {
-    const inp = document.createElement("input");
-    inp.type = "file";
-    inp.accept = ".pdf,.docx,.xlsx,.xls";
-    inp.multiple = true;
-    inp.onchange = async () => {
-      if (!inp.files || inp.files.length === 0) return;
-      const startIdx = entries.length;
-      const newOnes: FileEntry[] = Array.from(inp.files).map((file) => ({
-        file,
-        status: "pending" as const,
-        tags: [],
-      }));
-      const all = [...entries, ...newOnes];
-      setEntries(all);
+  const addMoreRef = useRef<HTMLInputElement>(null);
 
-      // Parse the new files
-      for (let i = startIdx; i < all.length; i++) {
-        all[i] = { ...all[i], status: "parsing" };
-        setEntries([...all]);
+  const handleAddMoreChange = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const startIdx = entries.length;
+    const newOnes: FileEntry[] = Array.from(files).map((file) => ({
+      file,
+      status: "pending" as const,
+      tags: [],
+    }));
+    const all = [...entries, ...newOnes];
+    setEntries(all);
 
-        const formData = new FormData();
-        formData.append("file", all[i].file);
+    for (let i = startIdx; i < all.length; i++) {
+      all[i] = { ...all[i], status: "parsing" };
+      setEntries([...all]);
 
-        try {
-          const res = await fetch("/api/parse", { method: "POST", body: formData });
-          if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
-          const data: ParsedFile = await res.json();
-          all[i] = { ...all[i], status: "parsed", parsed: data, tags: data.tags };
-        } catch (err) {
-          all[i] = {
-            ...all[i],
-            status: "error",
-            error: err instanceof Error ? err.message : "Ошибка обработки",
-          };
-        }
-        setEntries([...all]);
+      const formData = new FormData();
+      formData.append("file", all[i].file);
+
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 120000);
+        const res = await fetch("/api/parse", {
+          method: "POST",
+          body: formData,
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
+        const data: ParsedFile = await res.json();
+        all[i] = { ...all[i], status: "parsed", parsed: data, tags: data.tags };
+      } catch (err) {
+        all[i] = {
+          ...all[i],
+          status: "error",
+          error: err instanceof Error
+            ? (err.name === "AbortError" ? "Таймаут: сервер не ответил за 2 мин" : err.message)
+            : "Ошибка обработки",
+        };
       }
-    };
-    inp.click();
+      setEntries([...all]);
+    }
+  }, [entries]);
+
+  const addMoreFiles = () => {
+    addMoreRef.current?.click();
   };
 
   const removeEntry = (idx: number) => {
@@ -529,6 +517,24 @@ function UploadModal({
             ✕
           </button>
         </div>
+
+        {/* Hidden file inputs */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.docx,.xlsx,.xls"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => { handleFileSelect(e.target.files); e.target.value = ""; }}
+        />
+        <input
+          ref={addMoreRef}
+          type="file"
+          accept=".pdf,.docx,.xlsx,.xls"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => { handleAddMoreChange(e.target.files); e.target.value = ""; }}
+        />
 
         {/* ── idle ── */}
         {stage === "idle" && (
@@ -828,12 +834,13 @@ export default function Chat() {
   const [hasSummary, setHasSummary] = useState(false);
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [leftCollapsed, setLeftCollapsed] = useState(true);
+  const [rightCollapsed, setRightCollapsed] = useState(true);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [sources, setSources] = useState<Source[]>([]);
   const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);
   const [sourceTagInput, setSourceTagInput] = useState("");
+  const [isSending, setIsSending] = useState(false);
   const [viewingSource, setViewingSource] = useState<Source | null>(null);
 
   /* ── Refs ── */
@@ -988,7 +995,9 @@ export default function Chat() {
     async (e?: FormEvent) => {
       e?.preventDefault();
       const text = input.trim();
-      if (!text || isLoading) return;
+      if (!text || isLoading || isSending) return;
+
+      setIsSending(true);
 
       if (!convIdRef.current) {
         pendingSubmitRef.current = text;
@@ -1013,6 +1022,13 @@ export default function Chat() {
 
           if (!res.ok || !res.body) throw new Error("Stream failed");
 
+          // Parse sources from header
+          let sources: string[] = [];
+          try {
+            const srcHeader = res.headers.get("X-Sources");
+            if (srcHeader) sources = JSON.parse(decodeURIComponent(srcHeader));
+          } catch { /* ignore */ }
+
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
           let assistantText = "";
@@ -1020,7 +1036,7 @@ export default function Chat() {
 
           setMessages((prev) => [
             ...prev,
-            { id: assistantId, role: "assistant", content: "" },
+            { id: assistantId, role: "assistant", content: "", sources },
           ]);
 
           while (true) {
@@ -1053,6 +1069,7 @@ export default function Chat() {
         }
 
         pendingSubmitRef.current = null;
+        setIsSending(false);
         loadConversations();
         return;
       }
@@ -1079,6 +1096,13 @@ export default function Chat() {
 
         if (!res.ok || !res.body) throw new Error("Stream failed");
 
+        // Parse sources from header
+        let sources: string[] = [];
+        try {
+          const srcHeader = res.headers.get("X-Sources");
+          if (srcHeader) sources = JSON.parse(decodeURIComponent(srcHeader));
+        } catch { /* ignore */ }
+
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let assistantText = "";
@@ -1086,7 +1110,7 @@ export default function Chat() {
 
         setMessages((prev) => [
           ...prev,
-          { id: assistantId, role: "assistant", content: "" },
+          { id: assistantId, role: "assistant", content: "", sources },
         ]);
 
         while (true) {
@@ -1116,9 +1140,11 @@ export default function Chat() {
         }
       } catch (err) {
         console.error("Stream error:", err);
+      } finally {
+        setIsSending(false);
       }
     },
-    [input, isLoading, messages, setInput, setMessages, createConversation, loadConversations]
+    [input, isLoading, isSending, messages, setInput, setMessages, createConversation, loadConversations]
   );
 
   /* ── Auto-scroll ── */
@@ -1159,6 +1185,21 @@ export default function Chat() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {hasSummary && <span className="memory-pill">Память активна</span>}
+            <button
+              className="header-action-btn"
+              onClick={() => {
+                setActiveConvId(null);
+                convIdRef.current = null;
+                setMessages([]);
+                setHasSummary(false);
+              }}
+              title="Новый чат"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+              </svg>
+            </button>
             <button className="menu-btn" onClick={() => setRightOpen((o) => !o)}>
               <HistoryIcon />
             </button>
@@ -1219,6 +1260,7 @@ export default function Chat() {
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div
+                              title={doc.filename}
                               style={{
                                 fontSize: 13,
                                 whiteSpace: "nowrap",
@@ -1382,9 +1424,9 @@ export default function Chat() {
                 )}
                 {messages.length === 0 && !hasSummary && <EmptyState />}
                 {messages.map((m) => (
-                  <MessageBubble key={m.id} message={m} sources={sources} onViewSource={setViewingSource} />
+                  <MessageBubble key={m.id} message={m} allSources={sources} onViewSource={setViewingSource} />
                 ))}
-                {isLoading && lastIsUser && <TypingBubble />}
+                {isSending && <TypingBubble />}
               </div>
 
               <form className="input-area" onSubmit={handleSubmit}>
@@ -1406,22 +1448,12 @@ export default function Chat() {
                   />
                   <button
                     type="submit"
-                    disabled={isLoading || !input.trim()}
+                    disabled={isLoading || isSending || !input.trim()}
                     className="send-btn"
                   >
                     <ArrowUpIcon />
                   </button>
                 </div>
-                <p
-                  style={{
-                    fontSize: 11,
-                    color: "var(--text-muted)",
-                    textAlign: "center",
-                    marginTop: 6,
-                  }}
-                >
-                  Enter — отправить · Shift+Enter — перенос
-                </p>
               </form>
             </div>
           </main>
@@ -1442,7 +1474,12 @@ export default function Chat() {
                 <div className="sidebar-section-title">
                   <span>ДИАЛОГИ</span>
                   <button
-                    onClick={() => createConversation()}
+                    onClick={() => {
+                      setActiveConvId(null);
+                      convIdRef.current = null;
+                      setMessages([]);
+                      setHasSummary(false);
+                    }}
                     title="Новый диалог"
                     style={{ fontSize: 16, color: "var(--text-secondary)", lineHeight: 1 }}
                   >
@@ -1496,7 +1533,10 @@ export default function Chat() {
         </div>
 
         {/* ── Footer ── */}
-        <footer className="app-footer">СнабЧат · Дирекция по закупкам · 2026</footer>
+        <footer className="app-footer">
+          <span className="footer-full">СнабЧат · Дирекция по закупкам · 2026 · </span>
+          Разработка @Кирилл Трубицын
+        </footer>
       </div>
 
       {/* ── Upload Modal ── */}

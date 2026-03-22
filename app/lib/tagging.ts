@@ -1,11 +1,11 @@
-import { google } from "@/app/lib/google-ai";
+import { google, withGoogleApiLimit } from "@/app/lib/google-ai";
 import { generateText } from "ai";
 
 export async function autoTag(markdown: string): Promise<string[]> {
   const preview = markdown.slice(0, 4000);
 
-  const { text } = await generateText({
-    model: google("gemini-3.1-flash-lite-preview"),
+  const { text } = await withGoogleApiLimit(() => generateText({
+    model: google("gemini-3-flash-preview"),
     prompt: `Проанализируй текст документа и сгенерируй от 3 до 10 тегов (на русском языке) для классификации.
 Теги должны отражать тематику документа в контексте закупок, снабжения и корпоративного управления.
 Верни ТОЛЬКО JSON-массив строк, без пояснений.
@@ -14,7 +14,7 @@ export async function autoTag(markdown: string): Promise<string[]> {
 
 Текст:
 ${preview}`,
-  });
+  }));
 
   try {
     const cleaned = text.replace(/```json?\s*/g, "").replace(/```/g, "").trim();
