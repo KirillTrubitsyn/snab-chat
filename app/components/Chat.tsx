@@ -806,6 +806,10 @@ export default function Chat() {
   const [viewingSource, setViewingSource] = useState<Source | null>(null);
   const [chatFiles, setChatFiles] = useState<ChatFile[]>([]);
   const [chatPhotos, setChatPhotos] = useState<ChatPhoto[]>([]);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<number>>(new Set());
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
+  const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
+  const [convBulkMode, setConvBulkMode] = useState(false);
 
   /* ── Refs ── */
   const convIdRef = useRef<string | null>(null);
@@ -1039,6 +1043,39 @@ export default function Chat() {
       return prev.filter((p) => p.id !== photoId);
     });
   }, []);
+
+  /* ── Bulk delete conversations ── */
+  const deleteSelectedConversations = useCallback(async () => {
+    if (selectedConvIds.size === 0) return;
+    const ids = Array.from(selectedConvIds);
+    await fetch("/api/conversations", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    setConversations((prev) => prev.filter((c) => !selectedConvIds.has(c.id)));
+    if (activeConvId && selectedConvIds.has(activeConvId)) {
+      setActiveConvId(null);
+      convIdRef.current = null;
+      setChatKey(`new-${Date.now()}`);
+      setMessages([]);
+      setHasSummary(false);
+    }
+    setSelectedConvIds(new Set());
+    setConvBulkMode(false);
+  }, [selectedConvIds, activeConvId, setMessages]);
+
+  const deleteAllConversations = useCallback(async () => {
+    await fetch("/api/conversations?all=true", { method: "DELETE" });
+    setConversations([]);
+    setActiveConvId(null);
+    convIdRef.current = null;
+    setChatKey(`new-${Date.now()}`);
+    setMessages([]);
+    setHasSummary(false);
+    setSelectedConvIds(new Set());
+    setConvBulkMode(false);
+  }, [setMessages]);
 
   /* ── Submit handler with pending logic ── */
   const handleSubmit = useCallback(
@@ -1653,13 +1690,89 @@ export default function Chat() {
                     +
                   </button>
                 </div>
+                {conversations.length > 0 && (
+                  <div style={{ display: "flex", gap: 4, padding: "0 12px 8px" }}>
+                    {!convBulkMode ? (
+                      <button
+                        className="btn-secondary"
+                        style={{ flex: 1, fontSize: 11, padding: "4px 8px" }}
+                        onClick={() => setConvBulkMode(true)}
+                      >
+                        Выбрать
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          className="btn-secondary"
+                          style={{ flex: 1, fontSize: 11, padding: "4px 8px" }}
+                          onClick={() => {
+                            if (selectedConvIds.size === conversations.length) {
+                              setSelectedConvIds(new Set());
+                            } else {
+                              setSelectedConvIds(new Set(conversations.map((c) => c.id)));
+                            }
+                          }}
+                        >
+                          {selectedConvIds.size === conversations.length ? "Снять всё" : "Выбрать все"}
+                        </button>
+                        <button
+                          className="btn-secondary"
+                          style={{
+                            flex: 1,
+                            fontSize: 11,
+                            padding: "4px 8px",
+                            color: selectedConvIds.size > 0 ? "var(--error)" : undefined,
+                          }}
+                          disabled={selectedConvIds.size === 0}
+                          onClick={selectedConvIds.size === conversations.length ? deleteAllConversations : deleteSelectedConversations}
+                        >
+                          Удалить ({selectedConvIds.size})
+                        </button>
+                        <button
+                          className="btn-secondary"
+                          style={{ fontSize: 11, padding: "4px 8px" }}
+                          onClick={() => { setSelectedConvIds(new Set()); setConvBulkMode(false); }}
+                        >
+                          ✕
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
                 <div className="sidebar-list">
                   {conversations.map((c) => (
                     <div
                       className={`sidebar-item ${c.id === activeConvId ? "active" : ""}`}
-                      onClick={() => switchConversation(c.id)}
+                      onClick={() => {
+                        if (convBulkMode) {
+                          setSelectedConvIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(c.id)) next.delete(c.id);
+                            else next.add(c.id);
+                            return next;
+                          });
+                          return;
+                        }
+                        switchConversation(c.id);
+                      }}
                       key={c.id}
                     >
+                      {convBulkMode && (
+                        <input
+                          type="checkbox"
+                          checked={selectedConvIds.has(c.id)}
+                          onChange={() => {
+                            setSelectedConvIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(c.id)) next.delete(c.id);
+                              else next.add(c.id);
+                              return next;
+                            });
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ flexShrink: 0 }}
+                        />
+                      )}
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div
                           style={{
@@ -1676,21 +1789,23 @@ export default function Chat() {
                           {formatDate(c.updated_at)}
                         </div>
                       </div>
-                      <button
-                        className="doc-delete-btn"
-                        onClick={(e) => deleteConversation(c.id, e)}
-                        title="Удалить диалог"
-                        style={{
-                          fontSize: 14,
-                          color: "var(--text-muted)",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        </svg>
-                      </button>
+                      {!convBulkMode && (
+                        <button
+                          className="doc-delete-btn"
+                          onClick={(e) => deleteConversation(c.id, e)}
+                          title="Удалить диалог"
+                          style={{
+                            fontSize: 14,
+                            color: "var(--text-muted)",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          </svg>
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
