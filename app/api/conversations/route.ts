@@ -99,10 +99,28 @@ export async function DELETE(req: NextRequest) {
 
   // Delete all conversations
   if (all === "true") {
-    await supabase.from("messages").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-    const { error } = await supabase.from("conversations").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (isAdminCode(invite.code)) {
+      // Админ может удалить всё
+      await supabase.from("messages").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      const { error } = await supabase.from("conversations").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+    } else {
+      // Обычный пользователь удаляет только свои диалоги
+      const { data: ownedConvs } = await supabase
+        .from("conversations")
+        .select("id")
+        .eq("invite_code_id", invite.id);
+
+      const ownedIds = (ownedConvs || []).map((c: { id: string }) => c.id);
+      if (ownedIds.length > 0) {
+        await supabase.from("messages").delete().in("conversation_id", ownedIds);
+        const { error } = await supabase.from("conversations").delete().in("id", ownedIds);
+        if (error) {
+          return NextResponse.json({ error: error.message }, { status: 500 });
+        }
+      }
     }
     return NextResponse.json({ ok: true });
   }
@@ -112,8 +130,24 @@ export async function DELETE(req: NextRequest) {
     try {
       const body = await req.json();
       if (Array.isArray(body.ids) && body.ids.length > 0) {
-        await supabase.from("messages").delete().in("conversation_id", body.ids);
-        const { error } = await supabase.from("conversations").delete().in("id", body.ids);
+        let idsToDelete = body.ids;
+
+        // Для обычных пользователей — удаляем только свои диалоги
+        if (!isAdminCode(invite.code)) {
+          const { data: ownedConvs } = await supabase
+            .from("conversations")
+            .select("id")
+            .in("id", body.ids)
+            .eq("invite_code_id", invite.id);
+
+          idsToDelete = (ownedConvs || []).map((c: { id: string }) => c.id);
+          if (idsToDelete.length === 0) {
+            return NextResponse.json({ error: "Диалоги не найдены" }, { status: 404 });
+          }
+        }
+
+        await supabase.from("messages").delete().in("conversation_id", idsToDelete);
+        const { error } = await supabase.from("conversations").delete().in("id", idsToDelete);
         if (error) {
           return NextResponse.json({ error: error.message }, { status: 500 });
         }
