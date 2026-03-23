@@ -76,6 +76,7 @@ create table if not exists conversations (
   title text default 'Новый диалог',
   summary text,
   invite_code_id uuid references invite_codes(id) on delete set null,
+  admin_name text,  -- ФИО админа (заполняется только для админских диалогов)
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

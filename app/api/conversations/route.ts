@@ -63,11 +63,17 @@ export async function POST(req: NextRequest) {
   const title = body.title || "Новый диалог";
 
   // Для админов invite_code_id = null (они не привязаны к инвайт-кодам в БД)
-  const inviteCodeId = isAdminCode(invite.code) ? null : invite.id;
+  const isAdmin = isAdminCode(invite.code);
+  const inviteCodeId = isAdmin ? null : invite.id;
+
+  const insertData: Record<string, unknown> = { title, invite_code_id: inviteCodeId };
+  if (isAdmin) {
+    insertData.admin_name = invite.name;
+  }
 
   const { data, error } = await supabase
     .from("conversations")
-    .insert({ title, invite_code_id: inviteCodeId })
+    .insert(insertData)
     .select("id, title, created_at, updated_at")
     .single();
 
