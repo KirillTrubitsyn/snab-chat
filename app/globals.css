@@ -1396,6 +1396,7 @@ input, textarea {
   font-size: 13px;
   font-weight: 500;
   font-family: var(--font-body);
+  text-decoration: none;
   color: var(--text-secondary);
   background: var(--bg-sidebar);
   border: 1px solid var(--border);
