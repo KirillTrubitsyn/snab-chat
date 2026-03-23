@@ -78,11 +78,12 @@ export async function GET(req: NextRequest) {
     .map((m) => {
       const inviteId = convsMap[m.conversation_id];
       const codeInfo = inviteId ? codesMap[inviteId] : null;
+      const isAdmin = !inviteId;
       return {
         id: m.id,
         type: "chat" as const,
-        user_name: codeInfo?.name || (inviteId ? "Неизвестный" : "Админ"),
-        organization: codeInfo?.organization || null,
+        user_name: codeInfo?.name || (isAdmin ? "Админ" : "Неизвестный"),
+        organization: isAdmin ? adminCheck.adminName : (codeInfo?.organization || null),
         content: m.content.slice(0, 120) + (m.content.length > 120 ? "…" : ""),
         created_at: m.created_at,
       };
@@ -94,11 +95,12 @@ export async function GET(req: NextRequest) {
     .map((m) => {
       const inviteId = convsMap[m.conversation_id];
       const codeInfo = inviteId ? codesMap[inviteId] : null;
+      const isAdmin = !inviteId;
       return {
         id: m.id,
         type: "infographic" as const,
-        user_name: codeInfo?.name || (inviteId ? "Неизвестный" : "Админ"),
-        organization: codeInfo?.organization || null,
+        user_name: codeInfo?.name || (isAdmin ? "Админ" : "Неизвестный"),
+        organization: isAdmin ? adminCheck.adminName : (codeInfo?.organization || null),
         content: m.metadata?.topic || m.content.slice(0, 120),
         created_at: m.created_at,
       };
