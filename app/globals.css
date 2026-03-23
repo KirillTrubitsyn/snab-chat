@@ -2061,7 +2061,7 @@ input, textarea {
 /* ── Header ── */
 
 .admin-header {
-  background: linear-gradient(135deg, #1A1D23 0%, #2D3748 100%);
+  background: linear-gradient(135deg, #1E3A8A 0%, #0EA5E9 100%);
   padding: 20px 32px;
   display: flex;
   align-items: center;
@@ -2084,12 +2084,12 @@ input, textarea {
 }
 
 .admin-title-accent {
-  color: var(--accent);
+  color: #BAE6FD;
 }
 
 .admin-subtitle {
   font-size: 15px;
-  color: #8B8F96;
+  color: #DBEAFE;
   margin: 0;
 }
 
@@ -2101,12 +2101,12 @@ input, textarea {
 
 .admin-user-name {
   font-size: 15px;
-  color: #A0A4AB;
+  color: #E0F2FE;
 }
 
 .admin-header-link {
   font-size: 15px;
-  color: #A0A4AB;
+  color: #E0F2FE;
   text-decoration: none;
   cursor: pointer;
   transition: color var(--transition);
