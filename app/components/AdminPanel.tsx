@@ -8,6 +8,7 @@ interface InviteCode {
   id: string;
   code: string;
   name: string;
+  organization: string | null;
   uses_remaining: number | null;
   is_active: boolean;
   created_at: string;
@@ -79,12 +80,14 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [codesLoading, setCodesLoading] = useState(false);
   const [newCode, setNewCode] = useState("");
   const [newName, setNewName] = useState("");
+  const [newOrg, setNewOrg] = useState("");
   const [newUses, setNewUses] = useState("");
   const [creating, setCreating] = useState(false);
 
   // Edit modal state
   const [editingCode, setEditingCode] = useState<InviteCode | null>(null);
   const [editName, setEditName] = useState("");
+  const [editOrg, setEditOrg] = useState("");
   const [editUses, setEditUses] = useState("");
 
   // Activity state
@@ -161,12 +164,14 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
         body: JSON.stringify({
           code: newCode.trim(),
           name: newName.trim(),
+          organization: newOrg.trim() || null,
           uses_remaining: newUses ? parseInt(newUses) : null,
         }),
       });
       if (res.ok) {
         setNewCode("");
         setNewName("");
+        setNewOrg("");
         setNewUses("");
         loadCodes();
       } else {
@@ -207,6 +212,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
           name: editName.trim(),
+          organization: editOrg.trim() || null,
           uses_remaining: editUses ? parseInt(editUses) : null,
         }),
       });
@@ -218,6 +224,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const openEdit = (c: InviteCode) => {
     setEditingCode(c);
     setEditName(c.name);
+    setEditOrg(c.organization || "");
     setEditUses(c.uses_remaining !== null ? String(c.uses_remaining) : "");
   };
 
@@ -390,6 +397,14 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                     onChange={(e) => setNewName(e.target.value)}
                   />
                 </div>
+                <div className="admin-form-field" style={{ flex: 1.5 }}>
+                  <label>Организация</label>
+                  <input
+                    placeholder="напр. ООО «Компания»"
+                    value={newOrg}
+                    onChange={(e) => setNewOrg(e.target.value)}
+                  />
+                </div>
                 <div className="admin-form-field" style={{ width: 160 }}>
                   <label>Лимит</label>
                   <input
@@ -451,6 +466,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                       <tr>
                         <th>Код</th>
                         <th>Имя</th>
+                        <th>Организация</th>
                         <th>Лимит</th>
                         <th>Диалогов</th>
                         <th>Статус</th>
@@ -465,6 +481,9 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                             <span className="admin-code-badge">{c.code}</span>
                           </td>
                           <td className="admin-cell-name">{c.name}</td>
+                          <td className="admin-cell-name">
+                            {c.organization || <span className="admin-text-muted">—</span>}
+                          </td>
                           <td>
                             {c.uses_remaining === null ? (
                               <span className="admin-text-muted">безлимит</span>
@@ -775,6 +794,14 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                 <input
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
+                />
+              </div>
+              <div className="admin-form-group">
+                <label>Организация</label>
+                <input
+                  value={editOrg}
+                  onChange={(e) => setEditOrg(e.target.value)}
+                  placeholder="напр. ООО «Компания»"
                 />
               </div>
               <div className="admin-form-group">

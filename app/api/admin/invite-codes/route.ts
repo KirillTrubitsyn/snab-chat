@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   const adminCheck = requireAdmin(req);
   if (adminCheck instanceof NextResponse) return adminCheck;
 
-  const { code, name, uses_remaining } = await req.json();
+  const { code, name, organization, uses_remaining } = await req.json();
 
   if (!code || !name) {
     return NextResponse.json(
@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
     .insert({
       code: code.toUpperCase(),
       name,
+      organization: organization || null,
       uses_remaining: uses_remaining ?? null,
     })
     .select()
@@ -125,6 +126,7 @@ export async function PATCH(req: NextRequest) {
   const updates: Record<string, unknown> = {};
 
   if (body.name !== undefined) updates.name = body.name;
+  if (body.organization !== undefined) updates.organization = body.organization;
   if (body.uses_remaining !== undefined) updates.uses_remaining = body.uses_remaining;
   if (body.is_active !== undefined) updates.is_active = body.is_active;
 
