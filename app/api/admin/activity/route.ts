@@ -128,11 +128,12 @@ export async function DELETE(req: NextRequest) {
 
   const supabase = createServiceClient();
 
-  // Находим диалоги без invite_code_id
+  // Находим диалоги без invite_code_id И без admin_name (настоящие сироты)
   const { data: orphaned } = await supabase
     .from("conversations")
     .select("id")
-    .is("invite_code_id", null);
+    .is("invite_code_id", null)
+    .is("admin_name", null);
 
   const orphanedIds = (orphaned || []).map((c: { id: string }) => c.id);
 
