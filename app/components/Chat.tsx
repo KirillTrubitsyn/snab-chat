@@ -1031,7 +1031,6 @@ export default function Chat() {
   const [hasSummary, setHasSummary] = useState(false);
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [leftCollapsed, setLeftCollapsed] = useState(true);
   const [rightCollapsed, setRightCollapsed] = useState(true);
   const [sources, setSources] = useState<Source[]>([]);
@@ -1572,23 +1571,10 @@ export default function Chat() {
   );
 
   /* ── Auto-scroll ── */
-  const prevIsLoadingRef = useRef(false);
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
-
-    if (isLoading || isSending) {
-      // Во время стриминга — скроллим вниз
-      el.scrollTop = el.scrollHeight;
-    } else if (prevIsLoadingRef.current) {
-      // Стриминг только что завершился — скроллим к началу последнего ответа
-      const lastAiMsg = el.querySelector(".message-ai:last-child");
-      if (lastAiMsg) {
-        lastAiMsg.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    }
-    prevIsLoadingRef.current = isLoading || isSending;
-  }, [messages, isLoading, isSending]);
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
 
   /* ── Key handler ── */
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1619,33 +1605,9 @@ export default function Chat() {
         {/* ── Header ── */}
         <header className="app-header">
           <div className="header-brand">
-            <div className="mobile-menu-wrap">
-              <button className="menu-btn" onClick={() => setMobileMenuOpen((o) => !o)}>
-                <MenuIcon />
-              </button>
-              {mobileMenuOpen && (
-                <>
-                  <div className="mobile-menu-overlay" onClick={() => setMobileMenuOpen(false)} />
-                  <div className="mobile-menu-dropdown">
-                    <button className="mobile-menu-item" onClick={() => { setLeftOpen((o) => !o); setMobileMenuOpen(false); }}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                      Источники
-                    </button>
-                    <a className="mobile-menu-item" href="https://academy.snabchat.app/" target="_blank" rel="noopener noreferrer" onClick={() => setMobileMenuOpen(false)}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-                        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
-                      </svg>
-                      Обучение
-                    </a>
-                    <button className="mobile-menu-item" onClick={() => { navigateToInfographic(); setMobileMenuOpen(false); }}>
-                      <InfographicIcon size={18} />
-                      Инфографика
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+            <button className="menu-btn" onClick={() => setLeftOpen((o) => !o)}>
+              <MenuIcon />
+            </button>
             <SpektrIcon size={36} />
             <span style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontWeight: 700, fontSize: 22, letterSpacing: '-0.02em', lineHeight: 1 }}>
               <span style={{ color: '#003A7A' }}>Снаб</span><span style={{ color: '#0099CC' }}>Чат</span>
@@ -1658,7 +1620,7 @@ export default function Chat() {
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {hasSummary && <span className="memory-pill">Память активна</span>}
             <a
-              className="header-labeled-btn accent desktop-only"
+              className="header-labeled-btn accent"
               href="https://academy.snabchat.app/"
               target="_blank"
               rel="noopener noreferrer"
@@ -1671,7 +1633,7 @@ export default function Chat() {
               <span className="btn-label">Обучение</span>
             </a>
             <button
-              className="header-labeled-btn accent desktop-only"
+              className="header-labeled-btn accent"
               onClick={() => navigateToInfographic()}
               title="Генератор инфографики"
             >
@@ -1922,7 +1884,7 @@ export default function Chat() {
 
           {/* Sidebar overlay (mobile) */}
           {(leftOpen || rightOpen) && (
-            <div className="sidebar-overlay" onClick={() => { setLeftOpen(false); setRightOpen(false); setMobileMenuOpen(false); }} />
+            <div className="sidebar-overlay" onClick={() => { setLeftOpen(false); setRightOpen(false); }} />
           )}
 
           {/* ── Main ── */}
