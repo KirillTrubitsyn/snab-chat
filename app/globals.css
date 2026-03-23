@@ -2512,7 +2512,7 @@ input, textarea {
 .admin-tabs {
   display: flex;
   gap: 4px;
-  background: #1A1D23;
+  background: #0F2557;
   padding: 0 32px;
   border-bottom: none;
 }
