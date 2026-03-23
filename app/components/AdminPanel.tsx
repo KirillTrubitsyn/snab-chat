@@ -74,7 +74,7 @@ function formatDateTime(dateStr: string): string {
 }
 
 export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanelProps) {
-  const [tab, setTab] = useState<"codes" | "activity" | "documents">("codes");
+  const [tab, setTab] = useState<"codes" | "activity" | "documents">("activity");
 
   // Invite codes state
   const [codes, setCodes] = useState<InviteCode[]>([]);
