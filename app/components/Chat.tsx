@@ -1572,10 +1572,23 @@ export default function Chat() {
   );
 
   /* ── Auto-scroll ── */
+  const prevIsLoadingRef = useRef(false);
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+    if (!el) return;
+
+    if (isLoading || isSending) {
+      // Во время стриминга — скроллим вниз
+      el.scrollTop = el.scrollHeight;
+    } else if (prevIsLoadingRef.current) {
+      // Стриминг только что завершился — скроллим к началу последнего ответа
+      const lastAiMsg = el.querySelector(".message-ai:last-child");
+      if (lastAiMsg) {
+        lastAiMsg.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+    prevIsLoadingRef.current = isLoading || isSending;
+  }, [messages, isLoading, isSending]);
 
   /* ── Key handler ── */
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
