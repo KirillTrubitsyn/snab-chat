@@ -60,6 +60,7 @@ create table if not exists invite_codes (
   id uuid primary key default gen_random_uuid(),
   code text unique not null,
   name text not null,                    -- ФИО / кому выдан
+  organization text default null,        -- Организация
   uses_remaining integer default null,   -- null = безлимит
   is_active boolean default true,
   created_at timestamptz default now()
