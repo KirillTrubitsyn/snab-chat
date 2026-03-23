@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   const adminCheck = requireAdmin(req);
   if (adminCheck instanceof NextResponse) return adminCheck;
 
-  const { code, name, organization, uses_remaining } = await req.json();
+  const { code, name, organization, chat_limit, infographic_limit } = await req.json();
 
   if (!code || !name) {
     return NextResponse.json(
@@ -74,7 +74,8 @@ export async function POST(req: NextRequest) {
       code: code.toUpperCase(),
       name,
       organization: organization || null,
-      uses_remaining: uses_remaining ?? null,
+      chat_limit: chat_limit ?? null,
+      infographic_limit: infographic_limit ?? null,
     })
     .select()
     .single();
@@ -127,7 +128,8 @@ export async function PATCH(req: NextRequest) {
 
   if (body.name !== undefined) updates.name = body.name;
   if (body.organization !== undefined) updates.organization = body.organization;
-  if (body.uses_remaining !== undefined) updates.uses_remaining = body.uses_remaining;
+  if (body.chat_limit !== undefined) updates.chat_limit = body.chat_limit;
+  if (body.infographic_limit !== undefined) updates.infographic_limit = body.infographic_limit;
   if (body.is_active !== undefined) updates.is_active = body.is_active;
 
   if (Object.keys(updates).length === 0) {

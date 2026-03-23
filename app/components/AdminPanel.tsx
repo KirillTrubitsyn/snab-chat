@@ -10,6 +10,8 @@ interface InviteCode {
   name: string;
   organization: string | null;
   uses_remaining: number | null;
+  chat_limit: number | null;
+  infographic_limit: number | null;
   is_active: boolean;
   created_at: string;
   conversation_count: number;
@@ -17,12 +19,11 @@ interface InviteCode {
 
 interface ActivityItem {
   id: string;
-  title: string;
-  invite_code_id: string | null;
-  invite_code_label: string;
-  message_count: number;
+  type: "chat" | "infographic";
+  user_name: string;
+  organization: string | null;
+  content: string;
   created_at: string;
-  updated_at: string;
 }
 
 interface Source {
@@ -81,14 +82,16 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [newCode, setNewCode] = useState("");
   const [newName, setNewName] = useState("");
   const [newOrg, setNewOrg] = useState("");
-  const [newUses, setNewUses] = useState("");
+  const [newChatLimit, setNewChatLimit] = useState("");
+  const [newInfographicLimit, setNewInfographicLimit] = useState("");
   const [creating, setCreating] = useState(false);
 
   // Edit modal state
   const [editingCode, setEditingCode] = useState<InviteCode | null>(null);
   const [editName, setEditName] = useState("");
   const [editOrg, setEditOrg] = useState("");
-  const [editUses, setEditUses] = useState("");
+  const [editChatLimit, setEditChatLimit] = useState("");
+  const [editInfographicLimit, setEditInfographicLimit] = useState("");
 
   // Activity state
   const [activity, setActivity] = useState<ActivityItem[]>([]);
@@ -165,14 +168,16 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
           code: newCode.trim(),
           name: newName.trim(),
           organization: newOrg.trim() || null,
-          uses_remaining: newUses ? parseInt(newUses) : null,
+          chat_limit: newChatLimit ? parseInt(newChatLimit) : null,
+          infographic_limit: newInfographicLimit ? parseInt(newInfographicLimit) : null,
         }),
       });
       if (res.ok) {
         setNewCode("");
         setNewName("");
         setNewOrg("");
-        setNewUses("");
+        setNewChatLimit("");
+        setNewInfographicLimit("");
         loadCodes();
       } else {
         const data = await res.json();
@@ -213,7 +218,8 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
         body: JSON.stringify({
           name: editName.trim(),
           organization: editOrg.trim() || null,
-          uses_remaining: editUses ? parseInt(editUses) : null,
+          chat_limit: editChatLimit ? parseInt(editChatLimit) : null,
+          infographic_limit: editInfographicLimit ? parseInt(editInfographicLimit) : null,
         }),
       });
       setEditingCode(null);
@@ -225,7 +231,21 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     setEditingCode(c);
     setEditName(c.name);
     setEditOrg(c.organization || "");
-    setEditUses(c.uses_remaining !== null ? String(c.uses_remaining) : "");
+    setEditChatLimit(c.chat_limit !== null ? String(c.chat_limit) : "");
+    setEditInfographicLimit(c.infographic_limit !== null ? String(c.infographic_limit) : "");
+  };
+
+  const cleanupOrphanedConversations = async () => {
+    if (!confirm("Удалить все диалоги без привязки к инвайт-коду?")) return;
+    try {
+      const res = await fetch("/api/admin/activity", {
+        method: "DELETE",
+        headers,
+      });
+      const data = await res.json();
+      alert(`Удалено диалогов: ${data.deleted || 0}`);
+      loadActivity();
+    } catch { /* ignore */ }
   };
 
   /* ── Document actions ── */
@@ -405,12 +425,20 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                     onChange={(e) => setNewOrg(e.target.value)}
                   />
                 </div>
-                <div className="admin-form-field" style={{ width: 160 }}>
-                  <label>Лимит</label>
+                <div className="admin-form-field" style={{ width: 140 }}>
+                  <label>Лимит чата</label>
                   <input
                     placeholder="безлимит"
-                    value={newUses}
-                    onChange={(e) => setNewUses(e.target.value.replace(/\D/g, ""))}
+                    value={newChatLimit}
+                    onChange={(e) => setNewChatLimit(e.target.value.replace(/\D/g, ""))}
+                  />
+                </div>
+                <div className="admin-form-field" style={{ width: 160 }}>
+                  <label>Лимит инфографики</label>
+                  <input
+                    placeholder="безлимит"
+                    value={newInfographicLimit}
+                    onChange={(e) => setNewInfographicLimit(e.target.value.replace(/\D/g, ""))}
                   />
                 </div>
                 <div className="admin-form-field admin-form-field-btn">
@@ -423,7 +451,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                   </button>
                 </div>
               </div>
-              <p className="admin-hint">Пусто = без лимита использований</p>
+              <p className="admin-hint">Пусто = без лимита</p>
             </div>
 
             {/* Filters */}
@@ -467,8 +495,8 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                         <th>Код</th>
                         <th>Имя</th>
                         <th>Организация</th>
-                        <th>Лимит</th>
-                        <th>Диалогов</th>
+                        <th>Чат</th>
+                        <th>Инфографика</th>
                         <th>Статус</th>
                         <th>Создан</th>
                         <th>Действия</th>
@@ -485,18 +513,22 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                             {c.organization || <span className="admin-text-muted">—</span>}
                           </td>
                           <td>
-                            {c.uses_remaining === null ? (
+                            {c.chat_limit === null ? (
                               <span className="admin-text-muted">безлимит</span>
                             ) : (
-                              <span className={c.uses_remaining <= 0 ? "admin-text-danger" : ""}>
-                                {c.uses_remaining}
+                              <span className={c.chat_limit <= 0 ? "admin-text-danger" : ""}>
+                                {c.chat_limit}
                               </span>
                             )}
                           </td>
                           <td>
-                            <span className={c.conversation_count > 0 ? "admin-text-accent" : "admin-text-muted"}>
-                              {c.conversation_count || "—"}
-                            </span>
+                            {c.infographic_limit === null ? (
+                              <span className="admin-text-muted">безлимит</span>
+                            ) : (
+                              <span className={c.infographic_limit <= 0 ? "admin-text-danger" : ""}>
+                                {c.infographic_limit}
+                              </span>
+                            )}
                           </td>
                           <td>
                             <span className={`admin-status ${c.is_active ? "active" : "inactive"}`}>
@@ -539,12 +571,17 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
             <div className="admin-card admin-card-table">
               <div className="admin-table-header">
                 <h3 className="admin-card-title">
-                  Последние диалоги ({activity.length})
+                  Запросы пользователей ({activity.length})
                 </h3>
-                <button className="admin-btn-secondary" onClick={loadActivity} disabled={activityLoading}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
-                  Обновить
-                </button>
+                <div className="admin-table-header-actions">
+                  <button className="admin-btn-secondary" onClick={cleanupOrphanedConversations}>
+                    Очистить старые диалоги
+                  </button>
+                  <button className="admin-btn-secondary" onClick={loadActivity} disabled={activityLoading}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+                    Обновить
+                  </button>
+                </div>
               </div>
 
               {activityLoading ? (
@@ -559,27 +596,29 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                   <table className="admin-table">
                     <thead>
                       <tr>
-                        <th>Диалог</th>
-                        <th>Пользователь</th>
-                        <th>Сообщений</th>
-                        <th>Создан</th>
-                        <th>Обновлён</th>
+                        <th>ФИО</th>
+                        <th>Организация</th>
+                        <th>Тип</th>
+                        <th>Запрос</th>
+                        <th>Время</th>
                       </tr>
                     </thead>
                     <tbody>
                       {activity.map((a) => (
                         <tr key={a.id}>
-                          <td className="admin-cell-title">
-                            {a.title || "Без названия"}
+                          <td className="admin-cell-name">{a.user_name}</td>
+                          <td className="admin-cell-name">
+                            {a.organization || <span className="admin-text-muted">—</span>}
                           </td>
-                          <td>{a.invite_code_label}</td>
                           <td>
-                            <span className={a.message_count > 0 ? "admin-text-accent" : "admin-text-muted"}>
-                              {a.message_count || "—"}
+                            <span className={`admin-status ${a.type === "chat" ? "active" : "infographic"}`}>
+                              {a.type === "chat" ? "Чат" : "Инфографика"}
                             </span>
                           </td>
+                          <td className="admin-cell-title" title={a.content}>
+                            {a.content}
+                          </td>
                           <td className="admin-cell-date">{formatDateTime(a.created_at)}</td>
-                          <td className="admin-cell-date">{formatDateTime(a.updated_at)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -805,10 +844,18 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                 />
               </div>
               <div className="admin-form-group">
-                <label>Лимит использований</label>
+                <label>Лимит запросов в чат</label>
                 <input
-                  value={editUses}
-                  onChange={(e) => setEditUses(e.target.value.replace(/\D/g, ""))}
+                  value={editChatLimit}
+                  onChange={(e) => setEditChatLimit(e.target.value.replace(/\D/g, ""))}
+                  placeholder="Пусто = безлимит"
+                />
+              </div>
+              <div className="admin-form-group">
+                <label>Лимит инфографики</label>
+                <input
+                  value={editInfographicLimit}
+                  onChange={(e) => setEditInfographicLimit(e.target.value.replace(/\D/g, ""))}
                   placeholder="Пусто = безлимит"
                 />
               </div>
