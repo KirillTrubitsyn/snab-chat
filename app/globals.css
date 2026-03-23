@@ -2724,6 +2724,11 @@ input, textarea {
   color: #DC2626;
 }
 
+.admin-status.infographic {
+  background: #EEF2FF;
+  color: #4F46E5;
+}
+
 /* ── Text helpers ── */
 
 .admin-text-muted {
