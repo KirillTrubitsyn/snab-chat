@@ -2143,7 +2143,7 @@ input, textarea {
 
 .admin-title {
   font-family: var(--font-display);
-  font-size: 22px;
+  font-size: 28px;
   font-weight: 700;
   margin: 0;
   color: #FFFFFF;
@@ -2154,7 +2154,7 @@ input, textarea {
 }
 
 .admin-subtitle {
-  font-size: 13px;
+  font-size: 15px;
   color: #8B8F96;
   margin: 0;
 }
@@ -2166,12 +2166,12 @@ input, textarea {
 }
 
 .admin-user-name {
-  font-size: 13px;
+  font-size: 15px;
   color: #A0A4AB;
 }
 
 .admin-header-link {
-  font-size: 13px;
+  font-size: 15px;
   color: #A0A4AB;
   text-decoration: none;
   cursor: pointer;
