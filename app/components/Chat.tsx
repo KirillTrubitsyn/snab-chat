@@ -1548,7 +1548,7 @@ export default function Chat() {
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {hasSummary && <span className="memory-pill">Память активна</span>}
             <a
-              className="header-labeled-btn"
+              className="header-labeled-btn accent"
               href="https://academy.snabchat.app/"
               target="_blank"
               rel="noopener noreferrer"
