@@ -66,16 +66,25 @@ export async function POST(req: NextRequest) {
   const isAdmin = isAdminCode(invite.code);
   const inviteCodeId = isAdmin ? null : invite.id;
 
-  const insertData: Record<string, unknown> = { title, invite_code_id: inviteCodeId };
+  let insertData: Record<string, unknown> = { title, invite_code_id: inviteCodeId };
   if (isAdmin) {
     insertData.admin_name = invite.name;
   }
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("conversations")
     .insert(insertData)
     .select("id, title, created_at, updated_at")
     .single();
+
+  // If admin_name column doesn't exist yet, retry without it
+  if (error && isAdmin && error.message?.includes("admin_name")) {
+    ({ data, error } = await supabase
+      .from("conversations")
+      .insert({ title, invite_code_id: inviteCodeId })
+      .select("id, title, created_at, updated_at")
+      .single());
+  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
