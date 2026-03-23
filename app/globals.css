@@ -2061,7 +2061,7 @@ input, textarea {
 /* ── Header ── */
 
 .admin-header {
-  background: #1A1D23;
+  background: linear-gradient(135deg, #1A1D23 0%, #2D3748 100%);
   padding: 20px 32px;
   display: flex;
   align-items: center;
