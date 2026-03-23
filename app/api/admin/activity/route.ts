@@ -74,14 +74,14 @@ export async function GET(req: NextRequest) {
 
   // Формируем результат: чат-запросы
   const chatItems = (messages || [])
-    .filter((m) => convsMap[m.conversation_id] != null) // только с invite_code_id
+    .filter((m) => m.conversation_id in convsMap) // диалог найден в БД
     .map((m) => {
-      const inviteId = convsMap[m.conversation_id]!;
-      const codeInfo = codesMap[inviteId];
+      const inviteId = convsMap[m.conversation_id];
+      const codeInfo = inviteId ? codesMap[inviteId] : null;
       return {
         id: m.id,
         type: "chat" as const,
-        user_name: codeInfo?.name || "Неизвестный",
+        user_name: codeInfo?.name || (inviteId ? "Неизвестный" : "Админ"),
         organization: codeInfo?.organization || null,
         content: m.content.slice(0, 120) + (m.content.length > 120 ? "…" : ""),
         created_at: m.created_at,
@@ -90,14 +90,14 @@ export async function GET(req: NextRequest) {
 
   // Формируем результат: инфографики
   const infographicItems = infographicMessages
-    .filter((m) => convsMap[m.conversation_id] != null)
+    .filter((m) => m.conversation_id in convsMap)
     .map((m) => {
-      const inviteId = convsMap[m.conversation_id]!;
-      const codeInfo = codesMap[inviteId];
+      const inviteId = convsMap[m.conversation_id];
+      const codeInfo = inviteId ? codesMap[inviteId] : null;
       return {
         id: m.id,
         type: "infographic" as const,
-        user_name: codeInfo?.name || "Неизвестный",
+        user_name: codeInfo?.name || (inviteId ? "Неизвестный" : "Админ"),
         organization: codeInfo?.organization || null,
         content: m.metadata?.topic || m.content.slice(0, 120),
         created_at: m.created_at,
