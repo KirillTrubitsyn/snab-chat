@@ -45,10 +45,23 @@ export async function GET(req: NextRequest) {
   // Получаем диалоги с invite_code_id и admin_name
   let convsMap: Record<string, { invite_code_id: string | null; admin_name: string | null }> = {};
   if (allConvIds.length > 0) {
-    const { data: convs } = await supabase
+    // Try with admin_name first, fallback without it if column doesn't exist yet
+    let convs: { id: string; invite_code_id: string | null; admin_name?: string | null }[] | null = null;
+    const { data: convsWithAdmin, error: convErr } = await supabase
       .from("conversations")
       .select("id, invite_code_id, admin_name")
       .in("id", allConvIds);
+
+    if (convErr) {
+      // admin_name column likely doesn't exist yet — fallback
+      const { data: convsBasic } = await supabase
+        .from("conversations")
+        .select("id, invite_code_id")
+        .in("id", allConvIds);
+      convs = convsBasic;
+    } else {
+      convs = convsWithAdmin;
+    }
 
     (convs || []).forEach((c) => {
       convsMap[c.id] = { invite_code_id: c.invite_code_id, admin_name: c.admin_name ?? null };
@@ -129,13 +142,23 @@ export async function DELETE(req: NextRequest) {
   const supabase = createServiceClient();
 
   // Находим диалоги без invite_code_id И без admin_name (настоящие сироты)
-  const { data: orphaned } = await supabase
+  let orphanedQuery = supabase
     .from("conversations")
     .select("id")
-    .is("invite_code_id", null)
-    .is("admin_name", null);
+    .is("invite_code_id", null);
 
-  const orphanedIds = (orphaned || []).map((c: { id: string }) => c.id);
+  // Try filtering by admin_name; if column doesn't exist, skip the filter
+  const { data: orphaned, error: orphanErr } = await orphanedQuery.is("admin_name", null);
+  let finalOrphaned = orphaned;
+  if (orphanErr) {
+    const { data: fallback } = await supabase
+      .from("conversations")
+      .select("id")
+      .is("invite_code_id", null);
+    finalOrphaned = fallback;
+  }
+
+  const orphanedIds = (finalOrphaned || []).map((c: { id: string }) => c.id);
 
   if (orphanedIds.length === 0) {
     return NextResponse.json({ deleted: 0 });
