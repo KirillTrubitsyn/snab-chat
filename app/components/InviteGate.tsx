@@ -71,13 +71,9 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     <div className="invite-gate">
       <div className="invite-gate-card">
         <div className="invite-gate-logo">
-          <svg width="48" height="48" viewBox="0 0 512 512" fill="none">
-            <rect width="512" height="512" rx="112" fill="#F0F4FA"/>
-            <rect x="120" y="100" width="200" height="260" rx="28" fill="#0D47A1"/>
-            <rect x="160" y="140" width="200" height="260" rx="28" fill="#1976D2"/>
-            <rect x="200" y="180" width="200" height="260" rx="28" fill="#42A5F5"/>
-            <rect x="328" y="368" width="52" height="40" rx="12" fill="#fff"/>
-            <polygon points="338,408 328,424 348,408" fill="#fff"/>
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2Z" />
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
           </svg>
         </div>
         <h1 className="invite-gate-title">СнабЧат</h1>
