@@ -42,22 +42,22 @@ export async function GET(req: NextRequest) {
     ]),
   ].filter(Boolean);
 
-  // Получаем диалоги с invite_code_id
-  let convsMap: Record<string, string | null> = {};
+  // Получаем диалоги с invite_code_id и admin_name
+  let convsMap: Record<string, { invite_code_id: string | null; admin_name: string | null }> = {};
   if (allConvIds.length > 0) {
     const { data: convs } = await supabase
       .from("conversations")
-      .select("id, invite_code_id")
+      .select("id, invite_code_id, admin_name")
       .in("id", allConvIds);
 
     (convs || []).forEach((c) => {
-      convsMap[c.id] = c.invite_code_id;
+      convsMap[c.id] = { invite_code_id: c.invite_code_id, admin_name: c.admin_name ?? null };
     });
   }
 
   // Получаем инвайт-коды для имён и организаций
   const inviteCodeIds = [
-    ...new Set(Object.values(convsMap).filter(Boolean)),
+    ...new Set(Object.values(convsMap).map((c) => c.invite_code_id).filter(Boolean)),
   ] as string[];
 
   let codesMap: Record<string, { name: string; organization: string | null }> = {};
@@ -72,39 +72,46 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // Хелпер: получить ФИО и организацию для записи активности
+  const resolveUser = (conversationId: string) => {
+    const conv = convsMap[conversationId];
+    if (!conv) return { user_name: "Неизвестный", organization: null as string | null };
+    const inviteId = conv.invite_code_id;
+    if (inviteId) {
+      const codeInfo = codesMap[inviteId];
+      return {
+        user_name: codeInfo?.name || "Неизвестный",
+        organization: codeInfo?.organization || null,
+      };
+    }
+    // Админ: ФИО из admin_name (хранится в conversations), организация = "Админ"
+    return {
+      user_name: conv.admin_name || "Админ",
+      organization: "Админ",
+    };
+  };
+
   // Формируем результат: чат-запросы
   const chatItems = (messages || [])
     .filter((m) => m.conversation_id in convsMap) // диалог найден в БД
-    .map((m) => {
-      const inviteId = convsMap[m.conversation_id];
-      const codeInfo = inviteId ? codesMap[inviteId] : null;
-      const isAdmin = !inviteId;
-      return {
-        id: m.id,
-        type: "chat" as const,
-        user_name: codeInfo?.name || (isAdmin ? "Админ" : "Неизвестный"),
-        organization: isAdmin ? adminCheck.adminName : (codeInfo?.organization || null),
-        content: m.content.slice(0, 120) + (m.content.length > 120 ? "…" : ""),
-        created_at: m.created_at,
-      };
-    });
+    .map((m) => ({
+      id: m.id,
+      type: "chat" as const,
+      ...resolveUser(m.conversation_id),
+      content: m.content.slice(0, 120) + (m.content.length > 120 ? "…" : ""),
+      created_at: m.created_at,
+    }));
 
   // Формируем результат: инфографики
   const infographicItems = infographicMessages
     .filter((m) => m.conversation_id in convsMap)
-    .map((m) => {
-      const inviteId = convsMap[m.conversation_id];
-      const codeInfo = inviteId ? codesMap[inviteId] : null;
-      const isAdmin = !inviteId;
-      return {
-        id: m.id,
-        type: "infographic" as const,
-        user_name: codeInfo?.name || (isAdmin ? "Админ" : "Неизвестный"),
-        organization: isAdmin ? adminCheck.adminName : (codeInfo?.organization || null),
-        content: m.metadata?.topic || m.content.slice(0, 120),
-        created_at: m.created_at,
-      };
-    });
+    .map((m) => ({
+      id: m.id,
+      type: "infographic" as const,
+      ...resolveUser(m.conversation_id),
+      content: m.metadata?.topic || m.content.slice(0, 120),
+      created_at: m.created_at,
+    }));
 
   // Объединяем и сортируем по дате
   const result = [...chatItems, ...infographicItems].sort(
