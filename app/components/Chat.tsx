@@ -964,6 +964,9 @@ export default function Chat() {
   const inviteCodeRef = useRef<string>("");
   const [userName, setUserName] = useState<string>("");
   const [authLoading, setAuthLoading] = useState(true);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  const isAdmin = typeof window !== "undefined" && localStorage.getItem("snabchat_is_admin") === "true";
 
   /* ── Keep inviteCodeRef in sync ── */
   useEffect(() => {
@@ -1000,6 +1003,25 @@ export default function Chat() {
     setInviteCode("");
     setUserName("");
   }, []);
+
+  // Close user menu on click outside
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [userMenuOpen]);
+
+  // Helper: get initials from full name
+  const userInitials = userName
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() || "")
+    .join("");
 
   /* ── State ── */
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -1590,8 +1612,8 @@ export default function Chat() {
             <span style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontWeight: 700, fontSize: 22, letterSpacing: '-0.02em', lineHeight: 1 }}>
               <span style={{ color: '#003A7A' }}>Снаб</span><span style={{ color: '#0099CC' }}>Чат</span>
             </span>
-            <div className="header-divider" />
-            <span style={{ fontFamily: "var(--font-body)", fontSize: 14, color: "var(--text-secondary)" }}>
+            <div className="header-divider desktop-only" />
+            <span className="header-username desktop-only">
               {userName}
             </span>
           </div>
@@ -1638,8 +1660,9 @@ export default function Chat() {
             <button className="menu-btn" onClick={() => setRightOpen((o) => !o)}>
               <HistoryIcon />
             </button>
+            {/* Desktop: inline logout button */}
             <button
-              className="header-action-btn"
+              className="header-action-btn desktop-only"
               onClick={handleLogout}
               title="Выйти"
               style={{ color: "var(--text-muted)" }}
@@ -1650,6 +1673,38 @@ export default function Chat() {
                 <line x1="21" y1="12" x2="9" y2="12" />
               </svg>
             </button>
+            {/* Mobile: user avatar with dropdown menu */}
+            <div className="user-menu-wrapper mobile-only" ref={userMenuRef}>
+              <button
+                className="user-menu-btn"
+                onClick={() => setUserMenuOpen((o) => !o)}
+                title={userName}
+              >
+                {userInitials}
+              </button>
+              {userMenuOpen && (
+                <div className="user-menu-dropdown">
+                  <div className="user-menu-name">{userName}</div>
+                  <div className="user-menu-divider" />
+                  {isAdmin && (
+                    <a className="user-menu-item" href="/admin">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                      </svg>
+                      Админ-панель
+                    </a>
+                  )}
+                  <button className="user-menu-item" onClick={handleLogout}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                      <polyline points="16 17 21 12 16 7" />
+                      <line x1="21" y1="12" x2="9" y2="12" />
+                    </svg>
+                    Выйти
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
