@@ -247,6 +247,8 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<number>>(new Set());
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
 
   // Upload state
   const [showUpload, setShowUpload] = useState(false);
@@ -648,6 +650,22 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
         headers,
       });
       setSources((prev) => prev.filter((s) => s.id !== sourceId));
+    } catch { /* ignore */ }
+  };
+
+  const deleteSelectedSources = async () => {
+    if (selectedSourceIds.size === 0) return;
+    if (!confirm(`Удалить ${selectedSourceIds.size} документ(ов) из базы знаний?`)) return;
+    try {
+      const ids = Array.from(selectedSourceIds);
+      await fetch("/api/sources", {
+        method: "DELETE",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      setSources((prev) => prev.filter((s) => !selectedSourceIds.has(s.id)));
+      setSelectedSourceIds(new Set());
+      setBulkSelectMode(false);
     } catch { /* ignore */ }
   };
 
@@ -1165,14 +1183,59 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                 <div className="admin-docs-header">
                   <h2 className="admin-card-title" style={{ fontSize: 24 }}>Документы</h2>
                   <div className="admin-card-actions">
-                    <button className="admin-btn-secondary" onClick={loadSources} disabled={sourcesLoading}>
-                      <span className="material-symbols-outlined">refresh</span>
-                      Обновить
-                    </button>
-                    <button className="admin-btn-primary" onClick={() => setShowUpload(true)}>
-                      <span className="material-symbols-outlined">add</span>
-                      Загрузить документ
-                    </button>
+                    {!bulkSelectMode ? (
+                      <>
+                        {sources.length > 0 && (
+                          <button className="admin-btn-secondary" onClick={() => setBulkSelectMode(true)}>
+                            <span className="material-symbols-outlined">checklist</span>
+                            Выбрать
+                          </button>
+                        )}
+                        <button className="admin-btn-secondary" onClick={loadSources} disabled={sourcesLoading}>
+                          <span className="material-symbols-outlined">refresh</span>
+                          Обновить
+                        </button>
+                        <button className="admin-btn-primary" onClick={() => setShowUpload(true)}>
+                          <span className="material-symbols-outlined">add</span>
+                          Загрузить документ
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          className="admin-btn-secondary"
+                          onClick={() => {
+                            const allSelected = filteredSources.length > 0 && filteredSources.every((s) => selectedSourceIds.has(s.id));
+                            if (allSelected) {
+                              setSelectedSourceIds(new Set());
+                            } else {
+                              setSelectedSourceIds(new Set(filteredSources.map((s) => s.id)));
+                            }
+                          }}
+                        >
+                          <span className="material-symbols-outlined">
+                            {filteredSources.length > 0 && filteredSources.every((s) => selectedSourceIds.has(s.id)) ? "deselect" : "select_all"}
+                          </span>
+                          {filteredSources.length > 0 && filteredSources.every((s) => selectedSourceIds.has(s.id)) ? "Снять всё" : "Выбрать все"}
+                        </button>
+                        <button
+                          className="admin-btn-secondary"
+                          style={{ color: selectedSourceIds.size > 0 ? "var(--admin-danger, #ef4444)" : undefined }}
+                          disabled={selectedSourceIds.size === 0}
+                          onClick={deleteSelectedSources}
+                        >
+                          <span className="material-symbols-outlined">delete</span>
+                          Удалить ({selectedSourceIds.size})
+                        </button>
+                        <button
+                          className="admin-btn-secondary"
+                          onClick={() => { setSelectedSourceIds(new Set()); setBulkSelectMode(false); }}
+                        >
+                          <span className="material-symbols-outlined">close</span>
+                          Отмена
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -1216,7 +1279,34 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                       const isMenuOpen = openMenuId === doc.id;
                       return (
                         <div key={doc.id} className={`admin-doc-row-wrapper${expandedSourceId === doc.id ? " expanded" : ""}`}>
-                        <div className="admin-doc-row" onClick={() => setExpandedSourceId(expandedSourceId === doc.id ? null : doc.id)} style={{ cursor: "pointer" }}>
+                        <div className="admin-doc-row" onClick={() => {
+                          if (bulkSelectMode) {
+                            setSelectedSourceIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(doc.id)) next.delete(doc.id);
+                              else next.add(doc.id);
+                              return next;
+                            });
+                            return;
+                          }
+                          setExpandedSourceId(expandedSourceId === doc.id ? null : doc.id);
+                        }} style={{ cursor: "pointer" }}>
+                          {bulkSelectMode && (
+                            <input
+                              type="checkbox"
+                              checked={selectedSourceIds.has(doc.id)}
+                              onChange={() => {
+                                setSelectedSourceIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(doc.id)) next.delete(doc.id);
+                                  else next.add(doc.id);
+                                  return next;
+                                });
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ width: 18, height: 18, flexShrink: 0, cursor: "pointer", accentColor: "var(--admin-primary, #3b82f6)" }}
+                            />
+                          )}
                           <div className={`doc-icon-lg ${ext}`}>
                             {ext === "pdf" ? (
                               <span className="material-symbols-outlined">picture_as_pdf</span>
