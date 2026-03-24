@@ -1609,10 +1609,22 @@ export default function Chat() {
             <button className="menu-btn" onClick={() => setLeftOpen((o) => !o)}>
               <MenuIcon />
             </button>
-            <SpektrIcon size={36} />
-            <span style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontWeight: 700, fontSize: 22, letterSpacing: '-0.02em', lineHeight: 1 }}>
-              <span style={{ color: '#003A7A' }}>Снаб</span><span style={{ color: '#0099CC' }}>Чат</span>
-            </span>
+            <button
+              className="header-logo-btn"
+              onClick={() => {
+                setActiveConvId(null);
+                convIdRef.current = null;
+                setChatKey(`new-${Date.now()}`);
+                setMessages([]);
+                setHasSummary(false);
+              }}
+              title="На главную"
+            >
+              <SpektrIcon size={36} />
+              <span style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontWeight: 700, fontSize: 22, letterSpacing: '-0.02em', lineHeight: 1 }}>
+                <span style={{ color: '#003A7A' }}>Снаб</span><span style={{ color: '#0099CC' }}>Чат</span>
+              </span>
+            </button>
             <div className="header-divider desktop-only" />
             <span className="header-username desktop-only">
               {userName}
