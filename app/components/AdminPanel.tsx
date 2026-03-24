@@ -658,12 +658,22 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     <div className="admin-layout">
       {/* Sidebar */}
       <aside className="admin-sidebar">
-        <div className="admin-sidebar-logo">
+        <a href="/" className="admin-sidebar-logo">
+          <svg width="36" height="36" viewBox="0 0 512 512" fill="none">
+            <rect width="512" height="512" rx="112" fill="#F0F4FA"/>
+            <rect x="120" y="100" width="200" height="260" rx="28" fill="#0D47A1"/>
+            <rect x="160" y="140" width="200" height="260" rx="28" fill="#1976D2"/>
+            <rect x="200" y="180" width="200" height="260" rx="28" fill="#42A5F5"/>
+            <rect x="328" y="368" width="52" height="40" rx="12" fill="#fff"/>
+            <polygon points="338,408 328,424 348,408" fill="#fff"/>
+          </svg>
           <div>
-            <div className="admin-logo-title">СнабЧат</div>
+            <div className="admin-logo-title" style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontWeight: 700, fontSize: 20, letterSpacing: '-0.02em', lineHeight: 1 }}>
+              <span style={{ color: '#FFFFFF' }}>Снаб</span><span style={{ color: '#7DD3FC' }}>Чат</span>
+            </div>
             <div className="admin-logo-subtitle">Admin Panel</div>
           </div>
-        </div>
+        </a>
         <nav className="admin-sidebar-nav">
           {navItems.map((item) => (
             <button
