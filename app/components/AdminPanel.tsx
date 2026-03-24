@@ -127,23 +127,41 @@ interface AdminPanelProps {
 /* ── Document Categories (client-side) ── */
 
 const DOC_CATEGORIES = [
-  { key: "standards", label: "Стандарты и Положения", icon: "verified" },
-  { key: "forms", label: "Формы документов", icon: "article" },
   { key: "npa", label: "НПА", icon: "gavel" },
-  { key: "schemas", label: "Схемы и Алгоритмы", icon: "schema" },
-  { key: "other", label: "Прочее", icon: "folder" },
+  { key: "standards", label: "Стандарты и Положения", icon: "verified" },
+  { key: "forms", label: "Формы и Шаблоны", icon: "article" },
+  { key: "schemas", label: "Схемы процессов", icon: "schema" },
+  { key: "instructions", label: "Инструкции и Методики", icon: "menu_book" },
+  { key: "pricing", label: "Ценообразование", icon: "payments" },
+  { key: "references", label: "Справочники и Реестры", icon: "list_alt" },
+  { key: "contracts", label: "Договоры", icon: "handshake" },
 ];
 
 const CATEGORY_KEYWORDS: Record<string, string> = {
-  "стандарт": "standards", "положение": "standards", "регламент": "standards",
-  "методика": "standards", "инструкция": "standards", "руководство": "standards",
-  "порядок": "standards", "правила": "standards",
+  "федеральный закон": "npa", "постановление правительства": "npa",
+  "223-фз": "npa", "кодекс": "npa",
+  "ценообразование": "pricing", "стоимость чел-час": "pricing",
+  "сметная стоимость": "pricing", "базовые цены": "pricing",
+  "индексы": "pricing", "индекс": "pricing",
+  "коэффициент": "pricing", "тариф": "pricing", "нмцд": "pricing", "фер": "pricing",
+  "справочник": "references", "реестр": "references",
+  "перечень": "references", "лимит": "references",
+  "классификатор": "references", "нормативные сроки": "references",
+  "зоны ответственности": "references", "список ответственных": "references",
+  "договор": "contracts", "контракт": "contracts",
+  "дополнительное соглашение": "contracts", "агентский": "contracts",
+  "инструкция": "instructions", "методика": "instructions",
+  "руководство": "instructions", "памятка": "instructions",
+  "onboarding": "instructions", "обучение": "instructions",
   "форма": "forms", "шаблон": "forms", "бланк": "forms", "образец": "forms",
-  "заявка": "forms", "анкета": "forms",
-  "приказ": "npa", "закон": "npa", "постановление": "npa", "распоряжение": "npa",
-  "указ": "npa", "федеральный": "npa", "кодекс": "npa",
-  "схема": "schemas", "алгоритм": "schemas", "диаграмма": "schemas",
-  "блок-схема": "schemas", "маршрут": "schemas",
+  "инициация": "forms", "служебная записка": "forms",
+  "спецификация": "forms", "техническое задание": "forms",
+  "протокол": "forms", "бюллетень": "forms",
+  "блок-схема": "schemas", "схема": "schemas",
+  "алгоритм": "schemas", "диаграмма": "schemas",
+  "стандарт": "standards", "положение": "standards",
+  "регламент": "standards", "приказ": "standards", "правила": "standards",
+  "закон": "npa", "постановление": "npa", "указ": "npa", "распоряжение": "npa",
 };
 
 function detectCategoryClient(tags: string[], filename?: string): string {
@@ -159,11 +177,11 @@ function detectCategoryClient(tags: string[], filename?: string): string {
       if (lower.includes(keyword)) return category;
     }
   }
-  return "other";
+  return "standards";
 }
 
 function getCategoryLabel(key: string | null): string {
-  return DOC_CATEGORIES.find((c) => c.key === key)?.label || "Прочее";
+  return DOC_CATEGORIES.find((c) => c.key === key)?.label || "Стандарты и Положения";
 }
 
 function formatDate(dateStr: string): string {
