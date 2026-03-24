@@ -1453,6 +1453,25 @@ export default function Chat() {
     });
   }, []);
 
+  /* ── Bulk delete sources ── */
+  const deleteSelectedSources = useCallback(async () => {
+    if (selectedSourceIds.size === 0) return;
+    const ids = Array.from(selectedSourceIds);
+    try {
+      const res = await fetch("/api/sources", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", "x-admin-code": encodeURIComponent(inviteCodeRef.current) },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) return;
+      setSources((prev) => prev.filter((s) => !selectedSourceIds.has(s.id)));
+      setSelectedSourceIds(new Set());
+      setBulkSelectMode(false);
+    } catch (e) {
+      console.error("Failed to delete sources:", e);
+    }
+  }, [selectedSourceIds]);
+
   /* ── Bulk delete conversations ── */
   const deleteSelectedConversations = useCallback(async () => {
     if (selectedConvIds.size === 0) return;
@@ -1905,11 +1924,62 @@ export default function Chat() {
                     </span>
                   </span>
                 </div>
-                <div style={{ padding: "0 8px 8px" }}>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "4px 0" }}>
-                    Управление документами доступно в админ-панели
+                {isAdmin && sources.length > 0 && (
+                  <div style={{ display: "flex", gap: 4, padding: "0 12px 8px" }}>
+                    {!bulkSelectMode ? (
+                      <button
+                        className="btn-secondary"
+                        style={{ flex: 1, fontSize: 11, padding: "4px 8px" }}
+                        onClick={() => setBulkSelectMode(true)}
+                      >
+                        Выбрать
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          className="btn-secondary"
+                          style={{ flex: 1, fontSize: 11, padding: "4px 8px" }}
+                          onClick={() => {
+                            if (selectedSourceIds.size === sources.length) {
+                              setSelectedSourceIds(new Set());
+                            } else {
+                              setSelectedSourceIds(new Set(sources.map((s) => s.id)));
+                            }
+                          }}
+                        >
+                          {selectedSourceIds.size === sources.length ? "Снять всё" : "Выбрать все"}
+                        </button>
+                        <button
+                          className="btn-secondary"
+                          style={{
+                            flex: 1,
+                            fontSize: 11,
+                            padding: "4px 8px",
+                            color: selectedSourceIds.size > 0 ? "var(--error)" : undefined,
+                          }}
+                          disabled={selectedSourceIds.size === 0}
+                          onClick={deleteSelectedSources}
+                        >
+                          Удалить ({selectedSourceIds.size})
+                        </button>
+                        <button
+                          className="btn-secondary"
+                          style={{ fontSize: 11, padding: "4px 8px" }}
+                          onClick={() => { setSelectedSourceIds(new Set()); setBulkSelectMode(false); }}
+                        >
+                          ✕
+                        </button>
+                      </>
+                    )}
                   </div>
-                </div>
+                )}
+                {!isAdmin && (
+                  <div style={{ padding: "0 8px 8px" }}>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "4px 0" }}>
+                      Управление документами доступно в админ-панели
+                    </div>
+                  </div>
+                )}
                 <div className="sidebar-list">
                   {sources.map((doc) => {
                     const isExpanded = expandedSourceId === doc.id;
@@ -1919,9 +1989,34 @@ export default function Chat() {
                           className="doc-item"
                           style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
                           onClick={() => {
+                            if (bulkSelectMode) {
+                              setSelectedSourceIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(doc.id)) next.delete(doc.id);
+                                else next.add(doc.id);
+                                return next;
+                              });
+                              return;
+                            }
                             setExpandedSourceId(isExpanded ? null : doc.id);
                           }}
                         >
+                          {bulkSelectMode && (
+                            <input
+                              type="checkbox"
+                              checked={selectedSourceIds.has(doc.id)}
+                              onChange={() => {
+                                setSelectedSourceIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(doc.id)) next.delete(doc.id);
+                                  else next.add(doc.id);
+                                  return next;
+                                });
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ flexShrink: 0 }}
+                            />
+                          )}
                           <div className={`doc-icon ${doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") || doc.filename?.endsWith(".xlsx") || doc.filename?.endsWith(".xls") ? "xlsx" : "docx"}`}>
                             {doc.mime_type?.includes("pdf") ? "P" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "X" : "W"}
                           </div>
@@ -2060,6 +2155,58 @@ export default function Chat() {
                 <div className="kb-header">
                   <h2 className="kb-title">База знаний</h2>
                   <span className="kb-badge">{sources.length}</span>
+                  {isAdmin && sources.length > 0 && (
+                    <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                      {!bulkSelectMode ? (
+                        <button
+                          className="btn-secondary"
+                          style={{ fontSize: 12, padding: "5px 12px" }}
+                          onClick={() => setBulkSelectMode(true)}
+                        >
+                          Выбрать
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            className="btn-secondary"
+                            style={{ fontSize: 12, padding: "5px 12px" }}
+                            onClick={() => {
+                              const filtered = sources.filter((s) => kbCategoryFilter === "all" || (s.folder_path || "other") === kbCategoryFilter);
+                              if (selectedSourceIds.size === filtered.length && filtered.every((s) => selectedSourceIds.has(s.id))) {
+                                setSelectedSourceIds(new Set());
+                              } else {
+                                setSelectedSourceIds(new Set(filtered.map((s) => s.id)));
+                              }
+                            }}
+                          >
+                            {(() => {
+                              const filtered = sources.filter((s) => kbCategoryFilter === "all" || (s.folder_path || "other") === kbCategoryFilter);
+                              return selectedSourceIds.size === filtered.length && filtered.every((s) => selectedSourceIds.has(s.id)) ? "Снять всё" : "Выбрать все";
+                            })()}
+                          </button>
+                          <button
+                            className="btn-secondary"
+                            style={{
+                              fontSize: 12,
+                              padding: "5px 12px",
+                              color: selectedSourceIds.size > 0 ? "var(--error)" : undefined,
+                            }}
+                            disabled={selectedSourceIds.size === 0}
+                            onClick={deleteSelectedSources}
+                          >
+                            Удалить ({selectedSourceIds.size})
+                          </button>
+                          <button
+                            className="btn-secondary"
+                            style={{ fontSize: 12, padding: "5px 12px" }}
+                            onClick={() => { setSelectedSourceIds(new Set()); setBulkSelectMode(false); }}
+                          >
+                            ✕
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="kb-pills">
@@ -2111,7 +2258,37 @@ export default function Chat() {
                           { key: "other", label: "Прочее" },
                         ].find((c) => c.key === (doc.folder_path || "other"))?.label || "Прочее";
                         return (
-                          <div key={doc.id} className="kb-row">
+                          <div
+                            key={doc.id}
+                            className="kb-row"
+                            style={bulkSelectMode ? { cursor: "pointer" } : undefined}
+                            onClick={() => {
+                              if (bulkSelectMode) {
+                                setSelectedSourceIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(doc.id)) next.delete(doc.id);
+                                  else next.add(doc.id);
+                                  return next;
+                                });
+                              }
+                            }}
+                          >
+                            {bulkSelectMode && (
+                              <input
+                                type="checkbox"
+                                checked={selectedSourceIds.has(doc.id)}
+                                onChange={() => {
+                                  setSelectedSourceIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(doc.id)) next.delete(doc.id);
+                                    else next.add(doc.id);
+                                    return next;
+                                  });
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ flexShrink: 0 }}
+                              />
+                            )}
                             <div className={`kb-row-icon ${ext}`}>
                               {ext === "pdf" ? "PDF" : ext === "xlsx" ? "XLS" : "DOC"}
                             </div>
