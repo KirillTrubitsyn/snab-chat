@@ -3,6 +3,7 @@ import { createServiceClient } from "@/app/lib/supabase";
 import { chunkMarkdown } from "@/app/lib/chunking";
 import { embedDocuments } from "@/app/lib/embeddings";
 import { requireAdmin } from "@/app/lib/auth";
+import { logError } from "@/app/lib/error-logger";
 
 let bucketReady = false;
 
@@ -109,7 +110,9 @@ export async function POST(req: NextRequest) {
       filename,
     });
   } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
     console.error("Ingest error:", err);
+    logError({ type: "ingest", message: errMsg, endpoint: "/api/ingest" }).catch(() => {});
     return NextResponse.json(
       { error: "Failed to ingest document" },
       { status: 500 }

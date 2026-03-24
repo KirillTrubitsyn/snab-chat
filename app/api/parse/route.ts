@@ -3,6 +3,7 @@ import { parseToMarkdown } from "@/app/lib/parser";
 import { autoTag } from "@/app/lib/tagging";
 import { chunkMarkdown } from "@/app/lib/chunking";
 import { requireAuth } from "@/app/lib/auth";
+import { logError } from "@/app/lib/error-logger";
 
 export async function POST(req: NextRequest) {
   const authCheck = await requireAuth(req);
@@ -34,7 +35,9 @@ export async function POST(req: NextRequest) {
       totalChunks: chunks.length,
     });
   } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
     console.error("Parse error:", err);
+    logError({ type: "parse", message: errMsg, endpoint: "/api/parse" }).catch(() => {});
     return NextResponse.json(
       { error: "Failed to parse file" },
       { status: 500 }

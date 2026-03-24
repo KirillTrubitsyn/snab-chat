@@ -1044,6 +1044,15 @@ export default function Chat() {
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
   const [convBulkMode, setConvBulkMode] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<"chat" | "knowledge-base">("chat");
+  const [kbCategoryFilter, setKbCategoryFilter] = useState<string>("all");
+
+  // Support modal state
+  const [showSupportModal, setShowSupportModal] = useState(false);
+  const [supportMessage, setSupportMessage] = useState("");
+  const [supportSending, setSupportSending] = useState(false);
+  const [supportHistory, setSupportHistory] = useState<{ id: string; message: string; admin_reply: string | null; admin_number: number | null; status: string; created_at: string; replied_at: string | null }[]>([]);
+  const [unreadSupportCount, setUnreadSupportCount] = useState(0);
 
   const router = useRouter();
 
@@ -1143,6 +1152,54 @@ export default function Chat() {
   useEffect(() => {
     loadSources();
   }, [loadSources]);
+
+  /* ── Support ── */
+  const loadSupportHistory = useCallback(async () => {
+    if (!inviteCode) return;
+    try {
+      const res = await fetch("/api/support", {
+        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+      });
+      const data = await res.json();
+      if (data.messages) {
+        setSupportHistory(data.messages);
+        // Count unread: answered messages that user hasn't seen
+        const lastSeen = localStorage.getItem("supportLastSeen") ?? "0";
+        const unread = data.messages.filter(
+          (m: { admin_reply: string | null; replied_at: string | null }) =>
+            m.admin_reply && m.replied_at && new Date(m.replied_at).getTime() > parseInt(lastSeen)
+        ).length;
+        setUnreadSupportCount(unread);
+      }
+    } catch { /* ignore */ }
+  }, [inviteCode]);
+
+  useEffect(() => {
+    loadSupportHistory();
+  }, [loadSupportHistory]);
+
+  const sendSupportMessage = async () => {
+    if (!supportMessage.trim() || supportSending) return;
+    setSupportSending(true);
+    try {
+      await fetch("/api/support", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+        body: JSON.stringify({ message: supportMessage.trim() }),
+      });
+      setSupportMessage("");
+      await loadSupportHistory();
+    } catch { /* ignore */ }
+    setSupportSending(false);
+  };
+
+  const openSupportModal = () => {
+    setShowSupportModal(true);
+    loadSupportHistory();
+    // Mark as seen
+    localStorage.setItem("supportLastSeen", String(Date.now()));
+    setUnreadSupportCount(0);
+  };
 
   /* ── Switch conversation ── */
   const switchConversation = useCallback(
@@ -1612,6 +1669,7 @@ export default function Chat() {
             <button
               className="header-logo-btn"
               onClick={() => {
+                setActiveView("chat");
                 setActiveConvId(null);
                 convIdRef.current = null;
                 setChatKey(`new-${Date.now()}`);
@@ -1647,6 +1705,25 @@ export default function Chat() {
             </a>
             <button
               className="header-labeled-btn accent"
+              onClick={openSupportModal}
+              title="Поддержка"
+              style={{ position: "relative" }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+              </svg>
+              <span className="btn-label">Поддержка</span>
+              {unreadSupportCount > 0 && (
+                <span style={{
+                  position: "absolute", top: -4, right: -4,
+                  background: "#e53935", color: "#fff", borderRadius: "50%",
+                  width: 18, height: 18, fontSize: 11, fontWeight: 700,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>{unreadSupportCount}</span>
+              )}
+            </button>
+            <button
+              className="header-labeled-btn accent"
               onClick={() => navigateToInfographic()}
               title="Генератор инфографики"
             >
@@ -1654,8 +1731,20 @@ export default function Chat() {
               <span className="btn-label">Инфографика</span>
             </button>
             <button
-              className="header-labeled-btn"
+              className={`header-labeled-btn ${activeView === "knowledge-base" ? "accent" : ""}`}
+              onClick={() => setActiveView(activeView === "knowledge-base" ? "chat" : "knowledge-base")}
+              title="База знаний"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+              </svg>
+              <span className="btn-label">База знаний</span>
+            </button>
+            <button
+              className="header-labeled-btn primary"
               onClick={() => {
+                setActiveView("chat");
                 setActiveConvId(null);
                 convIdRef.current = null;
                 setChatKey(`new-${Date.now()}`);
@@ -1901,6 +1990,112 @@ export default function Chat() {
           )}
 
           {/* ── Main ── */}
+          {activeView === "knowledge-base" ? (
+            <main className="main-area">
+              <div className="kb-view">
+                <div className="kb-header">
+                  <h2 className="kb-title">База знаний</h2>
+                  <span className="kb-badge">{sources.length}</span>
+                </div>
+
+                <div className="kb-pills">
+                  <button
+                    className={`kb-pill ${kbCategoryFilter === "all" ? "active" : ""}`}
+                    onClick={() => setKbCategoryFilter("all")}
+                  >
+                    Все ({sources.length})
+                  </button>
+                  {[
+                    { key: "standards", label: "Стандарты и Положения" },
+                    { key: "forms", label: "Формы документов" },
+                    { key: "npa", label: "НПА" },
+                    { key: "schemas", label: "Схемы и Алгоритмы" },
+                    { key: "other", label: "Прочее" },
+                  ].map((cat) => {
+                    const count = sources.filter((s) => (s.folder_path || "other") === cat.key).length;
+                    return (
+                      <button
+                        key={cat.key}
+                        className={`kb-pill ${kbCategoryFilter === cat.key ? "active" : ""}`}
+                        onClick={() => setKbCategoryFilter(cat.key)}
+                      >
+                        {cat.label} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {sources.length === 0 ? (
+                  <div className="kb-empty">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.3, marginBottom: 12 }}>
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    <p>Нет загруженных документов</p>
+                  </div>
+                ) : (
+                  <div className="kb-list">
+                    {sources
+                      .filter((s) => kbCategoryFilter === "all" || (s.folder_path || "other") === kbCategoryFilter)
+                      .map((doc) => {
+                        const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : "docx";
+                        const catLabel = [
+                          { key: "standards", label: "Стандарты и Положения" },
+                          { key: "forms", label: "Формы документов" },
+                          { key: "npa", label: "НПА" },
+                          { key: "schemas", label: "Схемы и Алгоритмы" },
+                          { key: "other", label: "Прочее" },
+                        ].find((c) => c.key === (doc.folder_path || "other"))?.label || "Прочее";
+                        return (
+                          <div key={doc.id} className="kb-row">
+                            <div className={`kb-row-icon ${ext}`}>
+                              {ext === "pdf" ? "PDF" : ext === "xlsx" ? "XLS" : "DOC"}
+                            </div>
+                            <div className="kb-row-info">
+                              <div className="kb-row-name">{doc.filename}</div>
+                              <div className="kb-row-meta">
+                                <span className="kb-row-cat">{catLabel}</span>
+                                <span>&middot;</span>
+                                <span>{new Date(doc.created_at).toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                                {doc.tags && doc.tags.length > 0 && (
+                                  <>
+                                    <span>&middot;</span>
+                                    <span>{doc.tags.length} тегов</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            <div className="kb-row-actions">
+                              <button
+                                className="kb-action-btn"
+                                onClick={() => setViewingSource(doc)}
+                                title="Просмотр"
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                  <circle cx="12" cy="12" r="3" />
+                                </svg>
+                              </button>
+                              <a
+                                className="kb-action-btn"
+                                href={`/api/sources/download?id=${doc.id}&action=download`}
+                                title="Скачать"
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                  <polyline points="7 10 12 15 17 10" />
+                                  <line x1="12" y1="15" x2="12" y2="3" />
+                                </svg>
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            </main>
+          ) : (
           <main className="main-area">
             <div className="chat-column">
               <div className="messages-area" ref={scrollRef}>
@@ -2059,6 +2254,7 @@ export default function Chat() {
               </form>
             </div>
           </main>
+          )}
 
           {/* ── Right sidebar: Dialogs ── */}
           <aside className={`sidebar-panel right ${rightOpen ? "open" : ""} ${rightCollapsed ? "collapsed" : ""}`}>
@@ -2225,6 +2421,105 @@ export default function Chat() {
           source={viewingSource}
           onClose={() => setViewingSource(null)}
         />
+      )}
+
+      {/* ── Support Modal ── */}
+      {showSupportModal && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.5)", display: "flex",
+            alignItems: "center", justifyContent: "center", padding: 16,
+          }}
+          onClick={() => setShowSupportModal(false)}
+        >
+          <div
+            style={{
+              background: "var(--bg-primary, #fff)", borderRadius: 16,
+              width: "100%", maxWidth: 520, maxHeight: "80vh",
+              display: "flex", flexDirection: "column",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{
+              padding: "16px 20px", borderBottom: "1px solid var(--border-color, #eee)",
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <h3 style={{ margin: 0, fontSize: 18 }}>Поддержка</h3>
+              <button onClick={() => setShowSupportModal(false)} style={{
+                background: "none", border: "none", fontSize: 22, cursor: "pointer",
+                color: "var(--text-muted)", padding: 4,
+              }}>&times;</button>
+            </div>
+
+            {/* Messages history */}
+            <div style={{
+              flex: 1, overflowY: "auto", padding: 16,
+              display: "flex", flexDirection: "column", gap: 12,
+            }}>
+              {supportHistory.length === 0 && (
+                <div style={{ textAlign: "center", color: "var(--text-muted)", padding: 24, fontSize: 14 }}>
+                  Здесь будут ваши обращения в поддержку
+                </div>
+              )}
+              {supportHistory.map((m) => (
+                <div key={m.id}>
+                  {/* User message */}
+                  <div style={{
+                    background: "var(--bg-secondary, #f5f5f5)", borderRadius: 12,
+                    padding: 12, marginBottom: m.admin_reply ? 8 : 0, fontSize: 14,
+                  }}>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>
+                      {new Date(m.created_at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })}
+                    </div>
+                    {m.message}
+                  </div>
+                  {/* Admin reply */}
+                  {m.admin_reply && (
+                    <div style={{
+                      background: "#e8f4fd", borderRadius: 12, padding: 12,
+                      borderLeft: "3px solid #1976d2", fontSize: 14, marginLeft: 24,
+                    }}>
+                      <div style={{ fontSize: 11, color: "#1976d2", marginBottom: 4 }}>
+                        Администратор {m.admin_number ?? ""} · {m.replied_at ? new Date(m.replied_at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) : ""}
+                      </div>
+                      {m.admin_reply}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Input */}
+            <div style={{ padding: 16, borderTop: "1px solid var(--border-color, #eee)" }}>
+              <textarea
+                value={supportMessage}
+                onChange={(e) => setSupportMessage(e.target.value)}
+                placeholder="Опишите вашу проблему или вопрос..."
+                rows={3}
+                style={{
+                  width: "100%", borderRadius: 10, border: "1px solid var(--border-color, #ddd)",
+                  padding: 12, fontSize: 14, resize: "none", fontFamily: "inherit",
+                  background: "var(--bg-primary, #fff)", color: "var(--text-primary, #333)",
+                }}
+              />
+              <button
+                onClick={sendSupportMessage}
+                disabled={supportSending || !supportMessage.trim()}
+                style={{
+                  marginTop: 8, width: "100%", padding: "10px 16px",
+                  borderRadius: 10, border: "none", fontSize: 14, fontWeight: 600,
+                  background: supportSending || !supportMessage.trim() ? "#ccc" : "#1976d2",
+                  color: "#fff", cursor: supportSending ? "wait" : "pointer",
+                }}
+              >
+                {supportSending ? "Отправка..." : "Отправить"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

@@ -12,9 +12,11 @@ interface InviteCode {
   uses_remaining: number | null;
   chat_limit: number | null;
   infographic_limit: number | null;
+  device_limit: number | null;
   is_active: boolean;
   created_at: string;
   conversation_count: number;
+  device_count: number;
 }
 
 interface ActivityItem {
@@ -45,6 +47,75 @@ interface ParsedFile {
   totalChunks: number;
 }
 
+interface NontargetItem {
+  id: string;
+  user_name: string;
+  organization: string | null;
+  category: string;
+  query_text: string;
+  created_at: string;
+}
+
+interface UserMessageItem {
+  id: string;
+  user_name: string;
+  organization: string | null;
+  content: string;
+  created_at: string;
+}
+
+interface SupportItem {
+  id: string;
+  user_name: string;
+  organization: string | null;
+  message: string;
+  admin_reply: string | null;
+  admin_number: number | null;
+  status: string;
+  created_at: string;
+  replied_at: string | null;
+}
+
+interface ErrorItem {
+  id: string;
+  error_type: string;
+  error_message: string;
+  endpoint: string | null;
+  user_name: string | null;
+  organization: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  procurement: "Закупки и снабжение",
+  household: "Быт и дом",
+  family_personal: "Семья и отношения",
+  food_cooking: "Еда и кулинария",
+  health_beauty: "Здоровье и красота",
+  esoteric: "Эзотерика и гороскопы",
+  psychology: "Психология",
+  travel: "Путешествия",
+  shopping: "Покупки и товары",
+  entertainment: "Развлечения",
+  tech_personal: "Личные технологии",
+  nature_weather: "Природа и погода",
+  personal_finance: "Личные финансы",
+  education_hobby: "Образование и хобби",
+  gambling: "Азартные игры",
+  pets: "Домашние питомцы",
+  politics: "Политика",
+  military: "Войны и военное дело",
+  other_off_topic: "Прочее нецелевое",
+};
+
+const ERROR_TYPE_LABELS: Record<string, string> = {
+  chat: "Чат",
+  parse: "Парсинг",
+  ingest: "Индексация",
+  client: "Клиент",
+};
+
 interface AdminPanelProps {
   adminCode: string;
   userName: string;
@@ -52,6 +123,48 @@ interface AdminPanelProps {
 }
 
 /* ── Helpers ── */
+
+/* ── Document Categories (client-side) ── */
+
+const DOC_CATEGORIES = [
+  { key: "standards", label: "Стандарты и Положения", icon: "verified" },
+  { key: "forms", label: "Формы документов", icon: "article" },
+  { key: "npa", label: "НПА", icon: "gavel" },
+  { key: "schemas", label: "Схемы и Алгоритмы", icon: "schema" },
+  { key: "other", label: "Прочее", icon: "folder" },
+];
+
+const CATEGORY_KEYWORDS: Record<string, string> = {
+  "стандарт": "standards", "положение": "standards", "регламент": "standards",
+  "методика": "standards", "инструкция": "standards", "руководство": "standards",
+  "порядок": "standards", "правила": "standards",
+  "форма": "forms", "шаблон": "forms", "бланк": "forms", "образец": "forms",
+  "заявка": "forms", "анкета": "forms",
+  "приказ": "npa", "закон": "npa", "постановление": "npa", "распоряжение": "npa",
+  "указ": "npa", "федеральный": "npa", "кодекс": "npa",
+  "схема": "schemas", "алгоритм": "schemas", "диаграмма": "schemas",
+  "блок-схема": "schemas", "маршрут": "schemas",
+};
+
+function detectCategoryClient(tags: string[], filename?: string): string {
+  for (const tag of tags) {
+    const lower = tag.toLowerCase();
+    for (const [keyword, category] of Object.entries(CATEGORY_KEYWORDS)) {
+      if (lower.includes(keyword)) return category;
+    }
+  }
+  if (filename) {
+    const lower = filename.toLowerCase();
+    for (const [keyword, category] of Object.entries(CATEGORY_KEYWORDS)) {
+      if (lower.includes(keyword)) return category;
+    }
+  }
+  return "other";
+}
+
+function getCategoryLabel(key: string | null): string {
+  return DOC_CATEGORIES.find((c) => c.key === key)?.label || "Прочее";
+}
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
@@ -73,8 +186,14 @@ function formatDateTime(dateStr: string): string {
   });
 }
 
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
 export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanelProps) {
-  const [tab, setTab] = useState<"codes" | "activity" | "documents">("activity");
+  const [tab, setTab] = useState<"codes" | "activity" | "documents" | "nontarget" | "messages" | "support" | "errors">("activity");
 
   // Invite codes state
   const [codes, setCodes] = useState<InviteCode[]>([]);
@@ -84,6 +203,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [newOrg, setNewOrg] = useState("");
   const [newChatLimit, setNewChatLimit] = useState("");
   const [newInfographicLimit, setNewInfographicLimit] = useState("");
+  const [newDeviceLimit, setNewDeviceLimit] = useState("2");
   const [creating, setCreating] = useState(false);
 
   // Edit modal state
@@ -92,6 +212,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [editOrg, setEditOrg] = useState("");
   const [editChatLimit, setEditChatLimit] = useState("");
   const [editInfographicLimit, setEditInfographicLimit] = useState("");
+  const [editDeviceLimit, setEditDeviceLimit] = useState("");
 
   // Activity state
   const [activity, setActivity] = useState<ActivityItem[]>([]);
@@ -102,15 +223,46 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [sourcesLoading, setSourcesLoading] = useState(false);
   const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);
   const [sourceTagInput, setSourceTagInput] = useState("");
+  const [docCategoryFilter, setDocCategoryFilter] = useState<string>("all");
+  const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   // Upload state
   const [showUpload, setShowUpload] = useState(false);
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [parsedFiles, setParsedFiles] = useState<ParsedFile[]>([]);
+  const [parsedFileCategories, setParsedFileCategories] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadStage, setUploadStage] = useState<"idle" | "parsing" | "review" | "ingesting" | "done">("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Nontarget queries state (LLM-classified)
+  const [nontargetQueries, setNontargetQueries] = useState<NontargetItem[]>([]);
+  const [nontargetStats, setNontargetStats] = useState<{ total: number; by_category: Record<string, number>; by_user: Record<string, { count: number; lastQuery: string; lastDate: string }> }>({ total: 0, by_category: {}, by_user: {} });
+  const [nontargetLoading, setNontargetLoading] = useState(false);
+  const [nontargetDays, setNontargetDays] = useState(7);
+
+  // User messages state
+  const [userMessages, setUserMessages] = useState<UserMessageItem[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+
+  // Support state
+  const [supportMessages, setSupportMessages] = useState<SupportItem[]>([]);
+  const [supportStats, setSupportStats] = useState({ total: 0, open: 0, answered: 0, closed: 0 });
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [supportFilter, setSupportFilter] = useState<string>(""); // "", "open", "answered", "closed"
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
+  const [replySending, setReplySending] = useState(false);
+
+  // Errors state
+  const [errorLogs, setErrorLogs] = useState<ErrorItem[]>([]);
+  const [errorsLoading, setErrorsLoading] = useState(false);
+  const [errorsDays, setErrorsDays] = useState(7);
+  const [errorTypeFilter, setErrorTypeFilter] = useState("all");
+  const [expandedErrors, setExpandedErrors] = useState<Set<string>>(new Set());
 
   // Search/filter state
   const [searchName, setSearchName] = useState("");
@@ -149,11 +301,58 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     setSourcesLoading(false);
   }, []);
 
+  const loadNontarget = useCallback(async () => {
+    setNontargetLoading(true);
+    try {
+      const res = await fetch(`/api/admin/off-topic?days=${nontargetDays}`, { headers });
+      const data = await res.json();
+      if (data.queries) setNontargetQueries(data.queries);
+      if (data.stats) setNontargetStats(data.stats);
+    } catch { /* ignore */ }
+    setNontargetLoading(false);
+  }, [adminCode, nontargetDays]);
+
+  const loadUserMessages = useCallback(async () => {
+    setMessagesLoading(true);
+    try {
+      const res = await fetch("/api/admin/activity?type=messages", { headers });
+      const data = await res.json();
+      if (data.messages) setUserMessages(data.messages);
+    } catch { /* ignore */ }
+    setMessagesLoading(false);
+  }, [adminCode]);
+
+  const loadSupport = useCallback(async () => {
+    setSupportLoading(true);
+    try {
+      const url = supportFilter ? `/api/admin/support?status=${supportFilter}` : "/api/admin/support";
+      const res = await fetch(url, { headers });
+      const data = await res.json();
+      if (data.messages) setSupportMessages(data.messages);
+      if (data.stats) setSupportStats(data.stats);
+    } catch { /* ignore */ }
+    setSupportLoading(false);
+  }, [adminCode, supportFilter]);
+
+  const loadErrors = useCallback(async () => {
+    setErrorsLoading(true);
+    try {
+      const res = await fetch(`/api/admin/errors?days=${errorsDays}&type=${errorTypeFilter}`, { headers });
+      const data = await res.json();
+      if (data.errors) setErrorLogs(data.errors);
+    } catch { /* ignore */ }
+    setErrorsLoading(false);
+  }, [adminCode, errorsDays, errorTypeFilter]);
+
   useEffect(() => {
     if (tab === "codes") loadCodes();
     else if (tab === "activity") loadActivity();
     else if (tab === "documents") loadSources();
-  }, [tab, loadCodes, loadActivity, loadSources]);
+    else if (tab === "nontarget") loadNontarget();
+    else if (tab === "messages") loadUserMessages();
+    else if (tab === "support") loadSupport();
+    else if (tab === "errors") loadErrors();
+  }, [tab, loadCodes, loadActivity, loadSources, loadNontarget, loadUserMessages, loadSupport, loadErrors]);
 
   /* ── Invite code actions ── */
 
@@ -170,6 +369,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
           organization: newOrg.trim() || null,
           chat_limit: newChatLimit ? parseInt(newChatLimit) : null,
           infographic_limit: newInfographicLimit ? parseInt(newInfographicLimit) : null,
+          device_limit: newDeviceLimit ? parseInt(newDeviceLimit) : null,
         }),
       });
       if (res.ok) {
@@ -178,6 +378,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
         setNewOrg("");
         setNewChatLimit("");
         setNewInfographicLimit("");
+        setNewDeviceLimit("2");
         loadCodes();
       } else {
         const data = await res.json();
@@ -220,6 +421,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
           organization: editOrg.trim() || null,
           chat_limit: editChatLimit ? parseInt(editChatLimit) : null,
           infographic_limit: editInfographicLimit ? parseInt(editInfographicLimit) : null,
+          device_limit: editDeviceLimit ? parseInt(editDeviceLimit) : null,
         }),
       });
       setEditingCode(null);
@@ -233,6 +435,49 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     setEditOrg(c.organization || "");
     setEditChatLimit(c.chat_limit !== null ? String(c.chat_limit) : "");
     setEditInfographicLimit(c.infographic_limit !== null ? String(c.infographic_limit) : "");
+    setEditDeviceLimit(c.device_limit !== null ? String(c.device_limit) : "");
+  };
+
+  /* ── Support actions ── */
+
+  const replySupportMessage = async (id: string) => {
+    if (!replyText.trim()) return;
+    setReplySending(true);
+    try {
+      await fetch("/api/admin/support", {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ id, reply: replyText.trim() }),
+      });
+      setReplyingTo(null);
+      setReplyText("");
+      loadSupport();
+    } catch { /* ignore */ }
+    setReplySending(false);
+  };
+
+  const deleteSupportMessage = async (id: string) => {
+    if (!confirm("Удалить это обращение?")) return;
+    try {
+      await fetch(`/api/admin/support?id=${id}`, { method: "DELETE", headers });
+      loadSupport();
+    } catch { /* ignore */ }
+  };
+
+  /* ── Error actions ── */
+
+  const deleteError = async (id: string) => {
+    try {
+      await fetch(`/api/admin/errors?id=${id}`, { method: "DELETE", headers });
+      setErrorLogs((prev) => prev.filter((e) => e.id !== id));
+    } catch { /* ignore */ }
+  };
+
+  const deleteNontargetQuery = async (id: string) => {
+    try {
+      await fetch(`/api/admin/off-topic?id=${id}`, { method: "DELETE", headers });
+      setNontargetQueries((prev) => prev.filter((q) => q.id !== id));
+    } catch { /* ignore */ }
   };
 
   const cleanupOrphanedConversations = async () => {
@@ -272,6 +517,38 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     } catch { /* ignore */ }
   };
 
+  const changeSourceCategory = async (sourceId: number, folderPath: string) => {
+    setSources((prev) => prev.map((s) => (s.id === sourceId ? { ...s, folder_path: folderPath } : s)));
+    setOpenMenuId(null);
+    try {
+      await fetch(`/api/sources?id=${sourceId}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ folder_path: folderPath }),
+      });
+    } catch { /* ignore */ }
+  };
+
+  const startRename = (doc: Source) => {
+    setRenamingId(doc.id);
+    setRenameValue(doc.filename);
+    setOpenMenuId(null);
+  };
+
+  const saveRename = async (sourceId: number) => {
+    const newName = renameValue.trim();
+    if (!newName) { setRenamingId(null); return; }
+    setSources((prev) => prev.map((s) => (s.id === sourceId ? { ...s, filename: newName } : s)));
+    setRenamingId(null);
+    try {
+      await fetch(`/api/sources?id=${sourceId}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: newName }),
+      });
+    } catch { /* ignore */ }
+  };
+
   /* ── Upload flow ── */
 
   const handleFilesSelected = async (files: FileList | null) => {
@@ -299,6 +576,8 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     }
 
     setParsedFiles(parsed);
+    // Auto-detect categories from tags
+    setParsedFileCategories(parsed.map((pf) => detectCategoryClient(pf.tags, pf.filename)));
     setUploadStage(parsed.length > 0 ? "review" : "idle");
   };
 
@@ -316,6 +595,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
       formData.append("mimeType", pf.mimeType);
       formData.append("markdown", pf.markdown);
       formData.append("tags", JSON.stringify(pf.tags));
+      formData.append("folderPath", parsedFileCategories[i] || "other");
 
       try {
         await fetch("/api/ingest", {
@@ -350,486 +630,1043 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     return true;
   });
 
+  // Filter sources by category
+  const filteredSources = docCategoryFilter === "all"
+    ? sources
+    : sources.filter((s) => (s.folder_path || "other") === docCategoryFilter);
+
+  // Count per category
+  const categoryCounts = DOC_CATEGORIES.reduce((acc, cat) => {
+    acc[cat.key] = sources.filter((s) => (s.folder_path || "other") === cat.key).length;
+    return acc;
+  }, {} as Record<string, number>);
+
+  /* ── Nav items config ── */
+  const navItems = [
+    { key: "activity" as const, label: "Активность", icon: "monitoring" },
+    { key: "codes" as const, label: "Инвайт-коды", icon: "key" },
+    { key: "documents" as const, label: "База знаний", icon: "menu_book" },
+    { key: "nontarget" as const, label: "Нецелевые запросы", icon: "block" },
+    { key: "support" as const, label: "Поддержка", icon: "headset_mic" },
+    { key: "errors" as const, label: "Ошибки", icon: "error" },
+    { key: "messages" as const, label: "Сообщения", icon: "forum" },
+  ];
+
   /* ── Render ── */
 
   return (
-    <div className="admin-container">
-      {/* Header */}
-      <header className="admin-header">
-        <div className="admin-header-left">
-          <div className="admin-title">
-            <a href="/" className="admin-logo-link">
-              <svg width="36" height="36" viewBox="0 0 512 512" fill="none">
-                <rect width="512" height="512" rx="112" fill="#F0F4FA"/>
-                <rect x="120" y="100" width="200" height="260" rx="28" fill="#0D47A1"/>
-                <rect x="160" y="140" width="200" height="260" rx="28" fill="#1976D2"/>
-                <rect x="200" y="180" width="200" height="260" rx="28" fill="#42A5F5"/>
-                <rect x="328" y="368" width="52" height="40" rx="12" fill="#fff"/>
-                <polygon points="338,408 328,424 348,408" fill="#fff"/>
-              </svg>
-              <span style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontWeight: 700, fontSize: 22, letterSpacing: '-0.02em', lineHeight: 1 }}>
-                <span style={{ color: '#FFFFFF' }}>Снаб</span><span style={{ color: '#7DD3FC' }}>Чат</span>
-              </span>
-            </a>
-            <span className="admin-title-separator">Admin Panel</span>
-          </div>
-          <p className="admin-subtitle">Управление инвайт-кодами и база знаний</p>
-        </div>
-        <div className="admin-header-right">
-          <span className="admin-user-name">{userName}</span>
-          <a href="/" className="admin-header-link">К чату</a>
-          <button onClick={onLogout} className="admin-header-link">Выйти</button>
-        </div>
-      </header>
-
-      {/* Tabs */}
-      <nav className="admin-tabs">
-        <button
-          className={`admin-tab ${tab === "codes" ? "active" : ""}`}
-          onClick={() => setTab("codes")}
-        >
-          Инвайт-коды
-        </button>
-        <button
-          className={`admin-tab ${tab === "activity" ? "active" : ""}`}
-          onClick={() => setTab("activity")}
-        >
-          Активность
-        </button>
-        <button
-          className={`admin-tab ${tab === "documents" ? "active" : ""}`}
-          onClick={() => setTab("documents")}
-        >
-          Документы
-        </button>
-      </nav>
-
-      {/* Content */}
-      <div className="admin-content">
-
-        {/* ── Tab: Invite Codes ── */}
-        {tab === "codes" && (
+    <div className="admin-layout">
+      {/* Sidebar */}
+      <aside className="admin-sidebar">
+        <a href="/" className="admin-sidebar-logo">
+          <svg width="36" height="36" viewBox="0 0 512 512" fill="none">
+            <rect width="512" height="512" rx="112" fill="#F0F4FA"/>
+            <rect x="120" y="100" width="200" height="260" rx="28" fill="#0D47A1"/>
+            <rect x="160" y="140" width="200" height="260" rx="28" fill="#1976D2"/>
+            <rect x="200" y="180" width="200" height="260" rx="28" fill="#42A5F5"/>
+            <rect x="328" y="368" width="52" height="40" rx="12" fill="#fff"/>
+            <polygon points="338,408 328,424 348,408" fill="#fff"/>
+          </svg>
           <div>
-            {/* Create form card */}
-            <div className="admin-card">
-              <h3 className="admin-card-title">Создать инвайт-код</h3>
-              <div className="admin-form-row">
-                <div className="admin-form-field">
-                  <label>Код *</label>
-                  <input
-                    placeholder="напр. ИВАНОВ-2024"
-                    value={newCode}
-                    onChange={(e) => setNewCode(e.target.value.toUpperCase())}
-                  />
+            <div className="admin-logo-title" style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontWeight: 700, fontSize: 20, letterSpacing: '-0.02em', lineHeight: 1 }}>
+              <span style={{ color: '#FFFFFF' }}>Снаб</span><span style={{ color: '#7DD3FC' }}>Чат</span>
+            </div>
+            <div className="admin-logo-subtitle">Admin Panel</div>
+          </div>
+        </a>
+        <nav className="admin-sidebar-nav">
+          {navItems.map((item) => (
+            <button
+              key={item.key}
+              className={`admin-sidebar-nav-item ${tab === item.key ? "active" : ""}`}
+              onClick={() => setTab(item.key)}
+            >
+              <span className="material-symbols-outlined">{item.icon}</span>
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="admin-sidebar-bottom">
+          <button className="admin-sidebar-nav-item">
+            <span className="material-symbols-outlined">settings</span>
+            <span>Настройки</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Main area */}
+      <div className="admin-main">
+        {/* Top bar */}
+        <header className="admin-topbar">
+          <div className="admin-topbar-spacer" />
+          <a href="/" className="admin-topbar-link">
+            <span className="material-symbols-outlined">chat</span>
+            К чату
+          </a>
+          <div className="admin-topbar-divider" />
+          <div className="admin-topbar-user">
+            <div className="admin-topbar-user-info">
+              <span className="admin-topbar-user-name">{userName}</span>
+              <span className="admin-topbar-user-role">Администратор</span>
+            </div>
+            <div className="admin-topbar-avatar">{getInitials(userName)}</div>
+          </div>
+          <div className="admin-topbar-divider" />
+          <button onClick={onLogout} className="admin-topbar-logout">
+            <span className="material-symbols-outlined">logout</span>
+            Выйти
+          </button>
+        </header>
+
+        {/* Workspace */}
+        <div className="admin-workspace">
+          <div className="admin-content">
+
+            {/* ── Tab: Invite Codes ── */}
+            {tab === "codes" && (
+              <div>
+                {/* Create form card */}
+                <div className="admin-card">
+                  <div className="admin-card-header">
+                    <div className="admin-card-header-left">
+                      <h3 className="admin-card-title">Создать инвайт-код</h3>
+                    </div>
+                  </div>
+                  <div className="admin-form-row">
+                    <div className="admin-form-field">
+                      <label>Код *</label>
+                      <input
+                        placeholder="напр. ИВАНОВ-2024"
+                        value={newCode}
+                        onChange={(e) => setNewCode(e.target.value.toUpperCase())}
+                      />
+                    </div>
+                    <div className="admin-form-field" style={{ flex: 2 }}>
+                      <label>ФИО получателя *</label>
+                      <input
+                        placeholder="Иванов Иван Иванович"
+                        value={newName}
+                        onChange={(e) => setNewName(e.target.value)}
+                      />
+                    </div>
+                    <div className="admin-form-field" style={{ flex: 1.5 }}>
+                      <label>Организация</label>
+                      <input
+                        placeholder="напр. ООО «Компания»"
+                        value={newOrg}
+                        onChange={(e) => setNewOrg(e.target.value)}
+                      />
+                    </div>
+                    <div className="admin-form-field" style={{ width: 140 }}>
+                      <label>Лимит чата</label>
+                      <input
+                        placeholder="безлимит"
+                        value={newChatLimit}
+                        onChange={(e) => setNewChatLimit(e.target.value.replace(/\D/g, ""))}
+                      />
+                    </div>
+                    <div className="admin-form-field" style={{ width: 160 }}>
+                      <label>Лимит инфографики</label>
+                      <input
+                        placeholder="безлимит"
+                        value={newInfographicLimit}
+                        onChange={(e) => setNewInfographicLimit(e.target.value.replace(/\D/g, ""))}
+                      />
+                    </div>
+                    <div className="admin-form-field" style={{ width: 140 }}>
+                      <label>Лимит устройств</label>
+                      <input
+                        placeholder="безлимит"
+                        value={newDeviceLimit}
+                        onChange={(e) => setNewDeviceLimit(e.target.value.replace(/\D/g, ""))}
+                      />
+                    </div>
+                    <div className="admin-form-field admin-form-field-btn">
+                      <button
+                        onClick={createCode}
+                        disabled={creating || !newCode.trim() || !newName.trim()}
+                        className="admin-btn-primary"
+                      >
+                        {creating ? "Создание..." : "Создать"}
+                      </button>
+                    </div>
+                  </div>
+                  <p className="admin-hint">Пусто = без лимита</p>
                 </div>
-                <div className="admin-form-field" style={{ flex: 2 }}>
-                  <label>ФИО получателя *</label>
-                  <input
-                    placeholder="Иванов Иван Иванович"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                  />
+
+                {/* Codes table */}
+                <div className="admin-card admin-card-table">
+                  <div className="admin-card-header">
+                    <div className="admin-card-header-left">
+                      <h3 className="admin-card-title">Инвайт-коды</h3>
+                      <span className="admin-card-badge">{filteredCodes.length}</span>
+                    </div>
+                    <div className="admin-card-actions">
+                      <div className="admin-form-field admin-search-field">
+                        <input
+                          placeholder="Поиск по имени или коду..."
+                          value={searchName}
+                          onChange={(e) => setSearchName(e.target.value)}
+                        />
+                      </div>
+                      <button className="admin-btn-secondary" onClick={loadCodes} disabled={codesLoading}>
+                        <span className="material-symbols-outlined">refresh</span>
+                        Обновить
+                      </button>
+                    </div>
+                  </div>
+
+                  {codesLoading ? (
+                    <div className="admin-loading-text">
+                      <div className="admin-spinner" />
+                      Загрузка...
+                    </div>
+                  ) : filteredCodes.length === 0 ? (
+                    <div className="admin-empty">
+                      {codes.length === 0 ? "Нет инвайт-кодов" : "Ничего не найдено"}
+                    </div>
+                  ) : (
+                    <div className="admin-table-wrap">
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th>Код</th>
+                            <th>Имя</th>
+                            <th>Организация</th>
+                            <th>Чат</th>
+                            <th>Инфографика</th>
+                            <th>Устройства</th>
+                            <th>Статус</th>
+                            <th>Создан</th>
+                            <th style={{ textAlign: "right" }}>Действия</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredCodes.map((c) => (
+                            <tr key={c.id} className={!c.is_active ? "admin-row-inactive" : ""}>
+                              <td>
+                                <span className="admin-code-badge">{c.code}</span>
+                              </td>
+                              <td className="admin-cell-name">{c.name}</td>
+                              <td className="admin-cell-name">
+                                {c.organization || <span className="admin-text-muted">—</span>}
+                              </td>
+                              <td>
+                                {c.chat_limit === null ? (
+                                  <span className="admin-text-muted">безлимит</span>
+                                ) : (
+                                  <span className={c.chat_limit <= 0 ? "admin-text-danger" : ""}>
+                                    {c.chat_limit}
+                                  </span>
+                                )}
+                              </td>
+                              <td>
+                                {c.infographic_limit === null ? (
+                                  <span className="admin-text-muted">безлимит</span>
+                                ) : (
+                                  <span className={c.infographic_limit <= 0 ? "admin-text-danger" : ""}>
+                                    {c.infographic_limit}
+                                  </span>
+                                )}
+                              </td>
+                              <td>
+                                {c.device_limit === null ? (
+                                  <span className="admin-text-muted">безлимит</span>
+                                ) : (
+                                  <span className={c.device_count >= c.device_limit ? "admin-text-danger" : ""}>
+                                    {c.device_count}/{c.device_limit}
+                                  </span>
+                                )}
+                              </td>
+                              <td>
+                                <span className={`admin-status ${c.is_active ? "active" : "inactive"}`}>
+                                  {c.is_active ? "Активен" : "Отключён"}
+                                </span>
+                              </td>
+                              <td className="admin-cell-date">{formatDate(c.created_at)}</td>
+                              <td style={{ textAlign: "right" }}>
+                                <div className="admin-actions">
+                                  <button className="admin-action-link" onClick={() => openEdit(c)}>
+                                    Изменить
+                                  </button>
+                                  <button
+                                    className="admin-action-link admin-action-warning"
+                                    onClick={() => toggleCodeActive(c.id, c.is_active)}
+                                  >
+                                    {c.is_active ? "Отключить" : "Включить"}
+                                  </button>
+                                  <button
+                                    className="admin-action-link admin-action-danger"
+                                    onClick={() => deleteCode(c.id)}
+                                  >
+                                    Удалить
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
-                <div className="admin-form-field" style={{ flex: 1.5 }}>
-                  <label>Организация</label>
-                  <input
-                    placeholder="напр. ООО «Компания»"
-                    value={newOrg}
-                    onChange={(e) => setNewOrg(e.target.value)}
-                  />
+              </div>
+            )}
+
+            {/* ── Tab: Activity ── */}
+            {tab === "activity" && (
+              <div>
+                <div className="admin-card admin-card-table">
+                  <div className="admin-card-header">
+                    <div className="admin-card-header-left">
+                      <h3 className="admin-card-title">Запросы пользователей</h3>
+                      <span className="admin-card-badge">{activity.length}</span>
+                    </div>
+                    <div className="admin-card-actions">
+                      <button className="admin-btn-secondary" onClick={cleanupOrphanedConversations}>
+                        <span className="material-symbols-outlined">delete_sweep</span>
+                        Очистить старые
+                      </button>
+                      <button className="admin-btn-secondary" onClick={loadActivity} disabled={activityLoading}>
+                        <span className="material-symbols-outlined">refresh</span>
+                        Обновить
+                      </button>
+                    </div>
+                  </div>
+
+                  {activityLoading ? (
+                    <div className="admin-loading-text">
+                      <div className="admin-spinner" />
+                      Загрузка...
+                    </div>
+                  ) : activity.length === 0 ? (
+                    <div className="admin-empty">Нет активности</div>
+                  ) : (
+                    <div className="admin-table-wrap">
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th>ФИО</th>
+                            <th>Организация</th>
+                            <th>Тип</th>
+                            <th>Запрос</th>
+                            <th style={{ textAlign: "right" }}>Время</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {activity.map((a) => (
+                            <tr key={a.id}>
+                              <td className="admin-cell-name">{a.user_name}</td>
+                              <td className="admin-cell-name">
+                                {a.organization || <span className="admin-text-muted">—</span>}
+                              </td>
+                              <td>
+                                <span className={`admin-status ${a.type === "chat" ? "active" : "infographic"}`}>
+                                  {a.type === "chat" ? "Чат" : "Инфографика"}
+                                </span>
+                              </td>
+                              <td className="admin-cell-title" title={a.content}>
+                                {a.content}
+                              </td>
+                              <td className="admin-cell-date" style={{ textAlign: "right" }}>{formatDateTime(a.created_at)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
-                <div className="admin-form-field" style={{ width: 140 }}>
-                  <label>Лимит чата</label>
-                  <input
-                    placeholder="безлимит"
-                    value={newChatLimit}
-                    onChange={(e) => setNewChatLimit(e.target.value.replace(/\D/g, ""))}
-                  />
+              </div>
+            )}
+
+            {/* ── Tab: Documents ── */}
+            {tab === "documents" && (
+              <div onClick={() => setOpenMenuId(null)}>
+                {/* Header */}
+                <div className="admin-docs-header">
+                  <h2 className="admin-card-title" style={{ fontSize: 24 }}>Документы</h2>
+                  <div className="admin-card-actions">
+                    <button className="admin-btn-secondary" onClick={loadSources} disabled={sourcesLoading}>
+                      <span className="material-symbols-outlined">refresh</span>
+                      Обновить
+                    </button>
+                    <button className="admin-btn-primary" onClick={() => setShowUpload(true)}>
+                      <span className="material-symbols-outlined">add</span>
+                      Загрузить документ
+                    </button>
+                  </div>
                 </div>
-                <div className="admin-form-field" style={{ width: 160 }}>
-                  <label>Лимит инфографики</label>
-                  <input
-                    placeholder="безлимит"
-                    value={newInfographicLimit}
-                    onChange={(e) => setNewInfographicLimit(e.target.value.replace(/\D/g, ""))}
-                  />
-                </div>
-                <div className="admin-form-field admin-form-field-btn">
+
+                {/* Category filter pills */}
+                <div className="admin-doc-pills">
                   <button
-                    onClick={createCode}
-                    disabled={creating || !newCode.trim() || !newName.trim()}
-                    className="admin-btn-primary"
+                    className={`admin-doc-pill ${docCategoryFilter === "all" ? "active" : ""}`}
+                    onClick={() => setDocCategoryFilter("all")}
                   >
-                    {creating ? "Создание..." : "Создать"}
+                    Все ({sources.length})
                   </button>
+                  {DOC_CATEGORIES.map((cat) => (
+                    <button
+                      key={cat.key}
+                      className={`admin-doc-pill ${docCategoryFilter === cat.key ? "active" : ""}`}
+                      onClick={() => setDocCategoryFilter(cat.key)}
+                    >
+                      {cat.label} ({categoryCounts[cat.key] || 0})
+                    </button>
+                  ))}
                 </div>
-              </div>
-              <p className="admin-hint">Пусто = без лимита</p>
-            </div>
 
-            {/* Filters */}
-            <div className="admin-card admin-filters">
-              <div className="admin-form-field">
-                <label>Поиск</label>
-                <input
-                  placeholder="Поиск по имени или коду..."
-                  value={searchName}
-                  onChange={(e) => setSearchName(e.target.value)}
-                />
-              </div>
-            </div>
-
-            {/* Codes table */}
-            <div className="admin-card admin-card-table">
-              <div className="admin-table-header">
-                <h3 className="admin-card-title">
-                  Инвайт-коды ({filteredCodes.length})
-                </h3>
-                <button className="admin-btn-secondary" onClick={loadCodes} disabled={codesLoading}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
-                  Обновить
-                </button>
-              </div>
-
-              {codesLoading ? (
-                <div className="admin-loading-text">
-                  <div className="admin-spinner" />
-                  Загрузка...
-                </div>
-              ) : filteredCodes.length === 0 ? (
-                <div className="admin-empty">
-                  {codes.length === 0 ? "Нет инвайт-кодов" : "Ничего не найдено"}
-                </div>
-              ) : (
-                <div className="admin-table-wrap">
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>Код</th>
-                        <th>Имя</th>
-                        <th>Организация</th>
-                        <th>Чат</th>
-                        <th>Инфографика</th>
-                        <th>Статус</th>
-                        <th>Создан</th>
-                        <th>Действия</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredCodes.map((c) => (
-                        <tr key={c.id} className={!c.is_active ? "admin-row-inactive" : ""}>
-                          <td>
-                            <span className="admin-code-badge">{c.code}</span>
-                          </td>
-                          <td className="admin-cell-name">{c.name}</td>
-                          <td className="admin-cell-name">
-                            {c.organization || <span className="admin-text-muted">—</span>}
-                          </td>
-                          <td>
-                            {c.chat_limit === null ? (
-                              <span className="admin-text-muted">безлимит</span>
+                {/* Card grid */}
+                {sourcesLoading ? (
+                  <div className="admin-loading-text">
+                    <div className="admin-spinner" />
+                    Загрузка...
+                  </div>
+                ) : filteredSources.length === 0 ? (
+                  <div className="admin-empty" style={{ padding: "80px 24px" }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3, marginBottom: 12 }}>description</span>
+                    <p>{sources.length === 0 ? "Нет загруженных документов" : "Нет документов в этой категории"}</p>
+                    {sources.length === 0 && (
+                      <p style={{ fontSize: 12, marginTop: 4 }}>Нажмите «Загрузить документ» чтобы добавить</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="admin-doc-list-view">
+                    {filteredSources.map((doc) => {
+                      const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : "docx";
+                      const isMenuOpen = openMenuId === doc.id;
+                      return (
+                        <div key={doc.id} className={`admin-doc-row-wrapper${expandedSourceId === doc.id ? " expanded" : ""}`}>
+                        <div className="admin-doc-row" onClick={() => setExpandedSourceId(expandedSourceId === doc.id ? null : doc.id)} style={{ cursor: "pointer" }}>
+                          <div className={`doc-icon-lg ${ext}`}>
+                            {ext === "pdf" ? (
+                              <span className="material-symbols-outlined">picture_as_pdf</span>
+                            ) : ext === "xlsx" ? (
+                              <span className="material-symbols-outlined">table_chart</span>
                             ) : (
-                              <span className={c.chat_limit <= 0 ? "admin-text-danger" : ""}>
-                                {c.chat_limit}
-                              </span>
+                              <span className="material-symbols-outlined">description</span>
                             )}
-                          </td>
-                          <td>
-                            {c.infographic_limit === null ? (
-                              <span className="admin-text-muted">безлимит</span>
-                            ) : (
-                              <span className={c.infographic_limit <= 0 ? "admin-text-danger" : ""}>
-                                {c.infographic_limit}
-                              </span>
-                            )}
-                          </td>
-                          <td>
-                            <span className={`admin-status ${c.is_active ? "active" : "inactive"}`}>
-                              {c.is_active ? "Активен" : "Отключён"}
-                            </span>
-                          </td>
-                          <td className="admin-cell-date">{formatDate(c.created_at)}</td>
-                          <td>
-                            <div className="admin-actions">
-                              <button className="admin-action-link" onClick={() => openEdit(c)}>
-                                Изменить
-                              </button>
-                              <button
-                                className="admin-action-link admin-action-warning"
-                                onClick={() => toggleCodeActive(c.id, c.is_active)}
-                              >
-                                {c.is_active ? "Отключить" : "Включить"}
-                              </button>
-                              <button
-                                className="admin-action-link admin-action-danger"
-                                onClick={() => deleteCode(c.id)}
-                              >
-                                Удалить
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ── Tab: Activity ── */}
-        {tab === "activity" && (
-          <div>
-            <div className="admin-card admin-card-table">
-              <div className="admin-table-header">
-                <h3 className="admin-card-title">
-                  Запросы пользователей ({activity.length})
-                </h3>
-                <div className="admin-table-header-actions">
-                  <button className="admin-btn-secondary" onClick={cleanupOrphanedConversations}>
-                    Очистить старые диалоги
-                  </button>
-                  <button className="admin-btn-secondary" onClick={loadActivity} disabled={activityLoading}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
-                    Обновить
-                  </button>
-                </div>
-              </div>
-
-              {activityLoading ? (
-                <div className="admin-loading-text">
-                  <div className="admin-spinner" />
-                  Загрузка...
-                </div>
-              ) : activity.length === 0 ? (
-                <div className="admin-empty">Нет активности</div>
-              ) : (
-                <div className="admin-table-wrap">
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>ФИО</th>
-                        <th>Организация</th>
-                        <th>Тип</th>
-                        <th>Запрос</th>
-                        <th>Время</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {activity.map((a) => (
-                        <tr key={a.id}>
-                          <td className="admin-cell-name">{a.user_name}</td>
-                          <td className="admin-cell-name">
-                            {a.organization || <span className="admin-text-muted">—</span>}
-                          </td>
-                          <td>
-                            <span className={`admin-status ${a.type === "chat" ? "active" : "infographic"}`}>
-                              {a.type === "chat" ? "Чат" : "Инфографика"}
-                            </span>
-                          </td>
-                          <td className="admin-cell-title" title={a.content}>
-                            {a.content}
-                          </td>
-                          <td className="admin-cell-date">{formatDateTime(a.created_at)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ── Tab: Documents ── */}
-        {tab === "documents" && (
-          <div>
-            <div className="admin-card admin-card-table">
-              <div className="admin-table-header">
-                <h3 className="admin-card-title">
-                  База знаний ({sources.length} документов)
-                </h3>
-                <div className="admin-table-header-actions">
-                  <button className="admin-btn-primary" onClick={() => setShowUpload(true)}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    Загрузить
-                  </button>
-                  <button className="admin-btn-secondary" onClick={loadSources} disabled={sourcesLoading}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
-                    Обновить
-                  </button>
-                </div>
-              </div>
-
-              {sourcesLoading ? (
-                <div className="admin-loading-text">
-                  <div className="admin-spinner" />
-                  Загрузка...
-                </div>
-              ) : sources.length === 0 ? (
-                <div className="admin-empty">
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.3, marginBottom: 12 }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  <p>Нет загруженных документов</p>
-                  <p style={{ fontSize: 12, marginTop: 4 }}>Нажмите «Загрузить» чтобы добавить документы в базу знаний</p>
-                </div>
-              ) : (
-                <div className="admin-docs-list">
-                  {sources.map((doc) => {
-                    const isExpanded = expandedSourceId === doc.id;
-                    const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : "docx";
-                    return (
-                      <div key={doc.id} className={`admin-doc-item ${isExpanded ? "expanded" : ""}`}>
-                        <div
-                          className="admin-doc-header"
-                          onClick={() => {
-                            setExpandedSourceId(isExpanded ? null : doc.id);
-                            setSourceTagInput("");
-                          }}
-                        >
-                          <div className={`doc-icon ${ext}`}>
-                            {ext === "pdf" ? "PDF" : ext === "xlsx" ? "XLS" : "DOC"}
                           </div>
-                          <div className="admin-doc-info">
-                            <div className="admin-doc-name">{doc.filename}</div>
-                            <div className="admin-doc-meta">
-                              {doc.tags?.length || 0} тегов &middot; {formatDate(doc.created_at)}
+                          <div className="admin-doc-row-info">
+                            {renamingId === doc.id ? (
+                              <form
+                                className="admin-doc-rename-form"
+                                onSubmit={(e) => { e.preventDefault(); saveRename(doc.id); }}
+                              >
+                                <input
+                                  className="admin-doc-rename-input"
+                                  value={renameValue}
+                                  onChange={(e) => setRenameValue(e.target.value)}
+                                  onBlur={() => saveRename(doc.id)}
+                                  onKeyDown={(e) => { if (e.key === "Escape") setRenamingId(null); }}
+                                  autoFocus
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </form>
+                            ) : (
+                              <div className="admin-doc-row-name">{doc.filename}</div>
+                            )}
+                            <div className="admin-doc-row-meta">
+                              <span className="admin-doc-row-cat">{getCategoryLabel(doc.folder_path)}</span>
+                              <span>&middot;</span>
+                              <span>{formatDate(doc.created_at)}</span>
+                              <span>&middot;</span>
+                              <span className="admin-doc-row-tags-count">
+                                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>label</span>
+                                {doc.tags?.length || 0} тегов
+                              </span>
                             </div>
                           </div>
-                          <button
-                            className="admin-action-link admin-action-danger"
-                            onClick={(e) => { e.stopPropagation(); deleteSource(doc.id); }}
-                          >
-                            Удалить
-                          </button>
+                          <div className="admin-doc-row-actions">
+                            <a
+                              href={`/api/sources/download?id=${doc.id}&action=view`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="admin-doc-action-btn"
+                              title="Просмотр"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <span className="material-symbols-outlined">visibility</span>
+                            </a>
+                            <a
+                              href={`/api/sources/download?id=${doc.id}&action=download`}
+                              className="admin-doc-action-btn"
+                              title="Скачать"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <span className="material-symbols-outlined">download</span>
+                            </a>
+                            <div style={{ position: "relative" }}>
+                              <button
+                                className="admin-doc-action-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuId(isMenuOpen ? null : doc.id);
+                                }}
+                                title="Действия"
+                              >
+                                <span className="material-symbols-outlined">more_vert</span>
+                              </button>
+                              {isMenuOpen && (
+                                <div
+                                  className="admin-doc-card-dropdown"
+                                  ref={(el) => {
+                                    if (el) {
+                                      const rect = el.getBoundingClientRect();
+                                      if (rect.bottom > window.innerHeight) {
+                                        el.classList.add("flip-up");
+                                      }
+                                    }
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <div className="admin-doc-dropdown-label">Переместить в:</div>
+                                  {DOC_CATEGORIES.map((cat) => (
+                                    <button
+                                      key={cat.key}
+                                      className={`admin-doc-dropdown-item ${(doc.folder_path || "other") === cat.key ? "active" : ""}`}
+                                      onClick={() => changeSourceCategory(doc.id, cat.key)}
+                                    >
+                                      <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{cat.icon}</span>
+                                      {cat.label}
+                                    </button>
+                                  ))}
+                                  <div className="admin-doc-dropdown-divider" />
+                                  <button
+                                    className="admin-doc-dropdown-item"
+                                    onClick={() => startRename(doc)}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span>
+                                    Переименовать
+                                  </button>
+                                  <button
+                                    className="admin-doc-dropdown-item danger"
+                                    onClick={() => { setOpenMenuId(null); deleteSource(doc.id); }}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
+                                    Удалить
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        {isExpanded && (
-                          <div className="admin-doc-details">
-                            <div className="admin-doc-tags-label">Теги:</div>
-                            <div className="admin-doc-tags">
+                        {expandedSourceId === doc.id && (
+                          <div className="admin-doc-tags-panel" onClick={(e) => e.stopPropagation()}>
+                            <div className="admin-doc-tags-list">
+                              {(doc.tags || []).length === 0 && (
+                                <span className="admin-doc-tags-empty">Нет тегов</span>
+                              )}
                               {(doc.tags || []).map((tag) => (
                                 <span key={tag} className="admin-tag">
                                   {tag}
                                   <button
                                     onClick={() => updateSourceTags(doc.id, doc.tags.filter((t) => t !== tag))}
                                     className="admin-tag-remove"
-                                  >
-                                    &times;
-                                  </button>
+                                  >&times;</button>
                                 </span>
                               ))}
-                              <form
-                                className="admin-tag-form"
-                                onSubmit={(e) => {
-                                  e.preventDefault();
-                                  const t = sourceTagInput.trim();
-                                  if (t && !(doc.tags || []).includes(t)) {
-                                    updateSourceTags(doc.id, [...(doc.tags || []), t]);
-                                    setSourceTagInput("");
-                                  }
-                                }}
-                              >
-                                <input
-                                  value={sourceTagInput}
-                                  onChange={(e) => setSourceTagInput(e.target.value)}
-                                  placeholder="+ добавить тег"
-                                  className="admin-tag-input"
-                                />
-                              </form>
+                            </div>
+                            <form
+                              className="admin-doc-tag-add-form"
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                const val = sourceTagInput.trim();
+                                if (val && !(doc.tags || []).includes(val)) {
+                                  updateSourceTags(doc.id, [...(doc.tags || []), val]);
+                                }
+                                setSourceTagInput("");
+                              }}
+                            >
+                              <input
+                                className="admin-doc-tag-input"
+                                placeholder="Добавить тег..."
+                                value={expandedSourceId === doc.id ? sourceTagInput : ""}
+                                onChange={(e) => setSourceTagInput(e.target.value)}
+                                autoFocus
+                              />
+                              <button type="submit" className="admin-doc-tag-add-btn">
+                                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
+                              </button>
+                            </form>
+                          </div>
+                        )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Upload Modal */}
+                {showUpload && (
+                  <div className="admin-modal-overlay" onClick={() => { if (uploadStage === "idle" || uploadStage === "done") { setShowUpload(false); setUploadStage("idle"); } }}>
+                    <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+                      <div className="admin-modal-header">
+                        <h3>Загрузка документов</h3>
+                        <button onClick={() => { setShowUpload(false); setUploadStage("idle"); setParsedFiles([]); setUploadFiles([]); }} className="admin-modal-close">&times;</button>
+                      </div>
+                      <div className="admin-modal-body">
+                        {uploadStage === "idle" && (
+                          <div>
+                            <input
+                              ref={fileInputRef}
+                              type="file"
+                              multiple
+                              accept=".docx,.pdf,.xlsx,.xls"
+                              style={{ display: "none" }}
+                              onChange={(e) => handleFilesSelected(e.target.files)}
+                            />
+                            <div className="admin-upload-area" onClick={() => fileInputRef.current?.click()}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 40, opacity: 0.4, marginBottom: 8 }}>upload_file</span>
+                              <p>Нажмите для выбора файлов</p>
+                              <p className="hint">DOCX, PDF, Excel</p>
                             </div>
                           </div>
                         )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Upload Modal */}
-            {showUpload && (
-              <div className="admin-modal-overlay" onClick={() => { if (uploadStage === "idle" || uploadStage === "done") { setShowUpload(false); setUploadStage("idle"); } }}>
-                <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
-                  <div className="admin-modal-header">
-                    <h3>Загрузка документов</h3>
-                    <button onClick={() => { setShowUpload(false); setUploadStage("idle"); setParsedFiles([]); setUploadFiles([]); }} className="admin-modal-close">&times;</button>
-                  </div>
-                  <div className="admin-modal-body">
-                    {uploadStage === "idle" && (
-                      <div>
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          multiple
-                          accept=".docx,.pdf,.xlsx,.xls"
-                          style={{ display: "none" }}
-                          onChange={(e) => handleFilesSelected(e.target.files)}
-                        />
-                        <div className="admin-upload-area" onClick={() => fileInputRef.current?.click()}>
-                          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4, marginBottom: 8 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                          <p>Нажмите для выбора файлов</p>
-                          <p className="hint">DOCX, PDF, Excel</p>
-                        </div>
-                      </div>
-                    )}
-                    {uploadStage === "parsing" && (
-                      <div className="admin-loading-text">
-                        <div className="admin-spinner" />
-                        Парсинг файлов...
-                      </div>
-                    )}
-                    {uploadStage === "review" && (
-                      <div>
-                        <p style={{ marginBottom: 16, fontWeight: 500 }}>Готово к загрузке: {parsedFiles.length} файлов</p>
-                        {parsedFiles.map((pf, i) => (
-                          <div key={i} className="admin-card" style={{ marginBottom: 8 }}>
-                            <div style={{ fontWeight: 500, marginBottom: 4 }}>{pf.filename}</div>
-                            <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>
-                              {pf.totalChunks} чанков
-                            </div>
-                            <div className="admin-doc-tags">
-                              {pf.tags.map((tag) => (
-                                <span key={tag} className="admin-tag">
-                                  {tag}
-                                  <button
-                                    onClick={() => updateParsedFileTags(i, pf.tags.filter((t) => t !== tag))}
-                                    className="admin-tag-remove"
+                        {uploadStage === "parsing" && (
+                          <div className="admin-loading-text">
+                            <div className="admin-spinner" />
+                            Парсинг файлов...
+                          </div>
+                        )}
+                        {uploadStage === "review" && (
+                          <div>
+                            <p style={{ marginBottom: 16, fontWeight: 500 }}>Готово к загрузке: {parsedFiles.length} файлов</p>
+                            {parsedFiles.map((pf, i) => (
+                              <div key={i} className="admin-card" style={{ marginBottom: 12 }}>
+                                <div style={{ fontWeight: 500, marginBottom: 4 }}>{pf.filename}</div>
+                                <div style={{ fontSize: 12, color: "#64748B", marginBottom: 8 }}>
+                                  {pf.totalChunks} чанков
+                                </div>
+                                <div style={{ marginBottom: 8 }}>
+                                  <label style={{ fontSize: 12, fontWeight: 500, color: "#64748B", display: "block", marginBottom: 4 }}>
+                                    Категория
+                                  </label>
+                                  <select
+                                    className="admin-category-select"
+                                    value={parsedFileCategories[i] || "other"}
+                                    onChange={(e) => {
+                                      setParsedFileCategories((prev) => {
+                                        const next = [...prev];
+                                        next[i] = e.target.value;
+                                        return next;
+                                      });
+                                    }}
                                   >
-                                    &times;
-                                  </button>
-                                </span>
-                              ))}
+                                    {DOC_CATEGORIES.map((cat) => (
+                                      <option key={cat.key} value={cat.key}>{cat.label}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div className="admin-doc-tags">
+                                  {pf.tags.map((tag) => (
+                                    <span key={tag} className="admin-tag">
+                                      {tag}
+                                      <button
+                                        onClick={() => updateParsedFileTags(i, pf.tags.filter((t) => t !== tag))}
+                                        className="admin-tag-remove"
+                                      >
+                                        &times;
+                                      </button>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                            <button className="admin-btn-primary" onClick={ingestFiles} style={{ marginTop: 16, width: "100%" }}>
+                              Загрузить в базу знаний
+                            </button>
+                          </div>
+                        )}
+                        {uploadStage === "ingesting" && (
+                          <div>
+                            <div className="admin-loading-text">
+                              <div className="admin-spinner" />
+                              Индексация...
+                            </div>
+                            <div className="admin-progress-bar">
+                              <div className="admin-progress-fill" style={{ width: `${uploadProgress}%` }} />
                             </div>
                           </div>
-                        ))}
-                        <button className="admin-btn-primary" onClick={ingestFiles} style={{ marginTop: 16, width: "100%" }}>
-                          Загрузить в базу знаний
-                        </button>
+                        )}
+                        {uploadStage === "done" && (
+                          <div className="admin-loading-text admin-success-text">
+                            <span className="material-symbols-outlined">check_circle</span>
+                            Готово!
+                          </div>
+                        )}
                       </div>
-                    )}
-                    {uploadStage === "ingesting" && (
-                      <div>
-                        <div className="admin-loading-text">
-                          <div className="admin-spinner" />
-                          Индексация...
-                        </div>
-                        <div className="admin-progress-bar">
-                          <div className="admin-progress-fill" style={{ width: `${uploadProgress}%` }} />
-                        </div>
-                      </div>
-                    )}
-                    {uploadStage === "done" && (
-                      <div className="admin-loading-text admin-success-text">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                        Готово!
-                      </div>
-                    )}
+                    </div>
                   </div>
+                )}
+              </div>
+            )}
+            {/* ── Tab: Nontarget Queries (LLM-classified) ── */}
+            {tab === "nontarget" && (
+              <div>
+                {/* Period selector + stats */}
+                <div className="admin-card">
+                  <div className="admin-card-header">
+                    <div className="admin-card-header-left">
+                      <h3 className="admin-card-title">Нецелевые запросы</h3>
+                      <span className="admin-card-badge">{nontargetStats.total}</span>
+                    </div>
+                    <div className="admin-card-actions">
+                      {[1, 7, 30, 90].map((d) => (
+                        <button
+                          key={d}
+                          className={`admin-btn-secondary ${nontargetDays === d ? "admin-btn-active" : ""}`}
+                          onClick={() => setNontargetDays(d)}
+                        >
+                          {d === 1 ? "Сегодня" : `${d} дн`}
+                        </button>
+                      ))}
+                      <button className="admin-btn-secondary" onClick={loadNontarget} disabled={nontargetLoading}>
+                        <span className="material-symbols-outlined">refresh</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Category breakdown */}
+                  {Object.keys(nontargetStats.by_category).length > 0 && (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "0 16px 16px" }}>
+                      {Object.entries(nontargetStats.by_category)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([cat, count]) => (
+                          <span key={cat} className="admin-code-badge" style={{ fontSize: 12 }}>
+                            {CATEGORY_LABELS[cat] ?? cat}: {count}
+                          </span>
+                        ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Queries list */}
+                <div className="admin-card admin-card-table">
+                  {nontargetLoading ? (
+                    <div className="admin-loading-text">
+                      <div className="admin-spinner" />
+                      Загрузка...
+                    </div>
+                  ) : nontargetQueries.length === 0 ? (
+                    <div className="admin-empty">
+                      <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3, marginBottom: 12 }}>block</span>
+                      <p>Нет нецелевых запросов за этот период</p>
+                    </div>
+                  ) : (
+                    <div className="admin-table-wrap">
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: "13%" }}>ФИО</th>
+                            <th style={{ width: "12%" }}>Организация</th>
+                            <th style={{ width: "15%" }}>Категория</th>
+                            <th style={{ width: "45%" }}>Запрос</th>
+                            <th style={{ width: "10%" }}>Время</th>
+                            <th style={{ width: "5%", textAlign: "right" }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {nontargetQueries.map((q) => (
+                            <tr key={q.id}>
+                              <td className="admin-cell-name">{q.user_name}</td>
+                              <td>{q.organization || <span className="admin-text-muted">—</span>}</td>
+                              <td>
+                                <span className="admin-code-badge" style={{ fontSize: 11 }}>
+                                  {CATEGORY_LABELS[q.category] ?? q.category}
+                                </span>
+                              </td>
+                              <td className="admin-cell-message">{q.query_text}</td>
+                              <td className="admin-cell-date">{formatDateTime(q.created_at)}</td>
+                              <td style={{ textAlign: "right" }}>
+                                <button
+                                  className="admin-action-link admin-action-danger"
+                                  onClick={() => deleteNontargetQuery(q.id)}
+                                  title="Удалить"
+                                >
+                                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
+
+            {/* ── Tab: Support ── */}
+            {tab === "support" && (
+              <div>
+                {/* Stats cards */}
+                <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+                  {[
+                    { label: "Открытые", value: supportStats.open, color: "#e67700" },
+                    { label: "Отвечено", value: supportStats.answered, color: "#2f9e44" },
+                    { label: "Закрытые", value: supportStats.closed, color: "#868e96" },
+                  ].map((s) => (
+                    <div key={s.label} className="admin-card" style={{ flex: 1, textAlign: "center", padding: 16 }}>
+                      <div style={{ fontSize: 28, fontWeight: 700, color: s.color }}>{s.value}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="admin-card admin-card-table">
+                  <div className="admin-card-header">
+                    <div className="admin-card-header-left">
+                      <h3 className="admin-card-title">Обращения</h3>
+                    </div>
+                    <div className="admin-card-actions">
+                      {["", "open", "answered", "closed"].map((f) => (
+                        <button
+                          key={f}
+                          className={`admin-btn-secondary ${supportFilter === f ? "admin-btn-active" : ""}`}
+                          onClick={() => setSupportFilter(f)}
+                        >
+                          {f === "" ? "Все" : f === "open" ? "Открытые" : f === "answered" ? "Отвечено" : "Закрытые"}
+                        </button>
+                      ))}
+                      <button className="admin-btn-secondary" onClick={loadSupport} disabled={supportLoading}>
+                        <span className="material-symbols-outlined">refresh</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {supportLoading ? (
+                    <div className="admin-loading-text">
+                      <div className="admin-spinner" />
+                      Загрузка...
+                    </div>
+                  ) : supportMessages.length === 0 ? (
+                    <div className="admin-empty">
+                      <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3, marginBottom: 12 }}>headset_mic</span>
+                      <p>Нет обращений</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 16 }}>
+                      {supportMessages.map((m) => (
+                        <div key={m.id} className="admin-card" style={{ padding: 16 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                            <div>
+                              <strong>{m.user_name}</strong>
+                              {m.organization && <span className="admin-text-muted"> · {m.organization}</span>}
+                            </div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                              <span className={`admin-status ${m.status === "open" ? "active" : m.status === "answered" ? "" : "inactive"}`}>
+                                {m.status === "open" ? "Открыто" : m.status === "answered" ? "Отвечено" : "Закрыто"}
+                              </span>
+                              <span className="admin-cell-date">{formatDateTime(m.created_at)}</span>
+                            </div>
+                          </div>
+                          <div style={{ background: "var(--bg-secondary, #f5f5f5)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
+                            {m.message}
+                          </div>
+                          {m.admin_reply && (
+                            <div style={{ background: "#e8f4fd", borderRadius: 8, padding: 12, marginBottom: 8, borderLeft: "3px solid #1976d2" }}>
+                              <div style={{ fontSize: 12, color: "#1976d2", marginBottom: 4 }}>
+                                Ответ администратора {m.admin_number ?? ""} · {m.replied_at ? formatDateTime(m.replied_at) : ""}
+                              </div>
+                              {m.admin_reply}
+                            </div>
+                          )}
+                          <div style={{ display: "flex", gap: 8 }}>
+                            {!m.admin_reply && replyingTo !== m.id && (
+                              <button className="admin-btn-primary" onClick={() => { setReplyingTo(m.id); setReplyText(""); }}>
+                                Ответить
+                              </button>
+                            )}
+                            {replyingTo === m.id && (
+                              <div style={{ flex: 1 }}>
+                                <textarea
+                                  className="admin-textarea"
+                                  value={replyText}
+                                  onChange={(e) => setReplyText(e.target.value)}
+                                  placeholder="Введите ответ..."
+                                  rows={3}
+                                  style={{ width: "100%", marginBottom: 8 }}
+                                />
+                                <div style={{ display: "flex", gap: 8 }}>
+                                  <button className="admin-btn-primary" onClick={() => replySupportMessage(m.id)} disabled={replySending || !replyText.trim()}>
+                                    {replySending ? "Отправка..." : "Отправить"}
+                                  </button>
+                                  <button className="admin-btn-secondary" onClick={() => setReplyingTo(null)}>Отмена</button>
+                                </div>
+                              </div>
+                            )}
+                            <button
+                              className="admin-action-link admin-action-danger"
+                              onClick={() => deleteSupportMessage(m.id)}
+                              title="Удалить"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Tab: Errors ── */}
+            {tab === "errors" && (
+              <div>
+                <div className="admin-card admin-card-table">
+                  <div className="admin-card-header">
+                    <div className="admin-card-header-left">
+                      <h3 className="admin-card-title">Ошибки</h3>
+                      <span className="admin-card-badge">{errorLogs.length}</span>
+                    </div>
+                    <div className="admin-card-actions">
+                      {[1, 7, 30, 90].map((d) => (
+                        <button
+                          key={d}
+                          className={`admin-btn-secondary ${errorsDays === d ? "admin-btn-active" : ""}`}
+                          onClick={() => setErrorsDays(d)}
+                        >
+                          {d === 1 ? "Сегодня" : `${d} дн`}
+                        </button>
+                      ))}
+                      <span style={{ width: 1, background: "var(--border-color, #e0e0e0)", alignSelf: "stretch" }} />
+                      {["all", "chat", "parse", "ingest", "client"].map((t) => (
+                        <button
+                          key={t}
+                          className={`admin-btn-secondary ${errorTypeFilter === t ? "admin-btn-active" : ""}`}
+                          onClick={() => setErrorTypeFilter(t)}
+                        >
+                          {t === "all" ? "Все" : ERROR_TYPE_LABELS[t] ?? t}
+                        </button>
+                      ))}
+                      <button className="admin-btn-secondary" onClick={loadErrors} disabled={errorsLoading}>
+                        <span className="material-symbols-outlined">refresh</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {errorsLoading ? (
+                    <div className="admin-loading-text">
+                      <div className="admin-spinner" />
+                      Загрузка...
+                    </div>
+                  ) : errorLogs.length === 0 ? (
+                    <div className="admin-empty">
+                      <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3, marginBottom: 12 }}>check_circle</span>
+                      <p>Нет ошибок за этот период</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 16 }}>
+                      {errorLogs.map((e) => (
+                        <div key={e.id} className="admin-card" style={{ padding: 12 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                              <span className="admin-code-badge" style={{
+                                fontSize: 11,
+                                background: e.error_type === "chat" ? "#fff3bf" : e.error_type === "client" ? "#ffe8cc" : e.error_type === "parse" ? "#d3f9d8" : "#e7f5ff",
+                              }}>
+                                {ERROR_TYPE_LABELS[e.error_type] ?? e.error_type}
+                              </span>
+                              {e.user_name && <span style={{ fontSize: 13 }}>{e.user_name}</span>}
+                              {e.endpoint && <span className="admin-text-muted" style={{ fontSize: 12 }}>{e.endpoint}</span>}
+                            </div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                              <span className="admin-cell-date">{formatDateTime(e.created_at)}</span>
+                              <button
+                                className="admin-action-link admin-action-danger"
+                                onClick={() => deleteError(e.id)}
+                                title="Удалить"
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                              </button>
+                            </div>
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 13,
+                              color: "var(--text-secondary)",
+                              cursor: "pointer",
+                              whiteSpace: expandedErrors.has(e.id) ? "pre-wrap" : "nowrap",
+                              overflow: expandedErrors.has(e.id) ? "visible" : "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                            onClick={() => setExpandedErrors((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(e.id)) next.delete(e.id); else next.add(e.id);
+                              return next;
+                            })}
+                          >
+                            {e.error_message}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Tab: User Messages ── */}
+            {tab === "messages" && (
+              <div>
+                <div className="admin-card admin-card-table">
+                  <div className="admin-card-header">
+                    <div className="admin-card-header-left">
+                      <h3 className="admin-card-title">Сообщения пользователей</h3>
+                      <span className="admin-card-badge">{userMessages.length}</span>
+                    </div>
+                    <div className="admin-card-actions">
+                      <button className="admin-btn-secondary" onClick={loadUserMessages} disabled={messagesLoading}>
+                        <span className="material-symbols-outlined">refresh</span>
+                        Обновить
+                      </button>
+                    </div>
+                  </div>
+
+                  {messagesLoading ? (
+                    <div className="admin-loading-text">
+                      <div className="admin-spinner" />
+                      Загрузка...
+                    </div>
+                  ) : userMessages.length === 0 ? (
+                    <div className="admin-empty">
+                      <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3, marginBottom: 12 }}>forum</span>
+                      <p>Нет сообщений</p>
+                    </div>
+                  ) : (
+                    <div className="admin-table-wrap">
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: "15%" }}>ФИО</th>
+                            <th style={{ width: "15%" }}>Организация</th>
+                            <th style={{ width: "55%" }}>Сообщение</th>
+                            <th style={{ width: "15%", textAlign: "right" }}>Время</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {userMessages.map((m) => (
+                            <tr key={m.id}>
+                              <td className="admin-cell-name">{m.user_name}</td>
+                              <td>
+                                {m.organization || <span className="admin-text-muted">—</span>}
+                              </td>
+                              <td className="admin-cell-message">{m.content}</td>
+                              <td className="admin-cell-date" style={{ textAlign: "right" }}>{formatDateTime(m.created_at)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
           </div>
-        )}
+        </div>
       </div>
 
       {/* Edit Modal */}
@@ -869,6 +1706,14 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                 <input
                   value={editInfographicLimit}
                   onChange={(e) => setEditInfographicLimit(e.target.value.replace(/\D/g, ""))}
+                  placeholder="Пусто = безлимит"
+                />
+              </div>
+              <div className="admin-form-group">
+                <label>Лимит устройств</label>
+                <input
+                  value={editDeviceLimit}
+                  onChange={(e) => setEditDeviceLimit(e.target.value.replace(/\D/g, ""))}
                   placeholder="Пусто = безлимит"
                 />
               </div>

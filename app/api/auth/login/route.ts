@@ -4,11 +4,12 @@ import {
   getAdminName,
   validateInviteCode,
   consumeInviteCodeFallback,
+  checkAndRegisterDevice,
 } from "@/app/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const { code } = await req.json();
+    const { code, device_id } = await req.json();
 
     if (!code || typeof code !== "string") {
       return NextResponse.json(
@@ -38,7 +39,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Уменьшаем счётчик использований
+    // 3. Проверка лимита устройств
+    if (device_id) {
+      const userAgent = req.headers.get("user-agent") || "";
+      const deviceError = await checkAndRegisterDevice(
+        invite.id,
+        device_id,
+        invite.device_limit ?? null,
+        userAgent
+      );
+      if (deviceError) {
+        return NextResponse.json(
+          { error: deviceError },
+          { status: 403 }
+        );
+      }
+    }
+
+    // 4. Уменьшаем счётчик использований
     await consumeInviteCodeFallback(invite.id);
 
     return NextResponse.json({

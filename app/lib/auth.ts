@@ -11,12 +11,23 @@ const ADMIN_CODES: Record<string, string> = {
   "КИРИЛЛ-АДМИН": "Трубицын Кирилл Андреевич",
 };
 
+// Порядковый номер админа (для отображения пользователю без ФИО)
+const ADMIN_NUMBERS: Record<string, number> = {
+  "ИВАН-АДМИН": 1,
+  "АНДРЕЙ-АДМИН": 2,
+  "КИРИЛЛ-АДМИН": 3,
+};
+
 export function isAdminCode(code: string): boolean {
   return code.toUpperCase() in ADMIN_CODES;
 }
 
 export function getAdminName(code: string): string | null {
   return ADMIN_CODES[code.toUpperCase()] ?? null;
+}
+
+export function getAdminNumber(code: string): number | null {
+  return ADMIN_NUMBERS[code.toUpperCase()] ?? null;
 }
 
 // ============================================================
@@ -27,7 +38,9 @@ export interface InviteCode {
   id: string;
   code: string;
   name: string;
+  organization: string | null;
   uses_remaining: number | null;
+  device_limit: number | null;
   is_active: boolean;
   created_at: string;
 }
@@ -77,6 +90,88 @@ export async function consumeInviteCodeFallback(
 }
 
 // ============================================================
+// Управление устройствами
+// ============================================================
+
+/**
+ * Проверяет лимит устройств и регистрирует устройство.
+ * Возвращает null если всё ок, или строку с ошибкой.
+ */
+export async function checkAndRegisterDevice(
+  inviteCodeId: string,
+  deviceId: string,
+  deviceLimit: number | null,
+  userAgent: string = ""
+): Promise<string | null> {
+  const supabase = createServiceClient();
+
+  // null = безлимит
+  if (deviceLimit === null) {
+    // Просто регистрируем/обновляем устройство без проверки лимита
+    await supabase
+      .from("devices")
+      .upsert(
+        {
+          invite_code_id: inviteCodeId,
+          device_id: deviceId,
+          user_agent: userAgent,
+          last_seen_at: new Date().toISOString(),
+        },
+        { onConflict: "invite_code_id,device_id" }
+      );
+    return null;
+  }
+
+  // Проверяем, есть ли уже это устройство
+  const { data: existing } = await supabase
+    .from("devices")
+    .select("id")
+    .eq("invite_code_id", inviteCodeId)
+    .eq("device_id", deviceId)
+    .single();
+
+  if (existing) {
+    // Устройство уже зарегистрировано — обновляем last_seen
+    await supabase
+      .from("devices")
+      .update({ last_seen_at: new Date().toISOString(), user_agent: userAgent })
+      .eq("id", existing.id);
+    return null;
+  }
+
+  // Новое устройство — проверяем лимит
+  const { count } = await supabase
+    .from("devices")
+    .select("id", { count: "exact", head: true })
+    .eq("invite_code_id", inviteCodeId);
+
+  if (count !== null && count >= deviceLimit) {
+    return `Превышен лимит устройств (${deviceLimit}). Обратитесь к администратору.`;
+  }
+
+  // Регистрируем новое устройство
+  await supabase.from("devices").insert({
+    invite_code_id: inviteCodeId,
+    device_id: deviceId,
+    user_agent: userAgent,
+  });
+
+  return null;
+}
+
+/**
+ * Получает количество устройств для инвайт-кода.
+ */
+export async function getDeviceCount(inviteCodeId: string): Promise<number> {
+  const supabase = createServiceClient();
+  const { count } = await supabase
+    .from("devices")
+    .select("id", { count: "exact", head: true })
+    .eq("invite_code_id", inviteCodeId);
+  return count ?? 0;
+}
+
+// ============================================================
 // Helpers для защиты API-роутов
 // ============================================================
 
@@ -117,7 +212,9 @@ export async function getInviteCodeFromHeader(
       id: `admin-${code.toUpperCase()}`,
       code: code.toUpperCase(),
       name: getAdminName(code) ?? "Админ",
+      organization: "Админ",
       uses_remaining: null,
+      device_limit: null,
       is_active: true,
       created_at: new Date().toISOString(),
     };
