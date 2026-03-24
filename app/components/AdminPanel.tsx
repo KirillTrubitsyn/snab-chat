@@ -357,9 +357,22 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
       {/* Header */}
       <header className="admin-header">
         <div className="admin-header-left">
-          <h1 className="admin-title">
-            <span className="admin-title-accent">СнабЧат</span> Admin Panel
-          </h1>
+          <div className="admin-title">
+            <a href="/" className="admin-logo-link">
+              <svg width="36" height="36" viewBox="0 0 512 512" fill="none">
+                <rect width="512" height="512" rx="112" fill="#F0F4FA"/>
+                <rect x="120" y="100" width="200" height="260" rx="28" fill="#0D47A1"/>
+                <rect x="160" y="140" width="200" height="260" rx="28" fill="#1976D2"/>
+                <rect x="200" y="180" width="200" height="260" rx="28" fill="#42A5F5"/>
+                <rect x="328" y="368" width="52" height="40" rx="12" fill="#fff"/>
+                <polygon points="338,408 328,424 348,408" fill="#fff"/>
+              </svg>
+              <span style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontWeight: 700, fontSize: 22, letterSpacing: '-0.02em', lineHeight: 1 }}>
+                <span style={{ color: '#FFFFFF' }}>Снаб</span><span style={{ color: '#7DD3FC' }}>Чат</span>
+              </span>
+            </a>
+            <span className="admin-title-separator">Admin Panel</span>
+          </div>
           <p className="admin-subtitle">Управление инвайт-кодами и база знаний</p>
         </div>
         <div className="admin-header-right">

@@ -2092,15 +2092,30 @@ input, textarea {
 }
 
 .admin-title {
-  font-family: var(--font-display);
-  font-size: 28px;
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 16px;
   margin: 0;
-  color: #FFFFFF;
 }
 
-.admin-title-accent {
-  color: #7DD3FC;
+.admin-logo-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+.admin-logo-link:hover {
+  opacity: 0.8;
+}
+
+.admin-title-separator {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 500;
+  color: #DBEAFE;
+  padding-left: 16px;
+  border-left: 1px solid rgba(255,255,255,0.25);
 }
 
 .admin-subtitle {
