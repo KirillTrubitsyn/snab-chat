@@ -3689,6 +3689,82 @@ input, textarea {
   font-weight: 500;
 }
 
+.admin-doc-row-tags-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.admin-doc-row-wrapper {
+  border-radius: 10px;
+  transition: background 0.15s;
+}
+
+.admin-doc-row-wrapper.expanded {
+  background: #F8FAFC;
+}
+
+.admin-doc-tags-panel {
+  padding: 8px 16px 12px 52px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-doc-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.admin-doc-tags-empty {
+  font-size: 12px;
+  color: #94A3B8;
+  font-style: italic;
+}
+
+.admin-doc-tag-add-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+}
+
+.admin-doc-tag-input {
+  flex: 1;
+  padding: 5px 10px;
+  font-size: 12px;
+  border: 1px solid #E2E8F0;
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.admin-doc-tag-input:focus {
+  border-color: #2463EB;
+}
+
+.admin-doc-tag-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid #E2E8F0;
+  background: #fff;
+  cursor: pointer;
+  color: #64748B;
+  transition: all 0.15s;
+}
+
+.admin-doc-tag-add-btn:hover {
+  background: #EFF6FF;
+  color: #2463EB;
+  border-color: #2463EB;
+}
+
 .admin-doc-row-actions {
   display: flex;
   align-items: center;
