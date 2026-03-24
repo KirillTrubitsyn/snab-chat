@@ -1634,31 +1634,21 @@ input, textarea {
   .mobile-only {
     display: block;
   }
+  .mobile-hamburger-wrapper {
+    display: block;
+  }
+  .mobile-hamburger-wrapper .menu-btn {
+    display: grid;
+    place-items: center;
+    position: relative;
+  }
 }
 
 /* ── Mobile hamburger menu ── */
 
 .mobile-hamburger-wrapper {
   position: relative;
-}
-
-.mobile-hamburger-btn {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  transition: background var(--transition), color var(--transition);
-  position: relative;
-}
-
-.mobile-hamburger-btn:hover {
-  background: var(--bg-sidebar-hover);
-  color: var(--text-primary);
+  display: none;
 }
 
 .mobile-hamburger-badge {
@@ -1888,6 +1878,14 @@ input, textarea {
   .menu-btn {
     display: grid;
     place-items: center;
+  }
+
+  .mobile-hamburger-wrapper {
+    display: block;
+  }
+
+  .mobile-hamburger-wrapper .menu-btn {
+    position: relative;
   }
 
   .app-footer .footer-full {
