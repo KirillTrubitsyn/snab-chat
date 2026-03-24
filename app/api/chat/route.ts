@@ -61,21 +61,55 @@ export async function POST(req: NextRequest) {
     classifyOffTopic(userMessage.content, messages.slice(0, -1)),
   ]);
 
-  // Fire-and-forget: сохраняем нецелевой запрос + ТГ-уведомление
+  // Обработка нецелевых запросов: логируем + блокируем
   if (offTopicResult.isOffTopic && !isAdminCode(invite.code)) {
     const supabase = createServiceClient();
     const inviteCodeId = invite.id.startsWith("admin-") ? null : invite.id;
     const categoryLabel = CATEGORY_LABELS[offTopicResult.category as OffTopicCategory] ?? offTopicResult.category;
-    Promise.all([
+
+    console.log(`[OffTopic] Blocking off-topic query: "${userMessage.content.slice(0, 80)}" (${offTopicResult.category})`);
+
+    const refusalMessage = `Я — СнабЧат, ассистент Дирекции по закупкам. К сожалению, ваш вопрос не относится к моей области компетенции (закупки, снабжение, договоры, нормативные документы).
+
+Я могу помочь с вопросами о:
+- Закупках, тендерах, аукционах
+- Договорах и контрактах
+- Нормативных документах и регламентах
+- Поставках и логистике
+- Работе с поставщиками
+
+Пожалуйста, задайте вопрос по теме закупок и снабжения.`;
+
+    // Await: сохраняем в БД + ТГ-уведомление + отказ в историю диалога
+    // (await обязателен — Vercel убивает функцию после return)
+    await Promise.all([
       supabase.from("off_topic_queries").insert({
         invite_code_id: inviteCodeId,
         user_name: invite.name,
         organization: invite.organization ?? null,
         category: offTopicResult.category,
         query_text: userMessage.content.slice(0, 5000),
+      }).then(({ error }) => {
+        if (error) console.error("[OffTopic] DB insert error:", error.message);
+        else console.log("[OffTopic] Saved to off_topic_queries");
       }),
       notifyOffTopic(invite.name, userMessage.content, offTopicResult.category, categoryLabel, invite.organization),
-    ]).catch((e) => console.error("[OffTopic] fire-and-forget error:", e));
+      conversationId
+        ? saveMessage(conversationId, "assistant", refusalMessage, { offTopic: true })
+        : Promise.resolve(),
+    ]).catch((e) => console.error("[OffTopic] save error:", e));
+
+    // Возвращаем отказ в формате Vercel AI SDK data stream protocol
+    const encoded = JSON.stringify(refusalMessage);
+    const streamBody = `0:${encoded}\nd:{"finishReason":"stop"}\n`;
+
+    return new Response(streamBody, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "X-Sources": encodeURIComponent(JSON.stringify([])),
+        "X-Off-Topic": "true",
+      },
+    });
   }
 
   const contextMessages: { role: string; content: string }[] =
