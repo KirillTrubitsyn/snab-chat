@@ -217,6 +217,8 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   // Activity state
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
+  const [selectedActivityIds, setSelectedActivityIds] = useState<Set<string>>(new Set());
+  const [deletingActivity, setDeletingActivity] = useState(false);
 
   // Documents state
   const [sources, setSources] = useState<Source[]>([]);
@@ -243,6 +245,8 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [nontargetStats, setNontargetStats] = useState<{ total: number; by_category: Record<string, number>; by_user: Record<string, { count: number; lastQuery: string; lastDate: string }> }>({ total: 0, by_category: {}, by_user: {} });
   const [nontargetLoading, setNontargetLoading] = useState(false);
   const [nontargetDays, setNontargetDays] = useState(7);
+  const [selectedNontargetIds, setSelectedNontargetIds] = useState<Set<string>>(new Set());
+  const [deletingNontarget, setDeletingNontarget] = useState(false);
 
   // User messages state
   const [userMessages, setUserMessages] = useState<UserMessageItem[]>([]);
@@ -523,6 +527,83 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     try {
       await fetch(`/api/admin/off-topic?id=${id}`, { method: "DELETE", headers });
       setNontargetQueries((prev) => prev.filter((q) => q.id !== id));
+      setSelectedNontargetIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+    } catch { /* ignore */ }
+  };
+
+  const toggleNontargetSelection = (id: string) => {
+    setSelectedNontargetIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+
+  const toggleAllNontarget = () => {
+    if (selectedNontargetIds.size === nontargetQueries.length) {
+      setSelectedNontargetIds(new Set());
+    } else {
+      setSelectedNontargetIds(new Set(nontargetQueries.map((q) => q.id)));
+    }
+  };
+
+  const deleteSelectedNontarget = async () => {
+    if (selectedNontargetIds.size === 0) return;
+    if (!confirm(`Удалить ${selectedNontargetIds.size} нецелевых запросов?`)) return;
+    setDeletingNontarget(true);
+    try {
+      await Promise.all(
+        Array.from(selectedNontargetIds).map((id) =>
+          fetch(`/api/admin/off-topic?id=${id}`, { method: "DELETE", headers })
+        )
+      );
+      setSelectedNontargetIds(new Set());
+      loadNontarget();
+    } catch { /* ignore */ }
+    setDeletingNontarget(false);
+  };
+
+  // Activity selection
+  const toggleActivitySelection = (id: string) => {
+    setSelectedActivityIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+
+  const toggleAllActivity = () => {
+    if (selectedActivityIds.size === activity.length) {
+      setSelectedActivityIds(new Set());
+    } else {
+      setSelectedActivityIds(new Set(activity.map((a) => a.id)));
+    }
+  };
+
+  const deleteSelectedActivity = async () => {
+    if (selectedActivityIds.size === 0) return;
+    if (!confirm(`Удалить ${selectedActivityIds.size} записей?`)) return;
+    setDeletingActivity(true);
+    try {
+      const ids = Array.from(selectedActivityIds).join(",");
+      await fetch(`/api/admin/activity?type=messages&ids=${ids}`, {
+        method: "DELETE",
+        headers,
+      });
+      setSelectedActivityIds(new Set());
+      loadActivity();
+    } catch { /* ignore */ }
+    setDeletingActivity(false);
+  };
+
+  const deleteSingleActivity = async (id: string) => {
+    try {
+      await fetch(`/api/admin/activity?type=messages&ids=${id}`, {
+        method: "DELETE",
+        headers,
+      });
+      setSelectedActivityIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      loadActivity();
     } catch { /* ignore */ }
   };
 
@@ -969,6 +1050,16 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                       <span className="admin-card-badge">{activity.length}</span>
                     </div>
                     <div className="admin-card-actions">
+                      {selectedActivityIds.size > 0 && (
+                        <button
+                          className="admin-btn-danger"
+                          onClick={deleteSelectedActivity}
+                          disabled={deletingActivity}
+                        >
+                          <span className="material-symbols-outlined">delete</span>
+                          {deletingActivity ? "Удаление..." : `Удалить (${selectedActivityIds.size})`}
+                        </button>
+                      )}
                       <button className="admin-btn-secondary" onClick={cleanupOrphanedConversations}>
                         <span className="material-symbols-outlined">delete_sweep</span>
                         Очистить старые
@@ -992,16 +1083,31 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                       <table className="admin-table">
                         <thead>
                           <tr>
+                            <th style={{ width: 40 }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedActivityIds.size === activity.length && activity.length > 0}
+                                onChange={toggleAllActivity}
+                              />
+                            </th>
                             <th>ФИО</th>
                             <th>Организация</th>
                             <th>Тип</th>
                             <th>Запрос</th>
                             <th style={{ textAlign: "right" }}>Время</th>
+                            <th style={{ width: 60, textAlign: "right" }}></th>
                           </tr>
                         </thead>
                         <tbody>
                           {activity.map((a) => (
-                            <tr key={a.id}>
+                            <tr key={a.id} className={selectedActivityIds.has(a.id) ? "admin-row-selected" : ""}>
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedActivityIds.has(a.id)}
+                                  onChange={() => toggleActivitySelection(a.id)}
+                                />
+                              </td>
                               <td className="admin-cell-name">{a.user_name}</td>
                               <td className="admin-cell-name">
                                 {a.organization || <span className="admin-text-muted">—</span>}
@@ -1015,6 +1121,15 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                                 {a.content}
                               </td>
                               <td className="admin-cell-date" style={{ textAlign: "right" }}>{formatDateTime(a.created_at)}</td>
+                              <td style={{ textAlign: "right" }}>
+                                <button
+                                  className="admin-btn-icon-danger"
+                                  onClick={() => deleteSingleActivity(a.id)}
+                                  title="Удалить"
+                                >
+                                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
+                                </button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -1389,6 +1504,18 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
 
                 {/* Queries list */}
                 <div className="admin-card admin-card-table">
+                  {selectedNontargetIds.size > 0 && (
+                    <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border, #E2E8F0)", display: "flex", alignItems: "center", gap: 12 }}>
+                      <button
+                        className="admin-btn-danger"
+                        onClick={deleteSelectedNontarget}
+                        disabled={deletingNontarget}
+                      >
+                        <span className="material-symbols-outlined">delete</span>
+                        {deletingNontarget ? "Удаление..." : `Удалить (${selectedNontargetIds.size})`}
+                      </button>
+                    </div>
+                  )}
                   {nontargetLoading ? (
                     <div className="admin-loading-text">
                       <div className="admin-spinner" />
@@ -1404,17 +1531,31 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                       <table className="admin-table">
                         <thead>
                           <tr>
+                            <th style={{ width: 40 }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedNontargetIds.size === nontargetQueries.length && nontargetQueries.length > 0}
+                                onChange={toggleAllNontarget}
+                              />
+                            </th>
                             <th style={{ width: "13%" }}>ФИО</th>
                             <th style={{ width: "12%" }}>Организация</th>
                             <th style={{ width: "15%" }}>Категория</th>
-                            <th style={{ width: "45%" }}>Запрос</th>
+                            <th>Запрос</th>
                             <th style={{ width: "10%" }}>Время</th>
-                            <th style={{ width: "5%", textAlign: "right" }}></th>
+                            <th style={{ width: 60, textAlign: "right" }}></th>
                           </tr>
                         </thead>
                         <tbody>
                           {nontargetQueries.map((q) => (
-                            <tr key={q.id}>
+                            <tr key={q.id} className={selectedNontargetIds.has(q.id) ? "admin-row-selected" : ""}>
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedNontargetIds.has(q.id)}
+                                  onChange={() => toggleNontargetSelection(q.id)}
+                                />
+                              </td>
                               <td className="admin-cell-name">{q.user_name}</td>
                               <td>{q.organization || <span className="admin-text-muted">—</span>}</td>
                               <td>
@@ -1426,11 +1567,11 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                               <td className="admin-cell-date">{formatDateTime(q.created_at)}</td>
                               <td style={{ textAlign: "right" }}>
                                 <button
-                                  className="admin-action-link admin-action-danger"
+                                  className="admin-btn-icon-danger"
                                   onClick={() => deleteNontargetQuery(q.id)}
                                   title="Удалить"
                                 >
-                                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
                                 </button>
                               </td>
                             </tr>
