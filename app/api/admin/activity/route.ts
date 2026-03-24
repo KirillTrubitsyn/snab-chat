@@ -146,26 +146,40 @@ export async function GET(req: NextRequest) {
 
   // ── Default: activity feed (chat + infographic) ──
 
-  const { data: messages, error: msgError } = await supabase
-    .from("messages")
-    .select("id, conversation_id, role, content, metadata, created_at")
-    .eq("role", "user")
-    .order("created_at", { ascending: false })
-    .limit(500);
+  // Load user messages, assistant messages (for lowConfidence + infographic), and off_topic in parallel
+  const [
+    { data: messages, error: msgError },
+    { data: assistantMsgs },
+    { data: offTopicRows },
+  ] = await Promise.all([
+    supabase
+      .from("messages")
+      .select("id, conversation_id, role, content, metadata, created_at")
+      .eq("role", "user")
+      .order("created_at", { ascending: false })
+      .limit(500),
+    supabase
+      .from("messages")
+      .select("id, conversation_id, content, metadata, created_at")
+      .eq("role", "assistant")
+      .not("metadata", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(500),
+    supabase
+      .from("off_topic_queries")
+      .select("query_text")
+      .order("created_at", { ascending: false })
+      .limit(500),
+  ]);
 
   if (msgError) {
     return NextResponse.json({ error: msgError.message }, { status: 500 });
   }
 
-  const { data: infographics } = await supabase
-    .from("messages")
-    .select("id, conversation_id, content, metadata, created_at")
-    .eq("role", "assistant")
-    .not("metadata", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(500);
+  // Build set of off-topic query texts to exclude from activity feed
+  const offTopicTexts = new Set((offTopicRows || []).map((r) => r.query_text));
 
-  const infographicMessages = (infographics || []).filter(
+  const infographicMessages = (assistantMsgs || []).filter(
     (m) => m.metadata?.type === "infographic"
   );
 
@@ -178,8 +192,14 @@ export async function GET(req: NextRequest) {
 
   const { convsMap, codesMap } = await buildConvsAndCodesMap(supabase, allConvIds);
 
+  // Filter out off-topic messages from activity feed
   const chatItems = (messages || [])
-    .filter((m) => m.conversation_id in convsMap)
+    .filter((m) => {
+      if (!(m.conversation_id in convsMap)) return false;
+      // Exclude if this exact text is in off_topic_queries
+      if (offTopicTexts.has(m.content.slice(0, 5000))) return false;
+      return true;
+    })
     .map((m) => ({
       id: m.id,
       type: "chat" as const,
