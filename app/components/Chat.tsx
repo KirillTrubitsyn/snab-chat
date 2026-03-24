@@ -1896,7 +1896,7 @@ export default function Chat() {
               <span className="btn-label">База знаний</span>
             </button>
             <button
-              className="header-labeled-btn primary"
+              className="header-labeled-btn primary desktop-only"
               onClick={() => {
                 setActiveView("chat");
                 setActiveConvId(null);
@@ -1912,6 +1912,23 @@ export default function Chat() {
                 <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
               </svg>
               <span className="btn-label">Новый чат</span>
+            </button>
+            <button
+              className="menu-btn"
+              onClick={() => {
+                setActiveView("chat");
+                setActiveConvId(null);
+                convIdRef.current = null;
+                setChatKey(`new-${Date.now()}`);
+                setMessages([]);
+                setHasSummary(false);
+              }}
+              title="Новый чат"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+              </svg>
             </button>
             <button className="menu-btn" onClick={() => setRightOpen((o) => !o)}>
               <HistoryIcon />
