@@ -918,7 +918,7 @@ function EmptyState() {
       <div className="welcome-logo-glow">
         <SpektrIcon size={96} />
       </div>
-      <div className="welcome-dept">Дирекция по ресурсному обеспечению</div>
+      <div className="welcome-dept">Дирекция по закупкам</div>
       <div className="welcome-brand">
         <span style={{ color: '#003A7A' }}>Снаб</span><span style={{ color: '#0099CC' }}>Чат</span>
       </div>
@@ -2424,7 +2424,7 @@ export default function Chat() {
 
         {/* ── Footer ── */}
         <footer className="app-footer">
-          <span className="footer-full">СнабЧат · Дирекция по ресурсному обеспечению · 2026 · </span>
+          <span className="footer-full">СнабЧат · Дирекция по закупкам · 2026 · </span>
           Разработка @Кирилл Трубицын
         </footer>
       </div>

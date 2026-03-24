@@ -68,6 +68,14 @@ interface SupportItem {
   replied_at: string | null;
 }
 
+interface UserMessageItem {
+  id: string;
+  user_name: string;
+  organization: string | null;
+  content: string;
+  created_at: string;
+}
+
 interface ErrorItem {
   id: string;
   error_type: string;
@@ -185,7 +193,7 @@ function getInitials(name: string): string {
 }
 
 export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanelProps) {
-  const [tab, setTab] = useState<"codes" | "activity" | "documents" | "nontarget" | "support" | "errors">("activity");
+  const [tab, setTab] = useState<"codes" | "activity" | "documents" | "nontarget" | "support" | "errors" | "messages">("activity");
 
   // Invite codes state
   const [codes, setCodes] = useState<InviteCode[]>([]);
@@ -235,6 +243,12 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [nontargetStats, setNontargetStats] = useState<{ total: number; by_category: Record<string, number>; by_user: Record<string, { count: number; lastQuery: string; lastDate: string }> }>({ total: 0, by_category: {}, by_user: {} });
   const [nontargetLoading, setNontargetLoading] = useState(false);
   const [nontargetDays, setNontargetDays] = useState(7);
+
+  // User messages state
+  const [userMessages, setUserMessages] = useState<UserMessageItem[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set());
+  const [deletingMsgs, setDeletingMsgs] = useState(false);
 
   // Support state
   const [supportMessages, setSupportMessages] = useState<SupportItem[]>([]);
@@ -300,6 +314,60 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     setNontargetLoading(false);
   }, [adminCode, nontargetDays]);
 
+  const loadUserMessages = useCallback(async () => {
+    setMessagesLoading(true);
+    try {
+      const res = await fetch("/api/admin/activity?type=messages", { headers });
+      const data = await res.json();
+      if (data.messages) setUserMessages(data.messages);
+    } catch { /* ignore */ }
+    setMessagesLoading(false);
+  }, [adminCode]);
+
+  const toggleMsgSelection = (id: string) => {
+    setSelectedMsgIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllMsgs = () => {
+    if (selectedMsgIds.size === userMessages.length) {
+      setSelectedMsgIds(new Set());
+    } else {
+      setSelectedMsgIds(new Set(userMessages.map((m) => m.id)));
+    }
+  };
+
+  const deleteSelectedMessages = async () => {
+    if (selectedMsgIds.size === 0) return;
+    if (!confirm(`Удалить ${selectedMsgIds.size} сообщений?`)) return;
+    setDeletingMsgs(true);
+    try {
+      const ids = Array.from(selectedMsgIds).join(",");
+      await fetch(`/api/admin/activity?type=messages&ids=${ids}`, {
+        method: "DELETE",
+        headers,
+      });
+      setSelectedMsgIds(new Set());
+      loadUserMessages();
+    } catch { /* ignore */ }
+    setDeletingMsgs(false);
+  };
+
+  const deleteSingleMessage = async (id: string) => {
+    if (!confirm("Удалить это сообщение?")) return;
+    try {
+      await fetch(`/api/admin/activity?type=messages&ids=${id}`, {
+        method: "DELETE",
+        headers,
+      });
+      setSelectedMsgIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+      loadUserMessages();
+    } catch { /* ignore */ }
+  };
+
   const loadSupport = useCallback(async () => {
     setSupportLoading(true);
     try {
@@ -329,7 +397,8 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     else if (tab === "nontarget") loadNontarget();
     else if (tab === "support") loadSupport();
     else if (tab === "errors") loadErrors();
-  }, [tab, loadCodes, loadActivity, loadSources, loadNontarget, loadSupport, loadErrors]);
+    else if (tab === "messages") loadUserMessages();
+  }, [tab, loadCodes, loadActivity, loadSources, loadNontarget, loadSupport, loadErrors, loadUserMessages]);
 
   /* ── Invite code actions ── */
 
@@ -626,6 +695,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     { key: "nontarget" as const, label: "Нецелевые запросы", icon: "block" },
     { key: "support" as const, label: "Поддержка", icon: "headset_mic" },
     { key: "errors" as const, label: "Ошибки", icon: "error" },
+    { key: "messages" as const, label: "Сообщения", icon: "forum" },
   ];
 
   /* ── Render ── */
@@ -1578,6 +1648,97 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Tab: User Messages ── */}
+            {tab === "messages" && (
+              <div>
+                <div className="admin-card admin-card-table">
+                  <div className="admin-card-header">
+                    <div className="admin-card-header-left">
+                      <h3 className="admin-card-title">Сообщения пользователей</h3>
+                      <span className="admin-card-badge">{userMessages.length}</span>
+                    </div>
+                    <div className="admin-card-actions">
+                      {selectedMsgIds.size > 0 && (
+                        <button
+                          className="admin-btn-danger"
+                          onClick={deleteSelectedMessages}
+                          disabled={deletingMsgs}
+                        >
+                          <span className="material-symbols-outlined">delete</span>
+                          {deletingMsgs ? "Удаление..." : `Удалить (${selectedMsgIds.size})`}
+                        </button>
+                      )}
+                      <button className="admin-btn-secondary" onClick={loadUserMessages} disabled={messagesLoading}>
+                        <span className="material-symbols-outlined">refresh</span>
+                        Обновить
+                      </button>
+                    </div>
+                  </div>
+
+                  {messagesLoading ? (
+                    <div className="admin-loading-text">
+                      <div className="admin-spinner" />
+                      Загрузка...
+                    </div>
+                  ) : userMessages.length === 0 ? (
+                    <div className="admin-empty">
+                      <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3, marginBottom: 12 }}>forum</span>
+                      <p>Нет сообщений</p>
+                    </div>
+                  ) : (
+                    <div className="admin-table-wrap">
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: 40 }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedMsgIds.size === userMessages.length && userMessages.length > 0}
+                                onChange={toggleAllMsgs}
+                              />
+                            </th>
+                            <th style={{ width: "15%" }}>ФИО</th>
+                            <th style={{ width: "15%" }}>Организация</th>
+                            <th>Сообщение</th>
+                            <th style={{ width: "12%", textAlign: "right" }}>Время</th>
+                            <th style={{ width: 60, textAlign: "right" }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {userMessages.map((m) => (
+                            <tr key={m.id} className={selectedMsgIds.has(m.id) ? "admin-row-selected" : ""}>
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedMsgIds.has(m.id)}
+                                  onChange={() => toggleMsgSelection(m.id)}
+                                />
+                              </td>
+                              <td className="admin-cell-name">{m.user_name}</td>
+                              <td>
+                                {m.organization || <span className="admin-text-muted">—</span>}
+                              </td>
+                              <td className="admin-cell-message">{m.content}</td>
+                              <td className="admin-cell-date" style={{ textAlign: "right" }}>{formatDateTime(m.created_at)}</td>
+                              <td style={{ textAlign: "right" }}>
+                                <button
+                                  className="admin-btn-icon-danger"
+                                  onClick={() => deleteSingleMessage(m.id)}
+                                  title="Удалить сообщение"
+                                >
+                                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>
