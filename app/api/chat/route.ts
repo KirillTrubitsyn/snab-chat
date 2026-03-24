@@ -180,6 +180,9 @@ ${uploadedDocsContext}`;
     }
   }
 
+  // Build source filenames from filtered relevant chunks (not all 20)
+  const sourceFilenames = [...new Set(relevantChunks.map((r) => r.source_filename))];
+
   // Phase 3c: Stream response from Gemini
   const result = streamText({
     model: google("gemini-3-flash-preview"),
@@ -188,13 +191,12 @@ ${uploadedDocsContext}`;
     temperature: 0,
     async onFinish({ text }) {
       if (conversationId) {
-        await saveMessage(conversationId, "assistant", text);
+        await saveMessage(conversationId, "assistant", text,
+          sourceFilenames.length > 0 ? { sources: sourceFilenames } : undefined
+        );
       }
     },
   });
-
-  // Build source filenames from filtered relevant chunks (not all 20)
-  const sourceFilenames = [...new Set(relevantChunks.map((r) => r.source_filename))];
 
   return result.toDataStreamResponse({
     headers: {
