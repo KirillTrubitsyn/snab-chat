@@ -1539,6 +1539,27 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                                       </button>
                                     </span>
                                   ))}
+                                  <form
+                                    className="admin-doc-tag-add-form"
+                                    onSubmit={(e) => {
+                                      e.preventDefault();
+                                      const input = e.currentTarget.querySelector("input") as HTMLInputElement;
+                                      const val = input.value.trim().toLowerCase();
+                                      if (val && !pf.tags.includes(val)) {
+                                        updateParsedFileTags(i, [...pf.tags, val]);
+                                      }
+                                      input.value = "";
+                                    }}
+                                  >
+                                    <input
+                                      className="admin-doc-tag-input"
+                                      placeholder="+ добавить тег"
+                                      onKeyDown={(e) => { if (e.key === "Escape") (e.target as HTMLInputElement).blur(); }}
+                                    />
+                                    <button type="submit" className="admin-doc-tag-add-btn">
+                                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
+                                    </button>
+                                  </form>
                                 </div>
                               </div>
                             ))}
