@@ -58,9 +58,12 @@ export async function POST(req: NextRequest) {
   try {
     const { topic, style, aspectRatio, documentText, conversationId } = await req.json();
 
-    if (!topic || typeof topic !== "string" || topic.trim().length < 3) {
+    const hasDocumentText = documentText && typeof documentText === "string" && documentText.trim().length > 0;
+    const topicText = (topic && typeof topic === "string") ? topic.trim() : "";
+
+    if (!topicText && !hasDocumentText) {
       return NextResponse.json(
-        { error: "Тема должна содержать минимум 3 символа" },
+        { error: "Укажите тему или загрузите контекст документа" },
         { status: 400 }
       );
     }
@@ -75,7 +78,9 @@ export async function POST(req: NextRequest) {
       // Progressive simplification: reduce document context on retries
       const docLimit = attempt === 0 ? 30000 : attempt === 1 ? 10000 : 0;
 
-      let userPrompt = `Создай инфографику на тему: ${topic}`;
+      let userPrompt = topicText
+        ? `Создай инфографику на тему: ${topicText}`
+        : "Создай инфографику по следующему документу. Определи тему и ключевые данные самостоятельно.";
       if (styleInstruction) {
         userPrompt += `\n\nСтиль и формат: ${styleInstruction}`;
       }
@@ -142,11 +147,11 @@ export async function POST(req: NextRequest) {
             await saveMessage(
               conversationId,
               "assistant",
-              descText || `Инфографика: ${topic}`,
+              descText || `Инфографика: ${topicText || "По документу"}`,
               {
                 type: "infographic",
                 image_base64: imageBase64,
-                topic: topic.trim(),
+                topic: topicText || "По документу",
                 style: style || "business_infographic",
               }
             );
