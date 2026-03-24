@@ -1044,6 +1044,8 @@ export default function Chat() {
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
   const [convBulkMode, setConvBulkMode] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<"chat" | "knowledge-base">("chat");
+  const [kbCategoryFilter, setKbCategoryFilter] = useState<string>("all");
 
   const router = useRouter();
 
@@ -1654,8 +1656,20 @@ export default function Chat() {
               <span className="btn-label">Инфографика</span>
             </button>
             <button
+              className={`header-labeled-btn ${activeView === "knowledge-base" ? "accent" : ""}`}
+              onClick={() => setActiveView(activeView === "knowledge-base" ? "chat" : "knowledge-base")}
+              title="База знаний"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+              </svg>
+              <span className="btn-label">База знаний</span>
+            </button>
+            <button
               className="header-labeled-btn"
               onClick={() => {
+                setActiveView("chat");
                 setActiveConvId(null);
                 convIdRef.current = null;
                 setChatKey(`new-${Date.now()}`);
@@ -1901,6 +1915,93 @@ export default function Chat() {
           )}
 
           {/* ── Main ── */}
+          {activeView === "knowledge-base" ? (
+            <main className="main-area">
+              <div className="kb-view">
+                <div className="kb-header">
+                  <h2 className="kb-title">База знаний</h2>
+                  <span className="kb-badge">{sources.length}</span>
+                </div>
+
+                <div className="kb-pills">
+                  <button
+                    className={`kb-pill ${kbCategoryFilter === "all" ? "active" : ""}`}
+                    onClick={() => setKbCategoryFilter("all")}
+                  >
+                    Все ({sources.length})
+                  </button>
+                  {[
+                    { key: "standards", label: "Стандарты и Положения" },
+                    { key: "forms", label: "Формы документов" },
+                    { key: "npa", label: "НПА" },
+                    { key: "schemas", label: "Схемы и Алгоритмы" },
+                    { key: "other", label: "Прочее" },
+                  ].map((cat) => {
+                    const count = sources.filter((s) => (s.folder_path || "other") === cat.key).length;
+                    return (
+                      <button
+                        key={cat.key}
+                        className={`kb-pill ${kbCategoryFilter === cat.key ? "active" : ""}`}
+                        onClick={() => setKbCategoryFilter(cat.key)}
+                      >
+                        {cat.label} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {sources.length === 0 ? (
+                  <div className="kb-empty">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.3, marginBottom: 12 }}>
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    <p>Нет загруженных документов</p>
+                  </div>
+                ) : (
+                  <div className="kb-grid">
+                    {sources
+                      .filter((s) => kbCategoryFilter === "all" || (s.folder_path || "other") === kbCategoryFilter)
+                      .map((doc) => {
+                        const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : "docx";
+                        const catLabel = [
+                          { key: "standards", label: "Стандарты и Положения" },
+                          { key: "forms", label: "Формы документов" },
+                          { key: "npa", label: "НПА" },
+                          { key: "schemas", label: "Схемы и Алгоритмы" },
+                          { key: "other", label: "Прочее" },
+                        ].find((c) => c.key === (doc.folder_path || "other"))?.label || "Прочее";
+                        return (
+                          <div key={doc.id} className="kb-card">
+                            <div className="kb-card-top">
+                              <div className={`kb-card-icon ${ext}`}>
+                                {ext === "pdf" ? "PDF" : ext === "xlsx" ? "XLS" : "DOC"}
+                              </div>
+                            </div>
+                            <div className="kb-card-name" title={doc.filename}>{doc.filename}</div>
+                            <div className="kb-card-meta">
+                              <span className="kb-card-cat">{catLabel}</span>
+                              <span>&middot;</span>
+                              <span>{new Date(doc.created_at).toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                            </div>
+                            {doc.tags && doc.tags.length > 0 && (
+                              <div className="kb-card-tags">
+                                {doc.tags.slice(0, 4).map((tag) => (
+                                  <span key={tag} className="kb-tag">{tag}</span>
+                                ))}
+                                {doc.tags.length > 4 && (
+                                  <span className="kb-tag kb-tag-more">+{doc.tags.length - 4}</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            </main>
+          ) : (
           <main className="main-area">
             <div className="chat-column">
               <div className="messages-area" ref={scrollRef}>
@@ -2059,6 +2160,7 @@ export default function Chat() {
               </form>
             </div>
           </main>
+          )}
 
           {/* ── Right sidebar: Dialogs ── */}
           <aside className={`sidebar-panel right ${rightOpen ? "open" : ""} ${rightCollapsed ? "collapsed" : ""}`}>
