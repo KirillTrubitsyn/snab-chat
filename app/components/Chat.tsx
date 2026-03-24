@@ -987,6 +987,8 @@ export default function Chat() {
   const [authLoading, setAuthLoading] = useState(true);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
   const isAdmin = typeof window !== "undefined" && localStorage.getItem("snabchat_is_admin") === "true";
 
   /* ── Keep inviteCodeRef in sync ── */
@@ -1036,6 +1038,18 @@ export default function Chat() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [userMenuOpen]);
+
+  // Close mobile menu on click outside
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
+        setMobileMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [mobileMenuOpen]);
 
   // Helper: get initials from full name
   const userInitials = userName
@@ -1773,8 +1787,69 @@ export default function Chat() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {hasSummary && <span className="memory-pill">Память активна</span>}
+            {/* Mobile: hamburger menu for nav buttons */}
+            <div className="mobile-hamburger-wrapper mobile-only" ref={mobileMenuRef}>
+              <button
+                className="mobile-hamburger-btn"
+                onClick={() => setMobileMenuOpen((o) => !o)}
+                title="Меню"
+              >
+                <MenuIcon />
+                {unreadSupportCount > 0 && (
+                  <span className="mobile-hamburger-badge">{unreadSupportCount}</span>
+                )}
+              </button>
+              {mobileMenuOpen && (
+                <div className="mobile-hamburger-dropdown">
+                  <a
+                    className="mobile-hamburger-item"
+                    href="https://academy.snabchat.app/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+                    </svg>
+                    Обучение
+                  </a>
+                  <button
+                    className="mobile-hamburger-item"
+                    onClick={() => { setMobileMenuOpen(false); openSupportModal(); }}
+                    style={{ position: "relative" }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+                    </svg>
+                    Поддержка
+                    {unreadSupportCount > 0 && (
+                      <span className="mobile-hamburger-item-badge">{unreadSupportCount}</span>
+                    )}
+                  </button>
+                  <button
+                    className="mobile-hamburger-item"
+                    onClick={() => { setMobileMenuOpen(false); navigateToInfographic(); }}
+                  >
+                    <InfographicIcon />
+                    Инфографика
+                  </button>
+                  <button
+                    className={`mobile-hamburger-item${activeView === "knowledge-base" ? " active" : ""}`}
+                    onClick={() => { setMobileMenuOpen(false); setActiveView(activeView === "knowledge-base" ? "chat" : "knowledge-base"); }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                    </svg>
+                    База знаний
+                  </button>
+                </div>
+              )}
+            </div>
+            {/* Desktop: nav buttons inline */}
             <a
-              className="header-labeled-btn accent"
+              className="header-labeled-btn accent desktop-only"
               href="https://academy.snabchat.app/"
               target="_blank"
               rel="noopener noreferrer"
@@ -1787,7 +1862,7 @@ export default function Chat() {
               <span className="btn-label">Обучение</span>
             </a>
             <button
-              className="header-labeled-btn accent"
+              className="header-labeled-btn accent desktop-only"
               onClick={openSupportModal}
               title="Поддержка"
               style={{ position: "relative" }}
@@ -1806,7 +1881,7 @@ export default function Chat() {
               )}
             </button>
             <button
-              className="header-labeled-btn accent"
+              className="header-labeled-btn accent desktop-only"
               onClick={() => navigateToInfographic()}
               title="Генератор инфографики"
             >
@@ -1814,7 +1889,7 @@ export default function Chat() {
               <span className="btn-label">Инфографика</span>
             </button>
             <button
-              className={`header-labeled-btn accent${activeView === "knowledge-base" ? " active" : ""}`}
+              className={`header-labeled-btn accent desktop-only${activeView === "knowledge-base" ? " active" : ""}`}
               onClick={() => setActiveView(activeView === "knowledge-base" ? "chat" : "knowledge-base")}
               title="База знаний"
             >
@@ -1904,13 +1979,13 @@ export default function Chat() {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points={leftCollapsed ? "9 18 15 12 9 6" : "15 18 9 12 15 6"} />
               </svg>
-              {leftCollapsed ? "Источники" : "Свернуть"}
+              {leftCollapsed ? "База знаний" : "Свернуть"}
             </button>
             <div className="sidebar-content">
               <div className="sidebar-section" style={{ flex: 1 }}>
                 <div className="sidebar-section-title">
                   <span>
-                    ИСТОЧНИКИ{" "}
+                    БАЗА ЗНАНИЙ{" "}
                     <span
                       style={{
                         fontSize: 10,
