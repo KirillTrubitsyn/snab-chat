@@ -144,32 +144,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ nontarget: result });
   }
 
-  // ── Type: messages ── All user messages (full content)
-  if (type === "messages") {
-    const { data: userMsgs, error } = await supabase
-      .from("messages")
-      .select("id, conversation_id, content, created_at")
-      .eq("role", "user")
-      .order("created_at", { ascending: false })
-      .limit(500);
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    const convIds = [...new Set((userMsgs || []).map((m) => m.conversation_id))].filter(Boolean);
-    const { convsMap, codesMap } = await buildConvsAndCodesMap(supabase, convIds);
-
-    const result = (userMsgs || [])
-      .filter((m) => m.conversation_id in convsMap)
-      .map((m) => ({
-        id: m.id,
-        ...resolveUser(m.conversation_id, convsMap, codesMap),
-        content: m.content,
-        created_at: m.created_at,
-      }));
-
-    return NextResponse.json({ messages: result });
-  }
-
   // ── Default: activity feed (chat + infographic) ──
 
   const { data: messages, error: msgError } = await supabase
