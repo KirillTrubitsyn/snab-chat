@@ -193,7 +193,7 @@ function getInitials(name: string): string {
 }
 
 export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanelProps) {
-  const [tab, setTab] = useState<"codes" | "activity" | "documents" | "nontarget" | "support" | "errors">("activity");
+  const [tab, setTab] = useState<"codes" | "activity" | "documents" | "nontarget" | "support" | "errors" | "messages">("activity");
 
   // Invite codes state
   const [codes, setCodes] = useState<InviteCode[]>([]);
@@ -397,7 +397,8 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     else if (tab === "nontarget") loadNontarget();
     else if (tab === "support") loadSupport();
     else if (tab === "errors") loadErrors();
-  }, [tab, loadCodes, loadActivity, loadSources, loadNontarget, loadSupport, loadErrors]);
+    else if (tab === "messages") loadUserMessages();
+  }, [tab, loadCodes, loadActivity, loadSources, loadNontarget, loadSupport, loadErrors, loadUserMessages]);
 
   /* ── Invite code actions ── */
 
@@ -694,6 +695,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     { key: "nontarget" as const, label: "Нецелевые запросы", icon: "block" },
     { key: "support" as const, label: "Поддержка", icon: "headset_mic" },
     { key: "errors" as const, label: "Ошибки", icon: "error" },
+    { key: "messages" as const, label: "Сообщения", icon: "forum" },
   ];
 
   /* ── Render ── */
