@@ -3148,6 +3148,54 @@ input, textarea {
   opacity: 0.75;
 }
 
+.admin-row-selected {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.admin-btn-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  background: #EF4444;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.admin-btn-danger:hover {
+  background: #DC2626;
+}
+.admin-btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.admin-btn-danger .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.admin-btn-icon-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  color: #94A3B8;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.admin-btn-icon-danger:hover {
+  color: #EF4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
 /* ── Table cells ── */
 
 .admin-cell-name {

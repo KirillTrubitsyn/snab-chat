@@ -231,12 +231,27 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ activity: result });
 }
 
-// Удаление старых диалогов без привязки к инвайт-коду
+// DELETE /api/admin/activity
 export async function DELETE(req: NextRequest) {
   const adminCheck = requireAdmin(req);
   if (adminCheck instanceof NextResponse) return adminCheck;
 
   const supabase = createServiceClient();
+  const type = req.nextUrl.searchParams.get("type");
+
+  // ── Delete specific messages by IDs ──
+  if (type === "messages") {
+    const idsParam = req.nextUrl.searchParams.get("ids");
+    if (!idsParam) return NextResponse.json({ error: "ids required" }, { status: 400 });
+    const ids = idsParam.split(",").filter(Boolean);
+    if (ids.length === 0) return NextResponse.json({ deleted: 0 });
+
+    const { error } = await supabase.from("messages").delete().in("id", ids);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ deleted: ids.length });
+  }
+
+  // ── Default: Удаление старых диалогов без привязки к инвайт-коду ──
 
   let orphanedQuery = supabase
     .from("conversations")
