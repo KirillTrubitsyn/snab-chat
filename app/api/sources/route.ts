@@ -36,19 +36,23 @@ export async function PATCH(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { tags } = body;
+    const { tags, folder_path } = body;
 
-    if (!Array.isArray(tags)) {
-      return NextResponse.json({ error: "tags must be an array" }, { status: 400 });
+    const updateData: Record<string, unknown> = {};
+    if (Array.isArray(tags)) updateData.tags = tags;
+    if (typeof folder_path === "string") updateData.folder_path = folder_path;
+
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
     }
 
     const supabase = createServiceClient();
 
     const { data, error } = await supabase
       .from("sources")
-      .update({ tags })
+      .update(updateData)
       .eq("id", id)
-      .select("id, filename, mime_type, tags, created_at")
+      .select("id, filename, mime_type, tags, folder_path, created_at")
       .single();
 
     if (error) {

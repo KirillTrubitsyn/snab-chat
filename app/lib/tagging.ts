@@ -1,6 +1,68 @@
 import { google, withGoogleApiLimit } from "@/app/lib/google-ai";
 import { generateText } from "ai";
 
+/* ── Document Categories ── */
+
+export const DOCUMENT_CATEGORIES = [
+  { key: "standards", label: "Стандарты и Положения", icon: "verified" },
+  { key: "forms", label: "Формы документов", icon: "article" },
+  { key: "npa", label: "НПА", icon: "gavel" },
+  { key: "schemas", label: "Схемы и Алгоритмы", icon: "schema" },
+  { key: "other", label: "Прочее", icon: "folder" },
+] as const;
+
+const CATEGORY_KEYWORDS: Record<string, string> = {
+  "стандарт": "standards",
+  "положение": "standards",
+  "регламент": "standards",
+  "методика": "standards",
+  "инструкция": "standards",
+  "руководство": "standards",
+  "порядок": "standards",
+  "правила": "standards",
+  "форма": "forms",
+  "шаблон": "forms",
+  "бланк": "forms",
+  "образец": "forms",
+  "анкета": "forms",
+  "заявка": "forms",
+  "приказ": "npa",
+  "закон": "npa",
+  "постановление": "npa",
+  "распоряжение": "npa",
+  "указ": "npa",
+  "федеральный": "npa",
+  "кодекс": "npa",
+  "схема": "schemas",
+  "алгоритм": "schemas",
+  "диаграмма": "schemas",
+  "блок-схема": "schemas",
+  "маршрут": "schemas",
+  "процесс": "schemas",
+};
+
+export function detectCategory(tags: string[], filename?: string): string {
+  // Check tags first
+  for (const tag of tags) {
+    const lower = tag.toLowerCase();
+    for (const [keyword, category] of Object.entries(CATEGORY_KEYWORDS)) {
+      if (lower.includes(keyword)) return category;
+    }
+  }
+  // Check filename
+  if (filename) {
+    const lower = filename.toLowerCase();
+    for (const [keyword, category] of Object.entries(CATEGORY_KEYWORDS)) {
+      if (lower.includes(keyword)) return category;
+    }
+  }
+  return "other";
+}
+
+export function getCategoryLabel(key: string): string {
+  return DOCUMENT_CATEGORIES.find((c) => c.key === key)?.label || "Прочее";
+}
+
 export async function autoTag(markdown: string, filename?: string): Promise<string[]> {
   const preview = markdown.slice(0, 5000);
 

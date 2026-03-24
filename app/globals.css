@@ -2097,21 +2097,23 @@ input, textarea {
   height: 64px;
 }
 
-.admin-sidebar-logo h1 {
-  color: #fff;
+.admin-logo-title {
   font-family: var(--admin-font-heading, 'Manrope', sans-serif);
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 800;
   letter-spacing: -0.02em;
-  margin: 0;
-}
-
-.admin-logo-accent {
   background: linear-gradient(135deg, #7DD3FC, #60A5FA);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  font-weight: 800;
+}
+
+.admin-logo-subtitle {
+  font-family: var(--admin-font-heading, 'Manrope', sans-serif);
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 0.02em;
 }
 
 .admin-sidebar-nav {
@@ -3395,6 +3397,234 @@ input, textarea {
 .doc-icon.xlsx {
   background: #DCFCE7;
   color: #16A34A;
+}
+
+/* ── Documents Header ── */
+
+.admin-docs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+/* ── Category Filter Pills ── */
+
+.admin-doc-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.admin-doc-pill {
+  padding: 6px 16px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid #E2E8F0;
+  background: #fff;
+  color: #64748B;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.admin-doc-pill:hover {
+  border-color: #2463eb;
+  color: #2463eb;
+}
+
+.admin-doc-pill.active {
+  background: #2463eb;
+  color: #fff;
+  border-color: #2463eb;
+}
+
+/* ── Document Card Grid ── */
+
+.admin-doc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.admin-doc-card {
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  padding: 20px;
+  transition: box-shadow 0.15s, border-color 0.15s;
+  position: relative;
+}
+
+.admin-doc-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: #CBD5E1;
+}
+
+.admin-doc-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+/* Large doc icon */
+.doc-icon-lg {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.doc-icon-lg .material-symbols-outlined {
+  font-size: 24px;
+}
+
+.doc-icon-lg.pdf {
+  background: #FEE2E2;
+  color: #DC2626;
+}
+
+.doc-icon-lg.docx {
+  background: #DBEAFE;
+  color: #2563EB;
+}
+
+.doc-icon-lg.xlsx {
+  background: #DCFCE7;
+  color: #16A34A;
+}
+
+.admin-doc-card-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: #0F172A;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 6px;
+}
+
+.admin-doc-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #94A3B8;
+}
+
+.admin-doc-card-cat {
+  color: #64748B;
+  font-weight: 500;
+}
+
+/* Card menu button */
+.admin-doc-card-menu-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: none;
+  border: none;
+  color: #94A3B8;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.admin-doc-card-menu-btn:hover {
+  background: #F1F5F9;
+  color: #0F172A;
+}
+
+/* Card dropdown */
+.admin-doc-card-dropdown {
+  position: absolute;
+  top: 56px;
+  right: 12px;
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+  min-width: 220px;
+  padding: 6px;
+}
+
+.admin-doc-dropdown-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #94A3B8;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 6px 10px 4px;
+}
+
+.admin-doc-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s;
+  text-align: left;
+  font-family: inherit;
+}
+
+.admin-doc-dropdown-item:hover {
+  background: #F1F5F9;
+}
+
+.admin-doc-dropdown-item.active {
+  color: #2463eb;
+  background: #EFF6FF;
+}
+
+.admin-doc-dropdown-item.danger {
+  color: #EF4444;
+}
+
+.admin-doc-dropdown-item.danger:hover {
+  background: #FEF2F2;
+}
+
+.admin-doc-dropdown-divider {
+  height: 1px;
+  background: #E2E8F0;
+  margin: 4px 0;
+}
+
+/* Category select in upload modal */
+.admin-category-select {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 14px;
+  border: 1px solid #E2E8F0;
+  border-radius: 6px;
+  background: #fff;
+  color: #0F172A;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.admin-category-select:focus {
+  border-color: #2463eb;
+  box-shadow: 0 0 0 3px rgba(36, 99, 235, 0.1);
 }
 
 /* ── Responsive ── */

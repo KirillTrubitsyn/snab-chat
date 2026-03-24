@@ -72,6 +72,48 @@ interface AdminPanelProps {
 
 /* ── Helpers ── */
 
+/* ── Document Categories (client-side) ── */
+
+const DOC_CATEGORIES = [
+  { key: "standards", label: "Стандарты и Положения", icon: "verified" },
+  { key: "forms", label: "Формы документов", icon: "article" },
+  { key: "npa", label: "НПА", icon: "gavel" },
+  { key: "schemas", label: "Схемы и Алгоритмы", icon: "schema" },
+  { key: "other", label: "Прочее", icon: "folder" },
+];
+
+const CATEGORY_KEYWORDS: Record<string, string> = {
+  "стандарт": "standards", "положение": "standards", "регламент": "standards",
+  "методика": "standards", "инструкция": "standards", "руководство": "standards",
+  "порядок": "standards", "правила": "standards",
+  "форма": "forms", "шаблон": "forms", "бланк": "forms", "образец": "forms",
+  "заявка": "forms", "анкета": "forms",
+  "приказ": "npa", "закон": "npa", "постановление": "npa", "распоряжение": "npa",
+  "указ": "npa", "федеральный": "npa", "кодекс": "npa",
+  "схема": "schemas", "алгоритм": "schemas", "диаграмма": "schemas",
+  "блок-схема": "schemas", "маршрут": "schemas",
+};
+
+function detectCategoryClient(tags: string[], filename?: string): string {
+  for (const tag of tags) {
+    const lower = tag.toLowerCase();
+    for (const [keyword, category] of Object.entries(CATEGORY_KEYWORDS)) {
+      if (lower.includes(keyword)) return category;
+    }
+  }
+  if (filename) {
+    const lower = filename.toLowerCase();
+    for (const [keyword, category] of Object.entries(CATEGORY_KEYWORDS)) {
+      if (lower.includes(keyword)) return category;
+    }
+  }
+  return "other";
+}
+
+function getCategoryLabel(key: string | null): string {
+  return DOC_CATEGORIES.find((c) => c.key === key)?.label || "Прочее";
+}
+
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
   return d.toLocaleDateString("ru-RU", {
@@ -129,11 +171,14 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [sourcesLoading, setSourcesLoading] = useState(false);
   const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);
   const [sourceTagInput, setSourceTagInput] = useState("");
+  const [docCategoryFilter, setDocCategoryFilter] = useState<string>("all");
+  const [openMenuId, setOpenMenuId] = useState<number | null>(null);
 
   // Upload state
   const [showUpload, setShowUpload] = useState(false);
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [parsedFiles, setParsedFiles] = useState<ParsedFile[]>([]);
+  const [parsedFileCategories, setParsedFileCategories] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadStage, setUploadStage] = useState<"idle" | "parsing" | "review" | "ingesting" | "done">("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -333,6 +378,18 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     } catch { /* ignore */ }
   };
 
+  const changeSourceCategory = async (sourceId: number, folderPath: string) => {
+    setSources((prev) => prev.map((s) => (s.id === sourceId ? { ...s, folder_path: folderPath } : s)));
+    setOpenMenuId(null);
+    try {
+      await fetch(`/api/sources?id=${sourceId}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ folder_path: folderPath }),
+      });
+    } catch { /* ignore */ }
+  };
+
   /* ── Upload flow ── */
 
   const handleFilesSelected = async (files: FileList | null) => {
@@ -360,6 +417,8 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     }
 
     setParsedFiles(parsed);
+    // Auto-detect categories from tags
+    setParsedFileCategories(parsed.map((pf) => detectCategoryClient(pf.tags, pf.filename)));
     setUploadStage(parsed.length > 0 ? "review" : "idle");
   };
 
@@ -377,6 +436,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
       formData.append("mimeType", pf.mimeType);
       formData.append("markdown", pf.markdown);
       formData.append("tags", JSON.stringify(pf.tags));
+      formData.append("folderPath", parsedFileCategories[i] || "other");
 
       try {
         await fetch("/api/ingest", {
@@ -411,6 +471,17 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     return true;
   });
 
+  // Filter sources by category
+  const filteredSources = docCategoryFilter === "all"
+    ? sources
+    : sources.filter((s) => (s.folder_path || "other") === docCategoryFilter);
+
+  // Count per category
+  const categoryCounts = DOC_CATEGORIES.reduce((acc, cat) => {
+    acc[cat.key] = sources.filter((s) => (s.folder_path || "other") === cat.key).length;
+    return acc;
+  }, {} as Record<string, number>);
+
   /* ── Nav items config ── */
   const navItems = [
     { key: "activity" as const, label: "Активность", icon: "monitoring" },
@@ -427,7 +498,10 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
       {/* Sidebar */}
       <aside className="admin-sidebar">
         <div className="admin-sidebar-logo">
-          <h1><span className="admin-logo-accent">СнабЧат</span> Admin Panel</h1>
+          <div>
+            <div className="admin-logo-title">СнабЧат</div>
+            <div className="admin-logo-subtitle">Admin Panel</div>
+          </div>
         </div>
         <nav className="admin-sidebar-nav">
           {navItems.map((item) => (
@@ -736,108 +810,113 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
 
             {/* ── Tab: Documents ── */}
             {tab === "documents" && (
-              <div>
-                <div className="admin-card admin-card-table">
-                  <div className="admin-card-header">
-                    <div className="admin-card-header-left">
-                      <h3 className="admin-card-title">База знаний</h3>
-                      <span className="admin-card-badge">{sources.length}</span>
-                    </div>
-                    <div className="admin-card-actions">
-                      <button className="admin-btn-primary" onClick={() => setShowUpload(true)}>
-                        <span className="material-symbols-outlined">upload</span>
-                        Загрузить
-                      </button>
-                      <button className="admin-btn-secondary" onClick={loadSources} disabled={sourcesLoading}>
-                        <span className="material-symbols-outlined">refresh</span>
-                        Обновить
-                      </button>
-                    </div>
+              <div onClick={() => setOpenMenuId(null)}>
+                {/* Header */}
+                <div className="admin-docs-header">
+                  <h2 className="admin-card-title" style={{ fontSize: 24 }}>Документы</h2>
+                  <div className="admin-card-actions">
+                    <button className="admin-btn-secondary" onClick={loadSources} disabled={sourcesLoading}>
+                      <span className="material-symbols-outlined">refresh</span>
+                      Обновить
+                    </button>
+                    <button className="admin-btn-primary" onClick={() => setShowUpload(true)}>
+                      <span className="material-symbols-outlined">add</span>
+                      Загрузить документ
+                    </button>
                   </div>
+                </div>
 
-                  {sourcesLoading ? (
-                    <div className="admin-loading-text">
-                      <div className="admin-spinner" />
-                      Загрузка...
-                    </div>
-                  ) : sources.length === 0 ? (
-                    <div className="admin-empty">
-                      <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3, marginBottom: 12 }}>description</span>
-                      <p>Нет загруженных документов</p>
-                      <p style={{ fontSize: 12, marginTop: 4 }}>Нажмите «Загрузить» чтобы добавить документы в базу знаний</p>
-                    </div>
-                  ) : (
-                    <div className="admin-docs-list">
-                      {sources.map((doc) => {
-                        const isExpanded = expandedSourceId === doc.id;
-                        const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : "docx";
-                        return (
-                          <div key={doc.id} className={`admin-doc-item ${isExpanded ? "expanded" : ""}`}>
-                            <div
-                              className="admin-doc-header"
-                              onClick={() => {
-                                setExpandedSourceId(isExpanded ? null : doc.id);
-                                setSourceTagInput("");
-                              }}
-                            >
-                              <div className={`doc-icon ${ext}`}>
-                                {ext === "pdf" ? "PDF" : ext === "xlsx" ? "XLS" : "DOC"}
-                              </div>
-                              <div className="admin-doc-info">
-                                <div className="admin-doc-name">{doc.filename}</div>
-                                <div className="admin-doc-meta">
-                                  {doc.tags?.length || 0} тегов &middot; {formatDate(doc.created_at)}
-                                </div>
-                              </div>
-                              <button
-                                className="admin-action-link admin-action-danger"
-                                onClick={(e) => { e.stopPropagation(); deleteSource(doc.id); }}
-                              >
-                                Удалить
-                              </button>
+                {/* Category filter pills */}
+                <div className="admin-doc-pills">
+                  <button
+                    className={`admin-doc-pill ${docCategoryFilter === "all" ? "active" : ""}`}
+                    onClick={() => setDocCategoryFilter("all")}
+                  >
+                    Все ({sources.length})
+                  </button>
+                  {DOC_CATEGORIES.map((cat) => (
+                    <button
+                      key={cat.key}
+                      className={`admin-doc-pill ${docCategoryFilter === cat.key ? "active" : ""}`}
+                      onClick={() => setDocCategoryFilter(cat.key)}
+                    >
+                      {cat.label} ({categoryCounts[cat.key] || 0})
+                    </button>
+                  ))}
+                </div>
+
+                {/* Card grid */}
+                {sourcesLoading ? (
+                  <div className="admin-loading-text">
+                    <div className="admin-spinner" />
+                    Загрузка...
+                  </div>
+                ) : filteredSources.length === 0 ? (
+                  <div className="admin-empty" style={{ padding: "80px 24px" }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3, marginBottom: 12 }}>description</span>
+                    <p>{sources.length === 0 ? "Нет загруженных документов" : "Нет документов в этой категории"}</p>
+                    {sources.length === 0 && (
+                      <p style={{ fontSize: 12, marginTop: 4 }}>Нажмите «Загрузить документ» чтобы добавить</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="admin-doc-grid">
+                    {filteredSources.map((doc) => {
+                      const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : "docx";
+                      const isMenuOpen = openMenuId === doc.id;
+                      return (
+                        <div key={doc.id} className="admin-doc-card">
+                          <div className="admin-doc-card-top">
+                            <div className={`doc-icon-lg ${ext}`}>
+                              {ext === "pdf" ? (
+                                <span className="material-symbols-outlined">picture_as_pdf</span>
+                              ) : ext === "xlsx" ? (
+                                <span className="material-symbols-outlined">table_chart</span>
+                              ) : (
+                                <span className="material-symbols-outlined">description</span>
+                              )}
                             </div>
-                            {isExpanded && (
-                              <div className="admin-doc-details">
-                                <div className="admin-doc-tags-label">Теги:</div>
-                                <div className="admin-doc-tags">
-                                  {(doc.tags || []).map((tag) => (
-                                    <span key={tag} className="admin-tag">
-                                      {tag}
-                                      <button
-                                        onClick={() => updateSourceTags(doc.id, doc.tags.filter((t) => t !== tag))}
-                                        className="admin-tag-remove"
-                                      >
-                                        &times;
-                                      </button>
-                                    </span>
-                                  ))}
-                                  <form
-                                    className="admin-tag-form"
-                                    onSubmit={(e) => {
-                                      e.preventDefault();
-                                      const t = sourceTagInput.trim();
-                                      if (t && !(doc.tags || []).includes(t)) {
-                                        updateSourceTags(doc.id, [...(doc.tags || []), t]);
-                                        setSourceTagInput("");
-                                      }
-                                    }}
+                            <button
+                              className="admin-doc-card-menu-btn"
+                              onClick={(e) => { e.stopPropagation(); setOpenMenuId(isMenuOpen ? null : doc.id); }}
+                            >
+                              <span className="material-symbols-outlined">more_vert</span>
+                            </button>
+                            {isMenuOpen && (
+                              <div className="admin-doc-card-dropdown" onClick={(e) => e.stopPropagation()}>
+                                <div className="admin-doc-dropdown-label">Переместить в:</div>
+                                {DOC_CATEGORIES.map((cat) => (
+                                  <button
+                                    key={cat.key}
+                                    className={`admin-doc-dropdown-item ${(doc.folder_path || "other") === cat.key ? "active" : ""}`}
+                                    onClick={() => changeSourceCategory(doc.id, cat.key)}
                                   >
-                                    <input
-                                      value={sourceTagInput}
-                                      onChange={(e) => setSourceTagInput(e.target.value)}
-                                      placeholder="+ добавить тег"
-                                      className="admin-tag-input"
-                                    />
-                                  </form>
-                                </div>
+                                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{cat.icon}</span>
+                                    {cat.label}
+                                  </button>
+                                ))}
+                                <div className="admin-doc-dropdown-divider" />
+                                <button
+                                  className="admin-doc-dropdown-item danger"
+                                  onClick={() => { setOpenMenuId(null); deleteSource(doc.id); }}
+                                >
+                                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
+                                  Удалить
+                                </button>
                               </div>
                             )}
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+                          <div className="admin-doc-card-name" title={doc.filename}>{doc.filename}</div>
+                          <div className="admin-doc-card-meta">
+                            <span className="admin-doc-card-cat">{getCategoryLabel(doc.folder_path)}</span>
+                            <span>&middot;</span>
+                            <span>{formatDate(doc.created_at)}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
                 {/* Upload Modal */}
                 {showUpload && (
@@ -875,10 +954,30 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                           <div>
                             <p style={{ marginBottom: 16, fontWeight: 500 }}>Готово к загрузке: {parsedFiles.length} файлов</p>
                             {parsedFiles.map((pf, i) => (
-                              <div key={i} className="admin-card" style={{ marginBottom: 8 }}>
+                              <div key={i} className="admin-card" style={{ marginBottom: 12 }}>
                                 <div style={{ fontWeight: 500, marginBottom: 4 }}>{pf.filename}</div>
-                                <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>
+                                <div style={{ fontSize: 12, color: "#64748B", marginBottom: 8 }}>
                                   {pf.totalChunks} чанков
+                                </div>
+                                <div style={{ marginBottom: 8 }}>
+                                  <label style={{ fontSize: 12, fontWeight: 500, color: "#64748B", display: "block", marginBottom: 4 }}>
+                                    Категория
+                                  </label>
+                                  <select
+                                    className="admin-category-select"
+                                    value={parsedFileCategories[i] || "other"}
+                                    onChange={(e) => {
+                                      setParsedFileCategories((prev) => {
+                                        const next = [...prev];
+                                        next[i] = e.target.value;
+                                        return next;
+                                      });
+                                    }}
+                                  >
+                                    {DOC_CATEGORIES.map((cat) => (
+                                      <option key={cat.key} value={cat.key}>{cat.label}</option>
+                                    ))}
+                                  </select>
                                 </div>
                                 <div className="admin-doc-tags">
                                   {pf.tags.map((tag) => (
