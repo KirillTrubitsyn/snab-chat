@@ -2064,6 +2064,186 @@ input, textarea {
 }
 
 /* ══════════════════════════════════════════════════
+   Knowledge Base View (Chat)
+   ══════════════════════════════════════════════════ */
+
+.kb-view {
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 32px 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.kb-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.kb-title {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.kb-badge {
+  background: var(--accent-soft, #EFF6FF);
+  color: var(--accent, #2563EB);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  border: 1px solid rgba(37, 99, 235, 0.15);
+}
+
+.kb-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.kb-pill {
+  padding: 6px 16px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border, #E2E8F0);
+  background: var(--bg-white, #fff);
+  color: var(--text-secondary, #64748B);
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.kb-pill:hover {
+  border-color: var(--accent, #2563EB);
+  color: var(--accent, #2563EB);
+}
+
+.kb-pill.active {
+  background: var(--accent, #2563EB);
+  color: #fff;
+  border-color: var(--accent, #2563EB);
+}
+
+/* ── KB Document List ── */
+
+.kb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-white, #fff);
+  border: 1px solid var(--border, #E2E8F0);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.kb-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  transition: background 0.1s;
+  border-bottom: 1px solid var(--border, #F1F5F9);
+}
+
+.kb-row:last-child {
+  border-bottom: none;
+}
+
+.kb-row:hover {
+  background: var(--bg-main, #F8FAFC);
+}
+
+.kb-row-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.kb-row-icon.pdf { background: #FEE2E2; color: #DC2626; }
+.kb-row-icon.docx { background: #DBEAFE; color: #2563EB; }
+.kb-row-icon.xlsx { background: #DCFCE7; color: #16A34A; }
+
+.kb-row-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.kb-row-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary, #0F172A);
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.kb-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #94A3B8;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+
+.kb-row-cat {
+  color: var(--text-secondary, #64748B);
+  font-weight: 500;
+}
+
+.kb-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.kb-action-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted, #94A3B8);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-decoration: none;
+}
+
+.kb-action-btn:hover {
+  background: var(--bg-sidebar-hover, #F1F5F9);
+  color: var(--accent, #2563EB);
+}
+
+.kb-empty {
+  text-align: center;
+  padding: 80px 24px;
+  color: var(--text-muted, #94A3B8);
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ══════════════════════════════════════════════════
    Admin Panel — Polished Design
    ══════════════════════════════════════════════════ */
 
@@ -3441,7 +3621,96 @@ input, textarea {
   border-color: #2463eb;
 }
 
-/* ── Document Card Grid ── */
+/* ── Document List View ── */
+
+.admin-doc-list-view {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.admin-doc-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  transition: background 0.1s;
+  border-bottom: 1px solid #F1F5F9;
+  position: relative;
+}
+
+.admin-doc-row:last-child {
+  border-bottom: none;
+}
+
+.admin-doc-row:hover {
+  background: #F8FAFC;
+}
+
+.admin-doc-row-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-doc-row-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: #0F172A;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.admin-doc-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #94A3B8;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+
+.admin-doc-row-cat {
+  color: #64748B;
+  font-weight: 500;
+}
+
+.admin-doc-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.admin-doc-action-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: none;
+  border: none;
+  color: #94A3B8;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-decoration: none;
+}
+
+.admin-doc-action-btn:hover {
+  background: #F1F5F9;
+  color: #2463eb;
+}
+
+.admin-doc-action-btn .material-symbols-outlined {
+  font-size: 20px;
+}
+
+/* ── Document Card Grid (legacy) ── */
 
 .admin-doc-grid {
   display: grid;

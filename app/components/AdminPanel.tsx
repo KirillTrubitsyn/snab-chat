@@ -860,57 +860,82 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                     )}
                   </div>
                 ) : (
-                  <div className="admin-doc-grid">
+                  <div className="admin-doc-list-view">
                     {filteredSources.map((doc) => {
                       const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : "docx";
                       const isMenuOpen = openMenuId === doc.id;
                       return (
-                        <div key={doc.id} className="admin-doc-card">
-                          <div className="admin-doc-card-top">
-                            <div className={`doc-icon-lg ${ext}`}>
-                              {ext === "pdf" ? (
-                                <span className="material-symbols-outlined">picture_as_pdf</span>
-                              ) : ext === "xlsx" ? (
-                                <span className="material-symbols-outlined">table_chart</span>
-                              ) : (
-                                <span className="material-symbols-outlined">description</span>
-                              )}
-                            </div>
-                            <button
-                              className="admin-doc-card-menu-btn"
-                              onClick={(e) => { e.stopPropagation(); setOpenMenuId(isMenuOpen ? null : doc.id); }}
-                            >
-                              <span className="material-symbols-outlined">more_vert</span>
-                            </button>
-                            {isMenuOpen && (
-                              <div className="admin-doc-card-dropdown" onClick={(e) => e.stopPropagation()}>
-                                <div className="admin-doc-dropdown-label">Переместить в:</div>
-                                {DOC_CATEGORIES.map((cat) => (
-                                  <button
-                                    key={cat.key}
-                                    className={`admin-doc-dropdown-item ${(doc.folder_path || "other") === cat.key ? "active" : ""}`}
-                                    onClick={() => changeSourceCategory(doc.id, cat.key)}
-                                  >
-                                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{cat.icon}</span>
-                                    {cat.label}
-                                  </button>
-                                ))}
-                                <div className="admin-doc-dropdown-divider" />
-                                <button
-                                  className="admin-doc-dropdown-item danger"
-                                  onClick={() => { setOpenMenuId(null); deleteSource(doc.id); }}
-                                >
-                                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
-                                  Удалить
-                                </button>
-                              </div>
+                        <div key={doc.id} className="admin-doc-row">
+                          <div className={`doc-icon-lg ${ext}`}>
+                            {ext === "pdf" ? (
+                              <span className="material-symbols-outlined">picture_as_pdf</span>
+                            ) : ext === "xlsx" ? (
+                              <span className="material-symbols-outlined">table_chart</span>
+                            ) : (
+                              <span className="material-symbols-outlined">description</span>
                             )}
                           </div>
-                          <div className="admin-doc-card-name" title={doc.filename}>{doc.filename}</div>
-                          <div className="admin-doc-card-meta">
-                            <span className="admin-doc-card-cat">{getCategoryLabel(doc.folder_path)}</span>
-                            <span>&middot;</span>
-                            <span>{formatDate(doc.created_at)}</span>
+                          <div className="admin-doc-row-info">
+                            <div className="admin-doc-row-name">{doc.filename}</div>
+                            <div className="admin-doc-row-meta">
+                              <span className="admin-doc-row-cat">{getCategoryLabel(doc.folder_path)}</span>
+                              <span>&middot;</span>
+                              <span>{formatDate(doc.created_at)}</span>
+                              <span>&middot;</span>
+                              <span>{doc.tags?.length || 0} тегов</span>
+                            </div>
+                          </div>
+                          <div className="admin-doc-row-actions">
+                            <a
+                              href={`/api/sources/download?id=${doc.id}&action=view`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="admin-doc-action-btn"
+                              title="Просмотр"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <span className="material-symbols-outlined">visibility</span>
+                            </a>
+                            <a
+                              href={`/api/sources/download?id=${doc.id}&action=download`}
+                              className="admin-doc-action-btn"
+                              title="Скачать"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <span className="material-symbols-outlined">download</span>
+                            </a>
+                            <div style={{ position: "relative" }}>
+                              <button
+                                className="admin-doc-action-btn"
+                                onClick={(e) => { e.stopPropagation(); setOpenMenuId(isMenuOpen ? null : doc.id); }}
+                                title="Действия"
+                              >
+                                <span className="material-symbols-outlined">more_vert</span>
+                              </button>
+                              {isMenuOpen && (
+                                <div className="admin-doc-card-dropdown" onClick={(e) => e.stopPropagation()}>
+                                  <div className="admin-doc-dropdown-label">Переместить в:</div>
+                                  {DOC_CATEGORIES.map((cat) => (
+                                    <button
+                                      key={cat.key}
+                                      className={`admin-doc-dropdown-item ${(doc.folder_path || "other") === cat.key ? "active" : ""}`}
+                                      onClick={() => changeSourceCategory(doc.id, cat.key)}
+                                    >
+                                      <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{cat.icon}</span>
+                                      {cat.label}
+                                    </button>
+                                  ))}
+                                  <div className="admin-doc-dropdown-divider" />
+                                  <button
+                                    className="admin-doc-dropdown-item danger"
+                                    onClick={() => { setOpenMenuId(null); deleteSource(doc.id); }}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
+                                    Удалить
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
                       );
