@@ -73,12 +73,10 @@ export async function POST(req: NextRequest) {
       const supportId = data.slice(6);
       await answerCallbackQuery(callbackQuery.id);
 
-      // Отправляем prompt с force_reply, reply к оригинальному уведомлению
-      const originalMessageId = callbackQuery.message?.message_id;
+      // Отправляем prompt с REF — админ ответит на него через Reply
       await sendReplyPrompt(
         chatId,
-        `✍️ Напишите ответ на обращение:\n\n🔖 REF:${supportId}`,
-        originalMessageId
+        `✍️ Ответьте на это сообщение (Reply ↩️), чтобы отправить ответ пользователю.\n\n🔖 REF:${supportId}`
       );
 
       console.log(`[Telegram Webhook] Reply prompt sent to admin ${admin.name}, support ${supportId}`);
