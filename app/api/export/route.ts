@@ -667,7 +667,7 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
                     color: BRAND_CYAN,
                   }),
                   new TextRun({
-                    text: " · Дирекция по ресурсному обеспечению",
+                    text: " · Дирекция по закупкам",
                     font: FONT_BODY,
                     size: 16,
                     italics: true,

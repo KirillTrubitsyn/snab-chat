@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "СнабЧат — Дирекция по ресурсному обеспечению",
+  title: "СнабЧат — Дирекция по закупкам",
   description: "ИИ-ассистент Дирекции по закупкам с RAG-поиском по базе знаний",
   manifest: "/manifest.json",
   appleWebApp: {
