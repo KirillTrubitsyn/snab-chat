@@ -887,7 +887,8 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                       const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : "docx";
                       const isMenuOpen = openMenuId === doc.id;
                       return (
-                        <div key={doc.id} className="admin-doc-row">
+                        <div key={doc.id} className={`admin-doc-row-wrapper${expandedSourceId === doc.id ? " expanded" : ""}`}>
+                        <div className="admin-doc-row" onClick={() => setExpandedSourceId(expandedSourceId === doc.id ? null : doc.id)} style={{ cursor: "pointer" }}>
                           <div className={`doc-icon-lg ${ext}`}>
                             {ext === "pdf" ? (
                               <span className="material-symbols-outlined">picture_as_pdf</span>
@@ -910,6 +911,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                                   onBlur={() => saveRename(doc.id)}
                                   onKeyDown={(e) => { if (e.key === "Escape") setRenamingId(null); }}
                                   autoFocus
+                                  onClick={(e) => e.stopPropagation()}
                                 />
                               </form>
                             ) : (
@@ -920,7 +922,10 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                               <span>&middot;</span>
                               <span>{formatDate(doc.created_at)}</span>
                               <span>&middot;</span>
-                              <span>{doc.tags?.length || 0} тегов</span>
+                              <span className="admin-doc-row-tags-count">
+                                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>label</span>
+                                {doc.tags?.length || 0} тегов
+                              </span>
                             </div>
                           </div>
                           <div className="admin-doc-row-actions">
@@ -996,6 +1001,47 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                               )}
                             </div>
                           </div>
+                        </div>
+                        {expandedSourceId === doc.id && (
+                          <div className="admin-doc-tags-panel" onClick={(e) => e.stopPropagation()}>
+                            <div className="admin-doc-tags-list">
+                              {(doc.tags || []).length === 0 && (
+                                <span className="admin-doc-tags-empty">Нет тегов</span>
+                              )}
+                              {(doc.tags || []).map((tag) => (
+                                <span key={tag} className="admin-tag">
+                                  {tag}
+                                  <button
+                                    onClick={() => updateSourceTags(doc.id, doc.tags.filter((t) => t !== tag))}
+                                    className="admin-tag-remove"
+                                  >&times;</button>
+                                </span>
+                              ))}
+                            </div>
+                            <form
+                              className="admin-doc-tag-add-form"
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                const val = sourceTagInput.trim();
+                                if (val && !(doc.tags || []).includes(val)) {
+                                  updateSourceTags(doc.id, [...(doc.tags || []), val]);
+                                }
+                                setSourceTagInput("");
+                              }}
+                            >
+                              <input
+                                className="admin-doc-tag-input"
+                                placeholder="Добавить тег..."
+                                value={expandedSourceId === doc.id ? sourceTagInput : ""}
+                                onChange={(e) => setSourceTagInput(e.target.value)}
+                                autoFocus
+                              />
+                              <button type="submit" className="admin-doc-tag-add-btn">
+                                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
+                              </button>
+                            </form>
+                          </div>
+                        )}
                         </div>
                       );
                     })}
