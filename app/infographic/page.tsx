@@ -48,8 +48,10 @@ export default function InfographicPage() {
     }
   }, []);
 
+  const hasContext = !!documentText;
+
   const handleGenerate = async () => {
-    if (!topic.trim() || topic.trim().length < 3) {
+    if (!hasContext && (!topic.trim() || topic.trim().length < 3)) {
       setError("Введите тему (минимум 3 символа)");
       return;
     }
@@ -177,12 +179,16 @@ export default function InfographicPage() {
 
               {/* Topic */}
               <div className="infographic-field">
-                <label className="infographic-label">Тема инфографики</label>
+                <label className="infographic-label">
+                  Тема инфографики{hasContext ? " (необязательно)" : ""}
+                </label>
                 <textarea
                   className="infographic-textarea"
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
-                  placeholder="Например: Этапы проведения конкурентной закупки"
+                  placeholder={hasContext
+                    ? "Оставьте пустым — тема определится автоматически из контекста"
+                    : "Например: Этапы проведения конкурентной закупки"}
                   rows={3}
                 />
               </div>
