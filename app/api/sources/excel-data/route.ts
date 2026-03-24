@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import * as XLSX from "xlsx";
+import { parseMarkdownTables } from "@/app/lib/markdown-tables";
 
 export interface ExcelSheet {
   name: string;
@@ -93,48 +94,12 @@ export async function GET(req: NextRequest) {
   }
 
   const markdown = chunks.map((c) => c.content).join("\n\n");
-  const sheets = parseMarkdownTables(markdown, source.filename);
+  const parsed = parseMarkdownTables(markdown, source.filename);
+  const sheets: ExcelSheet[] = parsed.map((s) => ({
+    ...s,
+    merges: [],
+    colWidths: [],
+  }));
 
   return NextResponse.json({ sheets, filename: source.filename });
-}
-
-function parseMarkdownTables(md: string, filename: string): ExcelSheet[] {
-  const sheets: ExcelSheet[] = [];
-  const sections = md.split(/^## /gm);
-
-  for (const section of sections) {
-    if (!section.trim()) continue;
-
-    const lines = section.split("\n");
-    const name = lines[0]?.trim() || filename;
-    const tableRows: string[][] = [];
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith("|")) continue;
-      // Skip separator rows
-      if (/^\|[\s\-:|]+\|$/.test(trimmed)) continue;
-
-      const cells = trimmed
-        .replace(/^\|/, "")
-        .replace(/\|$/, "")
-        .split("|")
-        .map((c) => c.trim().replace(/\\\|/g, "|"));
-      tableRows.push(cells);
-    }
-
-    if (tableRows.length > 0) {
-      const maxCols = Math.max(...tableRows.map((r) => r.length));
-      sheets.push({
-        name,
-        rows: tableRows.map((r) =>
-          Array.from({ length: maxCols }, (_, i) => r[i] || "")
-        ),
-        merges: [],
-        colWidths: [],
-      });
-    }
-  }
-
-  return sheets;
 }
