@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
-import { getAdminByChatId, notifySupportReply, answerCallbackQuery, sendForceReply } from "@/app/lib/telegram";
+import { getAdminByChatId, notifySupportReply, answerCallbackQuery, sendReplyPrompt } from "@/app/lib/telegram";
 
 export const runtime = "nodejs";
 
@@ -39,8 +39,8 @@ async function saveAdminReply(supportMessageId: string, replyText: string, admin
 /**
  * Telegram Webhook — обработка входящих сообщений от бота.
  * Поддерживает:
- * 1. Callback-кнопку "Ответить" → отправляет force_reply
- * 2. Reply на уведомление → сохраняет ответ в БД
+ * 1. Callback-кнопку "Ответить" → prompt с force_reply + REF
+ * 2. Reply на сообщение с REF → сохраняет ответ в БД
  */
 export async function POST(req: NextRequest) {
   // Проверка секрета
@@ -71,34 +71,37 @@ export async function POST(req: NextRequest) {
     const data = callbackQuery.data ?? "";
     if (data.startsWith("reply:")) {
       const supportId = data.slice(6);
-      // Подтверждаем нажатие
       await answerCallbackQuery(callbackQuery.id);
-      // Отправляем сообщение с force_reply чтобы открыть поле ввода
-      await sendForceReply(
+
+      // Отправляем prompt с force_reply, reply к оригинальному уведомлению
+      const originalMessageId = callbackQuery.message?.message_id;
+      await sendReplyPrompt(
         chatId,
-        `✍️ Напишите ответ на обращение.\n\n🔖 REF:${supportId}`
+        `✍️ Напишите ответ на обращение:\n\n🔖 REF:${supportId}`,
+        originalMessageId
       );
+
+      console.log(`[Telegram Webhook] Reply prompt sent to admin ${admin.name}, support ${supportId}`);
     } else {
       await answerCallbackQuery(callbackQuery.id);
     }
     return NextResponse.json({ ok: true });
   }
 
-  // ── Обработка reply-сообщений ──
+  // ── Обработка сообщений от админа ──
   const message = update?.message;
-  if (!message?.reply_to_message?.text || !message.text) {
+  if (!message?.text) {
     return NextResponse.json({ ok: true });
   }
 
   const chatId = String(message.chat.id);
   const admin = getAdminByChatId(chatId);
   if (!admin) {
-    console.log(`[Telegram Webhook] Ignored message from unauthorized chat: ${chatId}`);
     return NextResponse.json({ ok: true });
   }
 
-  const originalText = message.reply_to_message.text;
-  const supportMessageId = extractRef(originalText);
+  // Ищем REF в reply_to_message (оригинальное уведомление или prompt от кнопки)
+  const supportMessageId = extractRef(message.reply_to_message?.text);
   if (!supportMessageId) {
     return NextResponse.json({ ok: true });
   }
