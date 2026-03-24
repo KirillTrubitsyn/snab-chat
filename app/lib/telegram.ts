@@ -3,6 +3,8 @@
  * Прямые вызовы api.telegram.org (без n8n).
  */
 
+import { ADMIN_NAMES_BY_NUMBER } from "./auth";
+
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
 
 const ADMIN_CHAT_IDS: string[] = [
@@ -10,6 +12,26 @@ const ADMIN_CHAT_IDS: string[] = [
   process.env.TELEGRAM_ADMIN_CHAT_ID_2 ?? "",
   process.env.TELEGRAM_ADMIN_CHAT_ID_3 ?? "",
 ].filter(Boolean);
+
+// Reverse lookup: chat_id → { number, name }
+const ADMIN_BY_CHAT_ID: Record<string, { number: number; name: string }> = {};
+[
+  process.env.TELEGRAM_ADMIN_CHAT_ID_1,
+  process.env.TELEGRAM_ADMIN_CHAT_ID_2,
+  process.env.TELEGRAM_ADMIN_CHAT_ID_3,
+].forEach((chatId, i) => {
+  if (chatId) {
+    ADMIN_BY_CHAT_ID[chatId] = {
+      number: i + 1,
+      name: ADMIN_NAMES_BY_NUMBER[i + 1] ?? `Админ ${i + 1}`,
+    };
+  }
+});
+
+/** Получить админа по Telegram chat_id */
+export function getAdminByChatId(chatId: string): { number: number; name: string } | null {
+  return ADMIN_BY_CHAT_ID[chatId] ?? null;
+}
 
 function getMoscowTime(): string {
   return new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" });
@@ -90,19 +112,22 @@ export async function notifyError(
   await notifyAllAdmins(text);
 }
 
-/** Уведомление о новом обращении в поддержку */
+/** Уведомление о новом обращении в поддержку (с REF для ответа через ТГ) */
 export async function notifySupportMessage(
   userName: string,
   message: string,
-  organization?: string | null
+  organization?: string | null,
+  supportMessageId?: string | null
 ): Promise<void> {
   const orgLine = organization ? `\n🏢 <b>Организация:</b> ${escapeHtml(organization)}` : "";
   const truncMsg = message.length > 1000 ? message.slice(0, 1000) + "..." : message;
+  const refLine = supportMessageId ? `\n\n🔖 <code>REF:${supportMessageId}</code>` : "";
   const text =
     `📩 <b>Новое обращение в поддержку</b>\n\n` +
     `👤 <b>Пользователь:</b> ${escapeHtml(userName)}${orgLine}\n\n` +
     `💬 ${escapeHtml(truncMsg)}\n\n` +
-    `🕐 ${getMoscowTime()}`;
+    `🕐 ${getMoscowTime()}` +
+    `${refLine}\n\n💡 <i>Ответьте на это сообщение, чтобы отправить ответ пользователю</i>`;
   await notifyAllAdmins(text);
 }
 
