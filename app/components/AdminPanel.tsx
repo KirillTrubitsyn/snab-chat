@@ -173,6 +173,8 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [sourceTagInput, setSourceTagInput] = useState("");
   const [docCategoryFilter, setDocCategoryFilter] = useState<string>("all");
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   // Upload state
   const [showUpload, setShowUpload] = useState(false);
@@ -386,6 +388,26 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ folder_path: folderPath }),
+      });
+    } catch { /* ignore */ }
+  };
+
+  const startRename = (doc: Source) => {
+    setRenamingId(doc.id);
+    setRenameValue(doc.filename);
+    setOpenMenuId(null);
+  };
+
+  const saveRename = async (sourceId: number) => {
+    const newName = renameValue.trim();
+    if (!newName) { setRenamingId(null); return; }
+    setSources((prev) => prev.map((s) => (s.id === sourceId ? { ...s, filename: newName } : s)));
+    setRenamingId(null);
+    try {
+      await fetch(`/api/sources?id=${sourceId}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: newName }),
       });
     } catch { /* ignore */ }
   };
@@ -876,7 +898,23 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                             )}
                           </div>
                           <div className="admin-doc-row-info">
-                            <div className="admin-doc-row-name">{doc.filename}</div>
+                            {renamingId === doc.id ? (
+                              <form
+                                className="admin-doc-rename-form"
+                                onSubmit={(e) => { e.preventDefault(); saveRename(doc.id); }}
+                              >
+                                <input
+                                  className="admin-doc-rename-input"
+                                  value={renameValue}
+                                  onChange={(e) => setRenameValue(e.target.value)}
+                                  onBlur={() => saveRename(doc.id)}
+                                  onKeyDown={(e) => { if (e.key === "Escape") setRenamingId(null); }}
+                                  autoFocus
+                                />
+                              </form>
+                            ) : (
+                              <div className="admin-doc-row-name">{doc.filename}</div>
+                            )}
                             <div className="admin-doc-row-meta">
                               <span className="admin-doc-row-cat">{getCategoryLabel(doc.folder_path)}</span>
                               <span>&middot;</span>
@@ -926,6 +964,13 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                                     </button>
                                   ))}
                                   <div className="admin-doc-dropdown-divider" />
+                                  <button
+                                    className="admin-doc-dropdown-item"
+                                    onClick={() => startRename(doc)}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span>
+                                    Переименовать
+                                  </button>
                                   <button
                                     className="admin-doc-dropdown-item danger"
                                     onClick={() => { setOpenMenuId(null); deleteSource(doc.id); }}

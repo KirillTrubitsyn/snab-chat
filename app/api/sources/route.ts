@@ -36,11 +36,12 @@ export async function PATCH(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { tags, folder_path } = body;
+    const { tags, folder_path, filename } = body;
 
     const updateData: Record<string, unknown> = {};
     if (Array.isArray(tags)) updateData.tags = tags;
     if (typeof folder_path === "string") updateData.folder_path = folder_path;
+    if (typeof filename === "string" && filename.trim()) updateData.filename = filename.trim();
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });

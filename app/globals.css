@@ -3720,6 +3720,25 @@ input, textarea {
   font-size: 20px;
 }
 
+/* Rename inline form */
+.admin-doc-rename-form {
+  display: flex;
+  flex: 1;
+}
+
+.admin-doc-rename-input {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid #2463eb;
+  border-radius: 6px;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(36, 99, 235, 0.1);
+  color: #0F172A;
+}
+
 /* ── Document Card Grid (legacy) ── */
 
 .admin-doc-grid {
