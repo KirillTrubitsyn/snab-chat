@@ -1959,7 +1959,7 @@ export default function Chat() {
                     <p>Нет загруженных документов</p>
                   </div>
                 ) : (
-                  <div className="kb-grid">
+                  <div className="kb-list">
                     {sources
                       .filter((s) => kbCategoryFilter === "all" || (s.folder_path || "other") === kbCategoryFilter)
                       .map((doc) => {
@@ -1972,28 +1972,47 @@ export default function Chat() {
                           { key: "other", label: "Прочее" },
                         ].find((c) => c.key === (doc.folder_path || "other"))?.label || "Прочее";
                         return (
-                          <div key={doc.id} className="kb-card">
-                            <div className="kb-card-top">
-                              <div className={`kb-card-icon ${ext}`}>
-                                {ext === "pdf" ? "PDF" : ext === "xlsx" ? "XLS" : "DOC"}
-                              </div>
+                          <div key={doc.id} className="kb-row">
+                            <div className={`kb-row-icon ${ext}`}>
+                              {ext === "pdf" ? "PDF" : ext === "xlsx" ? "XLS" : "DOC"}
                             </div>
-                            <div className="kb-card-name" title={doc.filename}>{doc.filename}</div>
-                            <div className="kb-card-meta">
-                              <span className="kb-card-cat">{catLabel}</span>
-                              <span>&middot;</span>
-                              <span>{new Date(doc.created_at).toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" })}</span>
-                            </div>
-                            {doc.tags && doc.tags.length > 0 && (
-                              <div className="kb-card-tags">
-                                {doc.tags.slice(0, 4).map((tag) => (
-                                  <span key={tag} className="kb-tag">{tag}</span>
-                                ))}
-                                {doc.tags.length > 4 && (
-                                  <span className="kb-tag kb-tag-more">+{doc.tags.length - 4}</span>
+                            <div className="kb-row-info">
+                              <div className="kb-row-name">{doc.filename}</div>
+                              <div className="kb-row-meta">
+                                <span className="kb-row-cat">{catLabel}</span>
+                                <span>&middot;</span>
+                                <span>{new Date(doc.created_at).toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" })}</span>
+                                {doc.tags && doc.tags.length > 0 && (
+                                  <>
+                                    <span>&middot;</span>
+                                    <span>{doc.tags.length} тегов</span>
+                                  </>
                                 )}
                               </div>
-                            )}
+                            </div>
+                            <div className="kb-row-actions">
+                              <button
+                                className="kb-action-btn"
+                                onClick={() => setViewingSource(doc)}
+                                title="Просмотр"
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                  <circle cx="12" cy="12" r="3" />
+                                </svg>
+                              </button>
+                              <a
+                                className="kb-action-btn"
+                                href={`/api/sources/download?id=${doc.id}&action=download`}
+                                title="Скачать"
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                  <polyline points="7 10 12 15 17 10" />
+                                  <line x1="12" y1="15" x2="12" y2="3" />
+                                </svg>
+                              </a>
+                            </div>
                           </div>
                         );
                       })}
