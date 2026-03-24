@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>СнабЧат Admin - Preview</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Geist', sans-serif;
+    background: #F8FAFC;
+    color: #0F172A;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4, .font-display { font-family: 'Manrope', sans-serif; }
+  .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+
+  .sidebar { width: 260px; background: #153265; flex-shrink: 0; display: flex; flex-direction: column; height: 100%; box-shadow: 2px 0 8px rgba(0,0,0,0.1); z-index: 20; }
+  .sidebar-logo { padding: 0 24px; display: flex; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); height: 64px; }
+  .sidebar-logo h1 { color: #fff; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+  .sidebar-nav { flex: 1; padding: 24px 16px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+  .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: rgba(255,255,255,0.7); cursor: pointer; transition: all 0.15s; font-size: 14px; font-weight: 500; border: none; background: none; width: 100%; text-align: left; }
+  .nav-item:hover { background: rgba(255,255,255,0.05); color: #fff; }
+  .nav-item.active { background: rgba(255,255,255,0.1); color: #fff; }
+  .nav-item .material-symbols-outlined { font-size: 20px; }
+  .nav-item.active .material-symbols-outlined { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+  .sidebar-bottom { padding: 16px; border-top: 1px solid rgba(255,255,255,0.1); }
+
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+  .topbar { height: 64px; background: #fff; border-bottom: 1px solid #E2E8F0; display: flex; align-items: center; justify-content: flex-end; padding: 0 32px; flex-shrink: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); gap: 24px; }
+  .topbar-link { font-size: 14px; font-weight: 500; color: #2463eb; text-decoration: none; display: flex; align-items: center; gap: 6px; transition: color 0.15s; }
+  .topbar-link:hover { color: #1d4ed8; }
+  .topbar-link .material-symbols-outlined { font-size: 18px; }
+  .topbar-divider { width: 1px; height: 24px; background: #E2E8F0; }
+  .topbar-user { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+  .topbar-user-info { display: flex; flex-direction: column; align-items: flex-end; }
+  .topbar-user-name { font-size: 14px; font-weight: 500; color: #0F172A; }
+  .topbar-user-role { font-size: 12px; color: #64748B; }
+  .topbar-avatar { width: 36px; height: 36px; border-radius: 50%; background: #DBEAFE; border: 1px solid #BFDBFE; display: flex; align-items: center; justify-content: center; color: #2463eb; font-weight: 700; font-size: 14px; }
+  .topbar-logout { font-size: 14px; font-weight: 500; color: #EF4444; background: none; border: none; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: color 0.15s; }
+  .topbar-logout:hover { color: #DC2626; }
+  .topbar-logout .material-symbols-outlined { font-size: 18px; }
+
+  .workspace { flex: 1; overflow: auto; padding: 32px; }
+  .content { max-width: 1200px; margin: 0 auto; width: 100%; }
+  .card { background: #fff; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03); border: 1px solid #E2E8F0; overflow: hidden; }
+  .card + .card { margin-top: 16px; }
+  .card-header { padding: 20px 24px; border-bottom: 1px solid #E2E8F0; display: flex; align-items: center; justify-content: space-between; background: #fff; }
+  .card-header-left { display: flex; align-items: center; gap: 12px; }
+  .card-title { font-family: 'Manrope', sans-serif; font-weight: 600; font-size: 20px; color: #0F172A; }
+  .card-badge { background: #EFF6FF; color: #2463eb; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 9999px; border: 1px solid #BFDBFE; }
+  .card-actions { display: flex; align-items: center; gap: 12px; }
+  .btn { padding: 8px 16px; font-size: 14px; font-weight: 500; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.15s; border: 1px solid transparent; }
+  .btn .material-symbols-outlined { font-size: 18px; }
+  .btn-primary { background: #2463eb; color: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-secondary { background: transparent; color: #64748B; border-color: transparent; }
+  .btn-secondary:hover { background: #F1F5F9; color: #0F172A; border-color: #E2E8F0; }
+
+  table { width: 100%; text-align: left; border-collapse: collapse; }
+  thead tr { background: #F9FAFB; border-bottom: 1px solid #E2E8F0; }
+  th { padding: 12px 24px; font-size: 11px; font-weight: 500; color: #64748B; text-transform: uppercase; letter-spacing: 0.05em; }
+  td { padding: 16px 24px; font-size: 14px; }
+  tbody tr { border-bottom: 1px solid #E2E8F0; transition: background 0.1s; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: #F1F5F9; }
+  .cell-name { font-weight: 600; }
+  .cell-muted { color: #64748B; }
+  .cell-truncate { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 9999px; font-size: 12px; font-weight: 500; }
+  .pill-chat { background: #DCFCE7; color: #166534; }
+  .pill-infographic { background: #F3E8FF; color: #6B21A8; }
+  .pill-active { background: #DCFCE7; color: #166534; }
+  .pill-inactive { background: #FEE2E2; color: #991B1B; }
+  .pill-system { background: #F1F5F9; color: #334155; border: 1px solid #E2E8F0; }
+  .code-badge { font-family: 'IBM Plex Mono', monospace; background: #F1F5F9; padding: 2px 8px; border-radius: 4px; font-size: 13px; font-weight: 500; color: #334155; border: 1px solid #E2E8F0; }
+  .table-footer { padding: 16px 24px; border-top: 1px solid #E2E8F0; background: #F9FAFB; display: flex; align-items: center; justify-content: space-between; font-size: 14px; color: #64748B; }
+  .table-footer-nav { display: flex; align-items: center; gap: 8px; }
+  .table-footer-nav button { padding: 4px; border-radius: 4px; background: none; border: none; color: #64748B; cursor: pointer; }
+  .table-footer-nav button:hover { background: #E2E8F0; }
+  .action-link { font-size: 13px; font-weight: 500; color: #2463eb; background: none; border: none; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: all 0.15s; }
+  .action-link:hover { background: #EFF6FF; }
+  .action-danger { color: #EF4444; }
+  .action-danger:hover { background: #FEF2F2; }
+  .action-warning { color: #D97706; }
+  .action-warning:hover { background: #FFFBEB; }
+
+  .form-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; padding: 20px 24px; }
+  .form-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 150px; }
+  .form-field label { font-size: 12px; font-weight: 500; color: #64748B; text-transform: uppercase; letter-spacing: 0.03em; }
+  .form-field input { padding: 8px 12px; border: 1px solid #E2E8F0; border-radius: 6px; font-size: 14px; font-family: 'Geist', sans-serif; transition: border-color 0.15s; outline: none; }
+  .form-field input:focus { border-color: #2463eb; box-shadow: 0 0 0 3px rgba(36,99,235,0.1); }
+  .form-field input::placeholder { color: #94A3B8; }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .doc-item { display: flex; align-items: center; gap: 16px; padding: 16px 24px; border-bottom: 1px solid #E2E8F0; transition: background 0.1s; }
+  .doc-item:hover { background: #F8FAFC; }
+  .doc-item:last-child { border-bottom: none; }
+  .doc-icon { width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+  .doc-icon.pdf { background: #FEE2E2; color: #DC2626; }
+  .doc-icon.docx { background: #DBEAFE; color: #2563EB; }
+  .doc-icon.xlsx { background: #DCFCE7; color: #16A34A; }
+  .doc-info { flex: 1; min-width: 0; }
+  .doc-name { font-weight: 600; font-size: 14px; color: #0F172A; }
+  .doc-meta { font-size: 12px; color: #94A3B8; margin-top: 2px; }
+  .doc-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .doc-tag { background: #EFF6FF; color: #2463eb; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<aside class="sidebar">
+  <div class="sidebar-logo"><h1>СнабЧат Admin</h1></div>
+  <nav class="sidebar-nav">
+    <button class="nav-item active" onclick="switchTab('activity')">
+      <span class="material-symbols-outlined">monitoring</span><span>Активность</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('codes')">
+      <span class="material-symbols-outlined">key</span><span>Инвайт-коды</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('documents')">
+      <span class="material-symbols-outlined">description</span><span>Документы</span>
+    </button>
+  </nav>
+  <div class="sidebar-bottom">
+    <button class="nav-item"><span class="material-symbols-outlined">settings</span>Настройки</button>
+  </div>
+</aside>
+<div class="main">
+  <header class="topbar">
+    <a href="#" class="topbar-link"><span class="material-symbols-outlined">chat</span>К чату</a>
+    <div class="topbar-divider"></div>
+    <div class="topbar-user">
+      <div class="topbar-user-info">
+        <span class="topbar-user-name">Трубицын К. А.</span>
+        <span class="topbar-user-role">Администратор</span>
+      </div>
+      <div class="topbar-avatar">КТ</div>
+    </div>
+    <div class="topbar-divider"></div>
+    <button class="topbar-logout"><span class="material-symbols-outlined">logout</span>Выйти</button>
+  </header>
+  <div class="workspace">
+    <div class="content">
+      <!-- Activity -->
+      <div id="tab-activity" class="tab-content active">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-header-left"><h2 class="card-title">Запросы пользователей</h2><span class="card-badge">29</span></div>
+            <div class="card-actions">
+              <button class="btn btn-secondary"><span class="material-symbols-outlined">delete_sweep</span>Очистить старые</button>
+              <button class="btn btn-primary"><span class="material-symbols-outlined">refresh</span>Обновить</button>
+            </div>
+          </div>
+          <table><thead><tr><th style="width:20%">ФИО</th><th style="width:20%">Организация</th><th style="width:10%">Тип</th><th style="width:40%">Запрос</th><th style="width:10%;text-align:right">Время</th></tr></thead>
+          <tbody>
+            <tr><td class="cell-name">Иванов Алексей П.</td><td>ООО "СтройПром"</td><td><span class="pill pill-chat">Чат</span></td><td class="cell-truncate cell-muted">Здравствуйте, не могу найти прайс-лист на цемент М500</td><td style="text-align:right" class="cell-muted">10:42</td></tr>
+            <tr><td class="cell-name">Смирнова Елена В.</td><td>АО "ТехИнвест"</td><td><span class="pill pill-infographic">Инфографика</span></td><td class="cell-truncate cell-muted">Требуется выгрузка статистики поставок за 3 квартал</td><td style="text-align:right" class="cell-muted">09:15</td></tr>
+            <tr><td class="cell-name">Королев Дмитрий С.</td><td>ИП Королев</td><td><span class="pill pill-chat">Чат</span></td><td class="cell-truncate cell-muted">Ошибка при вводе инвайт-кода, система пишет что код уже использован</td><td style="text-align:right" class="cell-muted">Вчера</td></tr>
+            <tr><td class="cell-name">Волков Андрей М.</td><td>ЗАО "МеталлСнаб"</td><td><span class="pill pill-system">Система</span></td><td class="cell-truncate cell-muted">Запрос на восстановление доступа к корпоративному аккаунту</td><td style="text-align:right" class="cell-muted">Вчера</td></tr>
+            <tr><td class="cell-name">Лебедева Анна И.</td><td>ООО "Логистика Плюс"</td><td><span class="pill pill-infographic">Инфографика</span></td><td class="cell-truncate cell-muted">Нужен шаблон договора на оказание транспортных услуг</td><td style="text-align:right" class="cell-muted">12 Окт</td></tr>
+          </tbody></table>
+          <div class="table-footer"><span>Показано 1-5 из 29 запросов</span><div class="table-footer-nav"><button disabled><span class="material-symbols-outlined" style="font-size:20px">chevron_left</span></button><button><span class="material-symbols-outlined" style="font-size:20px">chevron_right</span></button></div></div>
+        </div>
+      </div>
+      <!-- Invite Codes -->
+      <div id="tab-codes" class="tab-content">
+        <div class="card">
+          <div class="card-header"><div class="card-header-left"><h2 class="card-title">Создать инвайт-код</h2></div></div>
+          <div class="form-row">
+            <div class="form-field" style="flex:0.8"><label>Код *</label><input placeholder="напр. ИВАНОВ-2024"/></div>
+            <div class="form-field" style="flex:1.5"><label>ФИО получателя *</label><input placeholder="Иванов Иван Иванович"/></div>
+            <div class="form-field"><label>Организация</label><input placeholder="ООО «Компания»"/></div>
+            <div class="form-field" style="flex:0.5;min-width:120px"><label>Лимит чата</label><input placeholder="безлимит"/></div>
+            <div class="form-field" style="flex:0.5;min-width:120px"><label>Лимит инфо</label><input placeholder="безлимит"/></div>
+            <div class="form-field" style="flex:0;min-width:auto"><label>&nbsp;</label><button class="btn btn-primary" style="white-space:nowrap">Создать</button></div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="card-header">
+            <div class="card-header-left"><h2 class="card-title">Инвайт-коды</h2><span class="card-badge">5</span></div>
+            <div class="card-actions">
+              <div class="form-field" style="min-width:200px;gap:0"><input placeholder="Поиск по имени или коду..." style="padding:8px 12px;border:1px solid #E2E8F0;border-radius:6px;font-size:14px;outline:none"/></div>
+              <button class="btn btn-secondary"><span class="material-symbols-outlined">refresh</span>Обновить</button>
+            </div>
+          </div>
+          <table><thead><tr><th>Код</th><th>Имя</th><th>Организация</th><th>Чат</th><th>Инфографика</th><th>Устройства</th><th>Статус</th><th>Создан</th><th style="text-align:right">Действия</th></tr></thead>
+          <tbody>
+            <tr><td><span class="code-badge">ИВАНОВ-2024</span></td><td class="cell-name">Иванов Алексей П.</td><td>ООО "СтройПром"</td><td class="cell-muted">безлимит</td><td class="cell-muted">безлимит</td><td>1/2</td><td><span class="pill pill-active">Активен</span></td><td class="cell-muted">15.01.2024</td><td style="text-align:right"><button class="action-link">Изменить</button><button class="action-link action-warning">Отключить</button><button class="action-link action-danger">Удалить</button></td></tr>
+            <tr><td><span class="code-badge">СМИРНОВА-2024</span></td><td class="cell-name">Смирнова Елена В.</td><td>АО "ТехИнвест"</td><td>50</td><td>10</td><td>2/3</td><td><span class="pill pill-active">Активен</span></td><td class="cell-muted">20.02.2024</td><td style="text-align:right"><button class="action-link">Изменить</button><button class="action-link action-warning">Отключить</button><button class="action-link action-danger">Удалить</button></td></tr>
+            <tr style="opacity:0.6"><td><span class="code-badge">ТЕСТ-КОД</span></td><td class="cell-name">Тестовый Юзер</td><td class="cell-muted">-</td><td style="color:#EF4444">0</td><td style="color:#EF4444">0</td><td>1/1</td><td><span class="pill pill-inactive">Отключён</span></td><td class="cell-muted">01.03.2024</td><td style="text-align:right"><button class="action-link">Изменить</button><button class="action-link action-warning">Включить</button><button class="action-link action-danger">Удалить</button></td></tr>
+          </tbody></table>
+          <div class="table-footer"><span>Показано 1-3 из 5 кодов</span><div class="table-footer-nav"><button disabled><span class="material-symbols-outlined" style="font-size:20px">chevron_left</span></button><button><span class="material-symbols-outlined" style="font-size:20px">chevron_right</span></button></div></div>
+        </div>
+      </div>
+      <!-- Documents -->
+      <div id="tab-documents" class="tab-content">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-header-left"><h2 class="card-title">База знаний</h2><span class="card-badge">8</span></div>
+            <div class="card-actions"><button class="btn btn-primary"><span class="material-symbols-outlined">upload</span>Загрузить</button><button class="btn btn-secondary"><span class="material-symbols-outlined">refresh</span>Обновить</button></div>
+          </div>
+          <div>
+            <div class="doc-item"><div class="doc-icon pdf">PDF</div><div class="doc-info"><div class="doc-name">Регламент_закупок_2024.pdf</div><div class="doc-meta">5 тегов · 15.01.2024</div></div><div class="doc-tags"><span class="doc-tag">закупки</span><span class="doc-tag">регламент</span><span class="doc-tag">2024</span></div><button class="action-link action-danger">Удалить</button></div>
+            <div class="doc-item"><div class="doc-icon docx">DOC</div><div class="doc-info"><div class="doc-name">Инструкция_по_работе_с_поставщиками.docx</div><div class="doc-meta">3 тега · 20.02.2024</div></div><div class="doc-tags"><span class="doc-tag">поставщики</span><span class="doc-tag">инструкция</span></div><button class="action-link action-danger">Удалить</button></div>
+            <div class="doc-item"><div class="doc-icon xlsx">XLS</div><div class="doc-info"><div class="doc-name">Прайс_лист_материалы_Q1_2024.xlsx</div><div class="doc-meta">4 тега · 01.03.2024</div></div><div class="doc-tags"><span class="doc-tag">прайс</span><span class="doc-tag">материалы</span><span class="doc-tag">Q1</span></div><button class="action-link action-danger">Удалить</button></div>
+            <div class="doc-item"><div class="doc-icon pdf">PDF</div><div class="doc-info"><div class="doc-name">Договор_поставки_шаблон.pdf</div><div class="doc-meta">2 тега · 10.03.2024</div></div><div class="doc-tags"><span class="doc-tag">договор</span><span class="doc-tag">шаблон</span></div><button class="action-link action-danger">Удалить</button></div>
+          </div>
+          <div class="table-footer"><span>8 документов в базе знаний</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function switchTab(tab) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  event.currentTarget.classList.add('active');
+}
+</script>
+</body>
+</html>
