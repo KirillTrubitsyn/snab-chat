@@ -12,9 +12,11 @@ interface InviteCode {
   uses_remaining: number | null;
   chat_limit: number | null;
   infographic_limit: number | null;
+  device_limit: number | null;
   is_active: boolean;
   created_at: string;
   conversation_count: number;
+  device_count: number;
 }
 
 interface ActivityItem {
@@ -84,6 +86,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [newOrg, setNewOrg] = useState("");
   const [newChatLimit, setNewChatLimit] = useState("");
   const [newInfographicLimit, setNewInfographicLimit] = useState("");
+  const [newDeviceLimit, setNewDeviceLimit] = useState("2");
   const [creating, setCreating] = useState(false);
 
   // Edit modal state
@@ -92,6 +95,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [editOrg, setEditOrg] = useState("");
   const [editChatLimit, setEditChatLimit] = useState("");
   const [editInfographicLimit, setEditInfographicLimit] = useState("");
+  const [editDeviceLimit, setEditDeviceLimit] = useState("");
 
   // Activity state
   const [activity, setActivity] = useState<ActivityItem[]>([]);
@@ -170,6 +174,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
           organization: newOrg.trim() || null,
           chat_limit: newChatLimit ? parseInt(newChatLimit) : null,
           infographic_limit: newInfographicLimit ? parseInt(newInfographicLimit) : null,
+          device_limit: newDeviceLimit ? parseInt(newDeviceLimit) : null,
         }),
       });
       if (res.ok) {
@@ -178,6 +183,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
         setNewOrg("");
         setNewChatLimit("");
         setNewInfographicLimit("");
+        setNewDeviceLimit("2");
         loadCodes();
       } else {
         const data = await res.json();
@@ -220,6 +226,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
           organization: editOrg.trim() || null,
           chat_limit: editChatLimit ? parseInt(editChatLimit) : null,
           infographic_limit: editInfographicLimit ? parseInt(editInfographicLimit) : null,
+          device_limit: editDeviceLimit ? parseInt(editDeviceLimit) : null,
         }),
       });
       setEditingCode(null);
@@ -233,6 +240,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     setEditOrg(c.organization || "");
     setEditChatLimit(c.chat_limit !== null ? String(c.chat_limit) : "");
     setEditInfographicLimit(c.infographic_limit !== null ? String(c.infographic_limit) : "");
+    setEditDeviceLimit(c.device_limit !== null ? String(c.device_limit) : "");
   };
 
   const cleanupOrphanedConversations = async () => {
@@ -441,6 +449,14 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                     onChange={(e) => setNewInfographicLimit(e.target.value.replace(/\D/g, ""))}
                   />
                 </div>
+                <div className="admin-form-field" style={{ width: 140 }}>
+                  <label>Лимит устройств</label>
+                  <input
+                    placeholder="безлимит"
+                    value={newDeviceLimit}
+                    onChange={(e) => setNewDeviceLimit(e.target.value.replace(/\D/g, ""))}
+                  />
+                </div>
                 <div className="admin-form-field admin-form-field-btn">
                   <button
                     onClick={createCode}
@@ -497,6 +513,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                         <th>Организация</th>
                         <th>Чат</th>
                         <th>Инфографика</th>
+                        <th>Устройства</th>
                         <th>Статус</th>
                         <th>Создан</th>
                         <th>Действия</th>
@@ -527,6 +544,15 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                             ) : (
                               <span className={c.infographic_limit <= 0 ? "admin-text-danger" : ""}>
                                 {c.infographic_limit}
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            {c.device_limit === null ? (
+                              <span className="admin-text-muted">безлимит</span>
+                            ) : (
+                              <span className={c.device_count >= c.device_limit ? "admin-text-danger" : ""}>
+                                {c.device_count}/{c.device_limit}
                               </span>
                             )}
                           </td>
@@ -856,6 +882,14 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                 <input
                   value={editInfographicLimit}
                   onChange={(e) => setEditInfographicLimit(e.target.value.replace(/\D/g, ""))}
+                  placeholder="Пусто = безлимит"
+                />
+              </div>
+              <div className="admin-form-group">
+                <label>Лимит устройств</label>
+                <input
+                  value={editDeviceLimit}
+                  onChange={(e) => setEditDeviceLimit(e.target.value.replace(/\D/g, ""))}
                   placeholder="Пусто = безлимит"
                 />
               </div>

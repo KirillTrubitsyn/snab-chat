@@ -64,11 +64,25 @@ create table if not exists invite_codes (
   uses_remaining integer default null,   -- null = безлимит (устаревшее, для совместимости)
   chat_limit integer default null,       -- лимит запросов в чат (null = безлимит)
   infographic_limit integer default null, -- лимит генераций инфографики (null = безлимит)
+  device_limit integer default 2,        -- лимит устройств (null = безлимит, по умолчанию 2)
   is_active boolean default true,
   created_at timestamptz default now()
 );
 
 create index if not exists invite_codes_code_idx on invite_codes (code);
+
+-- 5b. Таблица устройств (привязка устройств к инвайт-кодам)
+create table if not exists devices (
+  id uuid primary key default gen_random_uuid(),
+  invite_code_id uuid not null references invite_codes(id) on delete cascade,
+  device_id text not null,
+  user_agent text default '',
+  last_seen_at timestamptz default now(),
+  created_at timestamptz default now(),
+  unique(invite_code_id, device_id)
+);
+
+create index if not exists devices_invite_code_id_idx on devices (invite_code_id);
 
 -- 6. Таблица диалогов
 create table if not exists conversations (
