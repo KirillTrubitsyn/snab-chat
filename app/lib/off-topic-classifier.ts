@@ -93,6 +93,20 @@ const CLASSIFIER_PROMPT = `Ты — классификатор запросов 
 - Если вопрос связан с закупками, снабжением, договорами — это procurement
 - Запросы на редактирование текста — это procurement (рабочие задачи)
 - При сомнениях относи к procurement (лучше не блокировать рабочий запрос)
+- Но если вопрос ОЧЕВИДНО не связан с работой — классифицируй честно, не натягивай на procurement
+
+ПРИМЕРЫ НЕЦЕЛЕВЫХ ЗАПРОСОВ (НЕ procurement):
+- "какое пиво лучше брать" → food_cooking
+- "где купить iPhone" → shopping
+- "какая погода завтра" → nature_weather
+- "посоветуй фильм" → entertainment
+- "как похудеть" → health_beauty
+- "куда поехать в отпуск" → travel
+- "какой курс биткоина" → personal_finance
+- "расскажи анекдот" → entertainment
+- "что приготовить на ужин" → food_cooking
+- "как воспитывать ребёнка" → family_personal
+- "какую машину купить" → shopping
 
 УТОЧНЯЮЩИЕ ВОПРОСЫ И ПРОДОЛЖЕНИЕ ДИАЛОГА:
 - Если запрос — продолжение предыдущего разговора ("подробнее", "а ещё?", "что насчёт..."),
@@ -134,7 +148,7 @@ export async function classifyOffTopic(
 
   try {
     const { text } = await generateText({
-      model: google("gemini-2.0-flash"),
+      model: google("gemini-3-flash"),
       system: CLASSIFIER_PROMPT,
       messages: [{ role: "user", content: userPrompt }],
       maxTokens: 20,
