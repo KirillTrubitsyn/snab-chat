@@ -22,34 +22,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Source not found" }, { status: 404 });
   }
 
-  // If original file exists in storage, serve it
-  if (source.storage_path) {
+  // For download action, serve original file from storage if available
+  if (action === "download" && source.storage_path) {
     const { data: fileData, error: downloadError } = await supabase.storage
       .from("documents")
       .download(source.storage_path);
 
-    if (downloadError || !fileData) {
-      console.error("Storage download error:", downloadError);
-      return NextResponse.json(
-        { error: "Failed to download file" },
-        { status: 500 }
-      );
+    if (!downloadError && fileData) {
+      return new NextResponse(fileData, {
+        headers: {
+          "Content-Type": source.mime_type || "application/octet-stream",
+          "Content-Disposition": `attachment; filename="${encodeURIComponent(source.filename)}"`,
+        },
+      });
     }
-
-    const disposition =
-      action === "view"
-        ? `inline; filename="${encodeURIComponent(source.filename)}"`
-        : `attachment; filename="${encodeURIComponent(source.filename)}"`;
-
-    return new NextResponse(fileData, {
-      headers: {
-        "Content-Type": source.mime_type || "application/octet-stream",
-        "Content-Disposition": disposition,
-      },
-    });
+    console.error("Storage download error:", downloadError);
   }
 
-  // Fallback: reconstruct markdown from chunks for old documents
+  // For view action (or download fallback): reconstruct readable text from chunks
   const { data: chunks, error: chunksError } = await supabase
     .from("chunks")
     .select("content, chunk_index")
@@ -57,10 +47,25 @@ export async function GET(req: NextRequest) {
     .order("chunk_index", { ascending: true });
 
   if (chunksError || !chunks || chunks.length === 0) {
-    return NextResponse.json(
-      { error: "No content available" },
-      { status: 404 }
-    );
+    // Last resort for download: try storage
+    if (action === "download" || !source.storage_path) {
+      return NextResponse.json(
+        { error: "No content available" },
+        { status: 404 }
+      );
+    }
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from("documents")
+      .download(source.storage_path);
+    if (downloadError || !fileData) {
+      return NextResponse.json({ error: "No content available" }, { status: 404 });
+    }
+    return new NextResponse(fileData, {
+      headers: {
+        "Content-Type": source.mime_type || "application/octet-stream",
+        "Content-Disposition": `inline; filename="${encodeURIComponent(source.filename)}"`,
+      },
+    });
   }
 
   const markdown = chunks.map((c) => c.content).join("\n\n");
