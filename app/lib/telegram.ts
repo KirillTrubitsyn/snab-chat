@@ -38,7 +38,7 @@ function getMoscowTime(): string {
 }
 
 /** Отправить сообщение одному получателю */
-async function sendTelegramMessage(
+export async function sendTelegramMessage(
   text: string,
   chatId: string,
   replyMarkup?: Record<string, unknown>
@@ -87,10 +87,6 @@ export async function answerCallbackQuery(callbackQueryId: string, text?: string
   } catch { /* ignore */ }
 }
 
-/** Отправить prompt для ответа (обычное сообщение с REF, без force_reply) */
-export async function sendReplyPrompt(chatId: string, text: string): Promise<boolean> {
-  return sendTelegramMessage(text, chatId);
-}
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
