@@ -40,17 +40,17 @@ export async function POST(req: NextRequest) {
   const supabase = createServiceClient();
   const inviteCodeId = invite.id.startsWith("admin-") ? null : invite.id;
 
-  const { error } = await supabase.from("support_messages").insert({
+  const { data: inserted, error } = await supabase.from("support_messages").insert({
     invite_code_id: inviteCodeId,
     user_name: invite.name,
     organization: invite.organization ?? null,
     message: message.trim().slice(0, 5000),
-  });
+  }).select("id").single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Telegram notification (fire-and-forget)
-  notifySupportMessage(invite.name, message.trim(), invite.organization).catch(() => {});
+  // Telegram notification с REF:id для ответа через ТГ (fire-and-forget)
+  notifySupportMessage(invite.name, message.trim(), invite.organization, inserted?.id).catch(() => {});
 
   return NextResponse.json({ success: true });
 }

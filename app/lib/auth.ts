@@ -18,6 +18,13 @@ const ADMIN_NUMBERS: Record<string, number> = {
   "КИРИЛЛ-АДМИН": 3,
 };
 
+// Имена админов по порядковому номеру (для Telegram webhook)
+export const ADMIN_NAMES_BY_NUMBER: Record<number, string> = {
+  1: "Козлов Иван Евгеньевич",
+  2: "Лунев Андрей Эдуардович",
+  3: "Трубицын Кирилл Андреевич",
+};
+
 export function isAdminCode(code: string): boolean {
   return code.toUpperCase() in ADMIN_CODES;
 }
