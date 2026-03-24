@@ -87,12 +87,32 @@ export async function answerCallbackQuery(callbackQueryId: string, text?: string
   } catch { /* ignore */ }
 }
 
-/** Отправить сообщение с force_reply (чтобы админ ответил) */
-export async function sendForceReply(chatId: string, text: string): Promise<boolean> {
-  return sendTelegramMessage(text, chatId, {
-    force_reply: true,
-    selective: true,
-  });
+/** Отправить prompt для ответа (reply_to оригинального уведомления + REF) */
+export async function sendReplyPrompt(chatId: string, text: string, replyToMessageId?: number): Promise<boolean> {
+  if (!BOT_TOKEN || !chatId) return false;
+  try {
+    const body: Record<string, unknown> = {
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+      reply_markup: { force_reply: true },
+    };
+    if (replyToMessageId) body.reply_to_message_id = replyToMessageId;
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error(`[Telegram] Ошибка sendReplyPrompt: ${err}`);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error(`[Telegram] Ошибка сети sendReplyPrompt:`, e);
+    return false;
+  }
 }
 
 function escapeHtml(s: string): string {
