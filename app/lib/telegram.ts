@@ -38,18 +38,24 @@ function getMoscowTime(): string {
 }
 
 /** Отправить сообщение одному получателю */
-async function sendTelegramMessage(text: string, chatId: string): Promise<boolean> {
+async function sendTelegramMessage(
+  text: string,
+  chatId: string,
+  replyMarkup?: Record<string, unknown>
+): Promise<boolean> {
   if (!BOT_TOKEN || !chatId) return false;
   try {
+    const body: Record<string, unknown> = {
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    };
+    if (replyMarkup) body.reply_markup = replyMarkup;
     const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: "HTML",
-        disable_web_page_preview: true,
-      }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const err = await res.text();
@@ -64,9 +70,29 @@ async function sendTelegramMessage(text: string, chatId: string): Promise<boolea
 }
 
 /** Отправить сообщение ВСЕМ админам параллельно */
-async function notifyAllAdmins(text: string): Promise<void> {
+async function notifyAllAdmins(text: string, replyMarkup?: Record<string, unknown>): Promise<void> {
   if (ADMIN_CHAT_IDS.length === 0) return;
-  await Promise.allSettled(ADMIN_CHAT_IDS.map((id) => sendTelegramMessage(text, id)));
+  await Promise.allSettled(ADMIN_CHAT_IDS.map((id) => sendTelegramMessage(text, id, replyMarkup)));
+}
+
+/** Ответить на callback_query */
+export async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
+  if (!BOT_TOKEN) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
+    });
+  } catch { /* ignore */ }
+}
+
+/** Отправить сообщение с force_reply (чтобы админ ответил) */
+export async function sendForceReply(chatId: string, text: string): Promise<boolean> {
+  return sendTelegramMessage(text, chatId, {
+    force_reply: true,
+    selective: true,
+  });
 }
 
 function escapeHtml(s: string): string {
@@ -127,8 +153,15 @@ export async function notifySupportMessage(
     `👤 <b>Пользователь:</b> ${escapeHtml(userName)}${orgLine}\n\n` +
     `💬 ${escapeHtml(truncMsg)}\n\n` +
     `🕐 ${getMoscowTime()}` +
-    `${refLine}\n\n💡 <i>Ответьте на это сообщение, чтобы отправить ответ пользователю</i>`;
-  await notifyAllAdmins(text);
+    `${refLine}`;
+  const replyMarkup = supportMessageId
+    ? {
+        inline_keyboard: [[
+          { text: "✍️ Ответить", callback_data: `reply:${supportMessageId}` },
+        ]],
+      }
+    : undefined;
+  await notifyAllAdmins(text, replyMarkup);
 }
 
 /** Уведомление об ответе на обращение (чтобы все админы видели) */
