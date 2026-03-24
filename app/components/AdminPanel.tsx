@@ -68,6 +68,14 @@ interface SupportItem {
   replied_at: string | null;
 }
 
+interface UserMessageItem {
+  id: string;
+  user_name: string;
+  organization: string | null;
+  content: string;
+  created_at: string;
+}
+
 interface ErrorItem {
   id: string;
   error_type: string;
