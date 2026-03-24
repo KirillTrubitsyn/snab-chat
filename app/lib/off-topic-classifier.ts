@@ -148,7 +148,7 @@ export async function classifyOffTopic(
 
   try {
     const { text } = await generateText({
-      model: google("gemini-3-flash"),
+      model: google("gemini-3-flash-preview"),
       system: CLASSIFIER_PROMPT,
       messages: [{ role: "user", content: userPrompt }],
       maxTokens: 20,
