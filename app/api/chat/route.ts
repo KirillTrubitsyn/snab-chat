@@ -191,8 +191,11 @@ ${uploadedDocsContext}`;
     temperature: 0,
     async onFinish({ text }) {
       if (conversationId) {
+        const metadata: Record<string, unknown> = {};
+        if (sourceFilenames.length > 0) metadata.sources = sourceFilenames;
+        if (lowConfidence) metadata.lowConfidence = true;
         await saveMessage(conversationId, "assistant", text,
-          sourceFilenames.length > 0 ? { sources: sourceFilenames } : undefined
+          Object.keys(metadata).length > 0 ? metadata : undefined
         );
       }
     },

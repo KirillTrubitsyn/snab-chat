@@ -2100,10 +2100,18 @@ input, textarea {
 .admin-sidebar-logo h1 {
   color: #fff;
   font-family: var(--admin-font-heading, 'Manrope', sans-serif);
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.02em;
   margin: 0;
+}
+
+.admin-logo-accent {
+  background: linear-gradient(135deg, #7DD3FC, #60A5FA);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 800;
 }
 
 .admin-sidebar-nav {
@@ -2959,6 +2967,14 @@ input, textarea {
   font-size: 12px;
   color: var(--text-secondary);
   white-space: nowrap;
+}
+
+.admin-cell-message {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 600px;
 }
 
 /* ── Code badge ── */

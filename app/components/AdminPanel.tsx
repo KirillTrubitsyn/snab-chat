@@ -47,6 +47,23 @@ interface ParsedFile {
   totalChunks: number;
 }
 
+interface NontargetItem {
+  id: string;
+  user_question: string;
+  assistant_response: string;
+  user_name: string;
+  organization: string | null;
+  created_at: string;
+}
+
+interface UserMessageItem {
+  id: string;
+  user_name: string;
+  organization: string | null;
+  content: string;
+  created_at: string;
+}
+
 interface AdminPanelProps {
   adminCode: string;
   userName: string;
@@ -82,7 +99,7 @@ function getInitials(name: string): string {
 }
 
 export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanelProps) {
-  const [tab, setTab] = useState<"codes" | "activity" | "documents">("activity");
+  const [tab, setTab] = useState<"codes" | "activity" | "documents" | "nontarget" | "messages">("activity");
 
   // Invite codes state
   const [codes, setCodes] = useState<InviteCode[]>([]);
@@ -122,6 +139,14 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Nontarget queries state
+  const [nontargetQueries, setNontargetQueries] = useState<NontargetItem[]>([]);
+  const [nontargetLoading, setNontargetLoading] = useState(false);
+
+  // User messages state
+  const [userMessages, setUserMessages] = useState<UserMessageItem[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+
   // Search/filter state
   const [searchName, setSearchName] = useState("");
 
@@ -159,11 +184,33 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     setSourcesLoading(false);
   }, []);
 
+  const loadNontarget = useCallback(async () => {
+    setNontargetLoading(true);
+    try {
+      const res = await fetch("/api/admin/activity?type=nontarget", { headers });
+      const data = await res.json();
+      if (data.nontarget) setNontargetQueries(data.nontarget);
+    } catch { /* ignore */ }
+    setNontargetLoading(false);
+  }, [adminCode]);
+
+  const loadUserMessages = useCallback(async () => {
+    setMessagesLoading(true);
+    try {
+      const res = await fetch("/api/admin/activity?type=messages", { headers });
+      const data = await res.json();
+      if (data.messages) setUserMessages(data.messages);
+    } catch { /* ignore */ }
+    setMessagesLoading(false);
+  }, [adminCode]);
+
   useEffect(() => {
     if (tab === "codes") loadCodes();
     else if (tab === "activity") loadActivity();
     else if (tab === "documents") loadSources();
-  }, [tab, loadCodes, loadActivity, loadSources]);
+    else if (tab === "nontarget") loadNontarget();
+    else if (tab === "messages") loadUserMessages();
+  }, [tab, loadCodes, loadActivity, loadSources, loadNontarget, loadUserMessages]);
 
   /* ── Invite code actions ── */
 
@@ -369,6 +416,8 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     { key: "activity" as const, label: "Активность", icon: "monitoring" },
     { key: "codes" as const, label: "Инвайт-коды", icon: "key" },
     { key: "documents" as const, label: "Документы", icon: "description" },
+    { key: "nontarget" as const, label: "Нецелевые запросы", icon: "block" },
+    { key: "messages" as const, label: "Сообщения", icon: "forum" },
   ];
 
   /* ── Render ── */
@@ -378,7 +427,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
       {/* Sidebar */}
       <aside className="admin-sidebar">
         <div className="admin-sidebar-logo">
-          <h1>СнабЧат Admin</h1>
+          <h1><span className="admin-logo-accent">СнабЧат</span> Admin Panel</h1>
         </div>
         <nav className="admin-sidebar-nav">
           {navItems.map((item) => (
@@ -874,6 +923,127 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                 )}
               </div>
             )}
+            {/* ── Tab: Nontarget Queries ── */}
+            {tab === "nontarget" && (
+              <div>
+                <div className="admin-card admin-card-table">
+                  <div className="admin-card-header">
+                    <div className="admin-card-header-left">
+                      <h3 className="admin-card-title">Нецелевые запросы</h3>
+                      <span className="admin-card-badge">{nontargetQueries.length}</span>
+                    </div>
+                    <div className="admin-card-actions">
+                      <button className="admin-btn-secondary" onClick={loadNontarget} disabled={nontargetLoading}>
+                        <span className="material-symbols-outlined">refresh</span>
+                        Обновить
+                      </button>
+                    </div>
+                  </div>
+
+                  {nontargetLoading ? (
+                    <div className="admin-loading-text">
+                      <div className="admin-spinner" />
+                      Загрузка...
+                    </div>
+                  ) : nontargetQueries.length === 0 ? (
+                    <div className="admin-empty">
+                      <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3, marginBottom: 12 }}>block</span>
+                      <p>Нет нецелевых запросов</p>
+                      <p style={{ fontSize: 12, marginTop: 4 }}>Запросы без релевантных документов будут отображаться здесь</p>
+                    </div>
+                  ) : (
+                    <div className="admin-table-wrap">
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: "15%" }}>ФИО</th>
+                            <th style={{ width: "15%" }}>Организация</th>
+                            <th style={{ width: "30%" }}>Запрос пользователя</th>
+                            <th style={{ width: "30%" }}>Ответ системы</th>
+                            <th style={{ width: "10%", textAlign: "right" }}>Время</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {nontargetQueries.map((q) => (
+                            <tr key={q.id}>
+                              <td className="admin-cell-name">{q.user_name}</td>
+                              <td>
+                                {q.organization || <span className="admin-text-muted">—</span>}
+                              </td>
+                              <td className="admin-cell-title" title={q.user_question}>
+                                {q.user_question}
+                              </td>
+                              <td className="admin-cell-title admin-text-muted" title={q.assistant_response}>
+                                {q.assistant_response}
+                              </td>
+                              <td className="admin-cell-date" style={{ textAlign: "right" }}>{formatDateTime(q.created_at)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Tab: User Messages ── */}
+            {tab === "messages" && (
+              <div>
+                <div className="admin-card admin-card-table">
+                  <div className="admin-card-header">
+                    <div className="admin-card-header-left">
+                      <h3 className="admin-card-title">Сообщения пользователей</h3>
+                      <span className="admin-card-badge">{userMessages.length}</span>
+                    </div>
+                    <div className="admin-card-actions">
+                      <button className="admin-btn-secondary" onClick={loadUserMessages} disabled={messagesLoading}>
+                        <span className="material-symbols-outlined">refresh</span>
+                        Обновить
+                      </button>
+                    </div>
+                  </div>
+
+                  {messagesLoading ? (
+                    <div className="admin-loading-text">
+                      <div className="admin-spinner" />
+                      Загрузка...
+                    </div>
+                  ) : userMessages.length === 0 ? (
+                    <div className="admin-empty">
+                      <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3, marginBottom: 12 }}>forum</span>
+                      <p>Нет сообщений</p>
+                    </div>
+                  ) : (
+                    <div className="admin-table-wrap">
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: "15%" }}>ФИО</th>
+                            <th style={{ width: "15%" }}>Организация</th>
+                            <th style={{ width: "55%" }}>Сообщение</th>
+                            <th style={{ width: "15%", textAlign: "right" }}>Время</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {userMessages.map((m) => (
+                            <tr key={m.id}>
+                              <td className="admin-cell-name">{m.user_name}</td>
+                              <td>
+                                {m.organization || <span className="admin-text-muted">—</span>}
+                              </td>
+                              <td className="admin-cell-message">{m.content}</td>
+                              <td className="admin-cell-date" style={{ textAlign: "right" }}>{formatDateTime(m.created_at)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       </div>
