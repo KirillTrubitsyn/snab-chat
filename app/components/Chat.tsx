@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useChat } from "ai/react";
 import ReactMarkdown from "react-markdown";
 import InviteGate from "./InviteGate";
+import { containsMarkdownTable } from "@/app/lib/markdown-tables";
 
 /* ── Types ── */
 
@@ -646,6 +647,7 @@ function MessageBubble({
   onViewSource,
   onCreateInfographic,
   onExportDocx,
+  onExportExcel,
 }: {
   message: {
     id: string;
@@ -659,6 +661,7 @@ function MessageBubble({
   onViewSource: (source: Source) => void;
   onCreateInfographic?: (content: string) => void;
   onExportDocx?: (content: string) => void;
+  onExportExcel?: (content: string) => void;
 }) {
   const isUser = message.role === "user";
 
@@ -879,7 +882,7 @@ function MessageBubble({
           </div>
         </div>
       )}
-      {(onCreateInfographic || onExportDocx) && (
+      {(onCreateInfographic || onExportDocx || onExportExcel) && (
         <div className="message-infographic-row">
           {onCreateInfographic && (
             <button
@@ -904,6 +907,22 @@ function MessageBubble({
                 <polyline points="9 15 12 18 15 15" />
               </svg>
               Скачать .docx
+            </button>
+          )}
+          {onExportExcel && (
+            <button
+              className="message-infographic-btn message-export-btn"
+              onClick={() => onExportExcel(message.content)}
+              title="Скачать таблицы в формате Excel"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <line x1="3" y1="9" x2="21" y2="9" />
+                <line x1="3" y1="15" x2="21" y2="15" />
+                <line x1="9" y1="3" x2="9" y2="21" />
+                <line x1="15" y1="3" x2="15" y2="21" />
+              </svg>
+              Скачать .xlsx
             </button>
           )}
         </div>
@@ -1090,6 +1109,36 @@ export default function Chat() {
       setDocxDownloading(false);
     }
   }, [docxDownloading]);
+
+  const [xlsxDownloading, setXlsxDownloading] = useState(false);
+  const handleExportExcel = useCallback(async (answerContent: string, questionContent: string) => {
+    if (xlsxDownloading) return;
+    setXlsxDownloading(true);
+    try {
+      const res = await fetch("/api/export-excel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: questionContent, answer: answerContent }),
+      });
+      if (!res.ok) throw new Error("Excel export failed");
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const filenameMatch = disposition.match(/filename\*=UTF-8''(.+?)(?:;|$)/);
+      const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : `snabchat-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Excel export error:", e);
+    } finally {
+      setXlsxDownloading(false);
+    }
+  }, [xlsxDownloading]);
 
   /* ── Refs ── */
   const convIdRef = useRef<string | null>(null);
@@ -2041,6 +2090,7 @@ export default function Chat() {
                       onViewSource={setViewingSource}
                       onCreateInfographic={m.role === "assistant" ? navigateToInfographic : undefined}
                       onExportDocx={m.role === "assistant" ? (content: string) => handleExportDocx(content, prevUserMsg?.content || "Запрос") : undefined}
+                      onExportExcel={m.role === "assistant" && containsMarkdownTable(m.content) ? (content: string) => handleExportExcel(content, prevUserMsg?.content || "Запрос") : undefined}
                     />
                   );
                 })}
