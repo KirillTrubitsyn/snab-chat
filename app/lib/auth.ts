@@ -246,8 +246,10 @@ export async function getInviteCodeFromHeader(
 export async function requireAuth(
   req: NextRequest
 ): Promise<{ inviteCodeId: string | null; isAdmin: boolean } | NextResponse> {
-  const rawCode = req.headers.get("x-invite-code") ?? "";
-  const code = decodeURIComponent(rawCode);
+  // Check both x-invite-code and x-admin-code headers (AdminPanel sends x-admin-code)
+  const rawInvite = req.headers.get("x-invite-code") ?? "";
+  const rawAdmin = req.headers.get("x-admin-code") ?? "";
+  const code = decodeURIComponent(rawInvite || rawAdmin);
 
   if (isAdminCode(code)) {
     return { inviteCodeId: null, isAdmin: true };
