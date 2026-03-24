@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/app/lib/auth";
+import { isAdminCode } from "@/app/lib/auth";
 
 /**
- * GET /api/telegram/setup — регистрация Telegram webhook.
+ * GET /api/telegram/setup?code=КИРИЛЛ-АДМИН — регистрация Telegram webhook.
  * Доступно только админам. Открыть в браузере один раз после деплоя.
  */
 export async function GET(req: NextRequest) {
-  const adminCheck = requireAdmin(req);
-  if (adminCheck instanceof NextResponse) return adminCheck;
+  // Авторизация через query-параметр (для открытия в браузере)
+  const code = decodeURIComponent(req.nextUrl.searchParams.get("code") ?? "");
+  if (!code || !isAdminCode(code)) {
+    return NextResponse.json({ error: "Добавьте ?code=ВАШ-АДМИН-КОД в URL" }, { status: 401 });
+  }
 
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
