@@ -1760,37 +1760,10 @@ export default function Chat() {
         {/* ── Header ── */}
         <header className="app-header">
           <div className="header-brand">
-            <button className="menu-btn" onClick={() => setLeftOpen((o) => !o)}>
-              <MenuIcon />
-            </button>
-            <button
-              className="header-logo-btn"
-              onClick={() => {
-                setActiveView("chat");
-                setActiveConvId(null);
-                convIdRef.current = null;
-                setChatKey(`new-${Date.now()}`);
-                setMessages([]);
-                setHasSummary(false);
-              }}
-              title="На главную"
-            >
-              <SpektrIcon size={36} />
-              <span style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontWeight: 700, fontSize: 22, letterSpacing: '-0.02em', lineHeight: 1 }}>
-                <span style={{ color: '#003A7A' }}>Снаб</span><span style={{ color: '#0099CC' }}>Чат</span>
-              </span>
-            </button>
-            <div className="header-divider desktop-only" />
-            <span className="header-username desktop-only">
-              {userName}
-            </span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            {hasSummary && <span className="memory-pill">Память активна</span>}
-            {/* Mobile: hamburger menu for nav buttons */}
-            <div className="mobile-hamburger-wrapper mobile-only" ref={mobileMenuRef}>
+            {/* Mobile: hamburger menu with nav buttons */}
+            <div className="mobile-hamburger-wrapper" ref={mobileMenuRef}>
               <button
-                className="mobile-hamburger-btn"
+                className="menu-btn"
                 onClick={() => setMobileMenuOpen((o) => !o)}
                 title="Меню"
               >
@@ -1817,7 +1790,6 @@ export default function Chat() {
                   <button
                     className="mobile-hamburger-item"
                     onClick={() => { setMobileMenuOpen(false); openSupportModal(); }}
-                    style={{ position: "relative" }}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
@@ -1847,6 +1819,30 @@ export default function Chat() {
                 </div>
               )}
             </div>
+            <button
+              className="header-logo-btn"
+              onClick={() => {
+                setActiveView("chat");
+                setActiveConvId(null);
+                convIdRef.current = null;
+                setChatKey(`new-${Date.now()}`);
+                setMessages([]);
+                setHasSummary(false);
+              }}
+              title="На главную"
+            >
+              <SpektrIcon size={36} />
+              <span style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontWeight: 700, fontSize: 22, letterSpacing: '-0.02em', lineHeight: 1 }}>
+                <span style={{ color: '#003A7A' }}>Снаб</span><span style={{ color: '#0099CC' }}>Чат</span>
+              </span>
+            </button>
+            <div className="header-divider desktop-only" />
+            <span className="header-username desktop-only">
+              {userName}
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {hasSummary && <span className="memory-pill">Память активна</span>}
             {/* Desktop: nav buttons inline */}
             <a
               className="header-labeled-btn accent desktop-only"
@@ -1970,257 +1966,9 @@ export default function Chat() {
 
         {/* ── Body ── */}
         <div className="app-body">
-          {/* ── Left sidebar: Sources ── */}
-          <aside className={`sidebar-panel left ${leftOpen ? "open" : ""} ${leftCollapsed ? "collapsed" : ""}`}>
-            <button
-              className="sidebar-collapse-btn"
-              onClick={() => setLeftCollapsed((c) => !c)}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points={leftCollapsed ? "9 18 15 12 9 6" : "15 18 9 12 15 6"} />
-              </svg>
-              {leftCollapsed ? "База знаний" : "Свернуть"}
-            </button>
-            <div className="sidebar-content">
-              <div className="sidebar-section" style={{ flex: 1 }}>
-                <div className="sidebar-section-title">
-                  <span>
-                    БАЗА ЗНАНИЙ{" "}
-                    <span
-                      style={{
-                        fontSize: 10,
-                        background: "var(--border)",
-                        borderRadius: "var(--radius-pill)",
-                        padding: "1px 7px",
-                        marginLeft: 4,
-                      }}
-                    >
-                      {sources.length}
-                    </span>
-                  </span>
-                </div>
-                {isAdmin && sources.length > 0 && (
-                  <div style={{ display: "flex", gap: 4, padding: "0 12px 8px" }}>
-                    {!bulkSelectMode ? (
-                      <button
-                        className="btn-secondary"
-                        style={{ flex: 1, fontSize: 11, padding: "4px 8px" }}
-                        onClick={() => setBulkSelectMode(true)}
-                      >
-                        Выбрать
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          className="btn-secondary"
-                          style={{ flex: 1, fontSize: 11, padding: "4px 8px" }}
-                          onClick={() => {
-                            if (selectedSourceIds.size === sources.length) {
-                              setSelectedSourceIds(new Set());
-                            } else {
-                              setSelectedSourceIds(new Set(sources.map((s) => s.id)));
-                            }
-                          }}
-                        >
-                          {selectedSourceIds.size === sources.length ? "Снять всё" : "Выбрать все"}
-                        </button>
-                        <button
-                          className="btn-secondary"
-                          style={{
-                            flex: 1,
-                            fontSize: 11,
-                            padding: "4px 8px",
-                            color: selectedSourceIds.size > 0 ? "var(--error)" : undefined,
-                          }}
-                          disabled={selectedSourceIds.size === 0}
-                          onClick={deleteSelectedSources}
-                        >
-                          Удалить ({selectedSourceIds.size})
-                        </button>
-                        <button
-                          className="btn-secondary"
-                          style={{ fontSize: 11, padding: "4px 8px" }}
-                          onClick={() => { setSelectedSourceIds(new Set()); setBulkSelectMode(false); }}
-                        >
-                          ✕
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
-                {!isAdmin && (
-                  <div style={{ padding: "0 8px 8px" }}>
-                    <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "4px 0" }}>
-                      Управление документами доступно в админ-панели
-                    </div>
-                  </div>
-                )}
-                <div className="sidebar-list">
-                  {sources.map((doc) => {
-                    const isExpanded = expandedSourceId === doc.id;
-                    return (
-                      <div key={doc.id} style={{ marginBottom: 2 }}>
-                        <div
-                          className="doc-item"
-                          style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
-                          onClick={() => {
-                            if (bulkSelectMode) {
-                              setSelectedSourceIds((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(doc.id)) next.delete(doc.id);
-                                else next.add(doc.id);
-                                return next;
-                              });
-                              return;
-                            }
-                            setExpandedSourceId(isExpanded ? null : doc.id);
-                          }}
-                        >
-                          {bulkSelectMode && (
-                            <input
-                              type="checkbox"
-                              checked={selectedSourceIds.has(doc.id)}
-                              onChange={() => {
-                                setSelectedSourceIds((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(doc.id)) next.delete(doc.id);
-                                  else next.add(doc.id);
-                                  return next;
-                                });
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              style={{ flexShrink: 0 }}
-                            />
-                          )}
-                          <div className={`doc-icon ${doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") || doc.filename?.endsWith(".xlsx") || doc.filename?.endsWith(".xls") ? "xlsx" : "docx"}`}>
-                            {doc.mime_type?.includes("pdf") ? "P" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "X" : "W"}
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div
-                              title={doc.folder_path ? `${doc.folder_path}/${doc.filename}` : doc.filename}
-                              style={{
-                                fontSize: 13,
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                              }}
-                            >
-                              {doc.filename}
-                            </div>
-                            {!isExpanded && doc.tags && doc.tags.length > 0 && (
-                              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                                {doc.tags.length} {doc.tags.length === 1 ? "тег" : doc.tags.length < 5 ? "тега" : "тегов"}
-                              </div>
-                            )}
-                          </div>
-                          <svg
-                            width="12" height="12" viewBox="0 0 24 24" fill="none"
-                            stroke="var(--text-muted)" strokeWidth="2"
-                            style={{ flexShrink: 0, transition: "transform 150ms", transform: isExpanded ? "rotate(180deg)" : "rotate(0)" }}
-                          >
-                            <polyline points="6 9 12 15 18 9" />
-                          </svg>
-                          <button
-                            className="doc-action-btn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setViewingSource(doc);
-                            }}
-                            title="Просмотреть"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                              <circle cx="12" cy="12" r="3" />
-                            </svg>
-                          </button>
-                          <button
-                            className="doc-action-btn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              window.open(`/api/sources/download?id=${doc.id}&action=download`, "_blank");
-                            }}
-                            title="Скачать"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                              <polyline points="7 10 12 15 17 10" />
-                              <line x1="12" y1="15" x2="12" y2="3" />
-                            </svg>
-                          </button>
-                        </div>
-                        {isExpanded && (
-                          <div
-                            style={{
-                              padding: "6px 12px 10px",
-                              background: "var(--bg-white)",
-                              borderRadius: "0 0 var(--radius-sm) var(--radius-sm)",
-                              border: "1px solid var(--border)",
-                              borderTop: "none",
-                              marginTop: -2,
-                            }}
-                          >
-                            {doc.tags && doc.tags.length > 0 && (
-                              <>
-                                <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>Теги</div>
-                                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
-                                  {doc.tags.map((tag) => (
-                                    <span key={tag} className="tag" style={{ fontSize: 11 }}>
-                                      {tag}
-                                    </span>
-                                  ))}
-                                </div>
-                              </>
-                            )}
-                            <div style={{ display: "flex", gap: 6 }}>
-                              <button
-                                className="btn-secondary"
-                                style={{ flex: 1, fontSize: 12, padding: "5px 10px", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}
-                                onClick={(e) => { e.stopPropagation(); setViewingSource(doc); }}
-                              >
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                                  <circle cx="12" cy="12" r="3" />
-                                </svg>
-                                Просмотреть
-                              </button>
-                              <button
-                                className="btn-secondary"
-                                style={{ flex: 1, fontSize: 12, padding: "5px 10px", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}
-                                onClick={(e) => { e.stopPropagation(); window.open(`/api/sources/download?id=${doc.id}&action=download`, "_blank"); }}
-                              >
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                  <polyline points="7 10 12 15 17 10" />
-                                  <line x1="12" y1="15" x2="12" y2="3" />
-                                </svg>
-                                Скачать
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {sources.length === 0 && (
-                    <p
-                      style={{
-                        color: "var(--text-muted)",
-                        fontSize: 12,
-                        textAlign: "center",
-                        padding: 20,
-                      }}
-                    >
-                      Документы ещё не загружены
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </aside>
-
           {/* Sidebar overlay (mobile) */}
-          {(leftOpen || rightOpen) && (
-            <div className="sidebar-overlay" onClick={() => { setLeftOpen(false); setRightOpen(false); }} />
+          {rightOpen && (
+            <div className="sidebar-overlay" onClick={() => setRightOpen(false)} />
           )}
 
           {/* ── Main ── */}
