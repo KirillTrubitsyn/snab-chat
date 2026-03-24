@@ -24,8 +24,10 @@ export async function GET(req: NextRequest) {
     .order("updated_at", { ascending: false })
     .limit(50);
 
-  // Фильтрация: обычные пользователи видят только свои диалоги
-  if (!isAdminCode(invite.code)) {
+  // Фильтрация: каждый видит только свои диалоги
+  if (isAdminCode(invite.code)) {
+    query = query.eq("admin_name", invite.name);
+  } else {
     query = query.eq("invite_code_id", invite.id);
   }
 
