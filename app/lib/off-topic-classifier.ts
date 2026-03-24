@@ -53,67 +53,47 @@ export const CATEGORY_LABELS: Record<OffTopicCategory, string> = {
 
 const ALL_CATEGORIES = Object.keys(CATEGORY_LABELS) as OffTopicCategory[];
 
-const CLASSIFIER_PROMPT = `Ты — классификатор запросов для корпоративного ассистента Дирекции по закупкам и ресурсному обеспечению.
-Твоя задача: определить, является ли запрос ЦЕЛЕВЫМ (связанным с работой закупок/снабжения) или НЕЦЕЛЕВЫМ (личным/бытовым).
+const CLASSIFIER_PROMPT = `You are a query classifier for a corporate procurement assistant.
+Your task: determine if a user query is ON-TOPIC (procurement/supply related) or OFF-TOPIC (personal/household).
 
-ЦЕЛЕВЫЕ запросы (категория: procurement):
-- Закупки, тендеры, конкурсы, аукционы, котировки
-- Снабжение, поставки, логистика, склад
-- Договоры, контракты, спецификации
-- Нормативные документы, регламенты, стандарты
-- Ценообразование, сметы, бюджеты закупок
-- МТР, ТМЦ, приёмка товаров, рекламации
-- Квалификация поставщиков, контрагенты
-- 44-ФЗ, 223-ФЗ, закупочное законодательство
-- Подготовка закупочной документации
-- Редактирование, улучшение, переформулировка рабочего текста
+ON-TOPIC queries (respond with: procurement):
+- Procurement, tenders, auctions, quotations
+- Supply chain, deliveries, logistics, warehouse
+- Contracts, specifications, agreements
+- Regulations, standards, normative documents
+- Pricing, estimates, procurement budgets
+- Materials, goods acceptance, claims
+- Supplier qualification, counterparties
+- Russian procurement laws (44-FZ, 223-FZ)
+- Preparing procurement documentation
+- Editing, improving, rephrasing work texts
 
-НЕЦЕЛЕВЫЕ категории:
-- household — быт, ремонт, дача, уборка, дизайн интерьера
-- family_personal — личные отношения, свидания, свадьбы, воспитание детей
-- food_cooking — рецепты, рестораны, диеты, продукты, напитки, пиво, вино
-- health_beauty — симптомы болезней, лекарства, косметика, фитнес, похудение
-- esoteric — гороскопы, астрология, гадания, таро, магия, сонники
-- psychology — личностный рост, мотивация, отношения с близкими, тревожность
-- travel — туры, отели, билеты, достопримечательности, курорты
-- shopping — бытовая техника, одежда, автомобили, мебель, скидки
-- entertainment — фильмы, сериалы, игры, музыка, книги, мемы, анекдоты
-- tech_personal — настройка телефона, соцсети, личные приложения
-- nature_weather — погода, прогнозы, растения, животные в природе
-- personal_finance — личные инвестиции, криптовалюты, личный бюджет
-- education_hobby — изучение языков, рукоделие, курсы для саморазвития
-- gambling — ставки, казино, лотереи
-- pets — уход за питомцами, ветеринария, корма, породы
-- politics — политика, выборы, партии, политические деятели, геополитика
-- military — войны, военное дело, оружие, армия, военная техника
-- other_off_topic — прочие личные вопросы
+OFF-TOPIC categories:
+- household — home repair, cleaning, interior design, dacha
+- family_personal — relationships, dating, weddings, parenting
+- food_cooking — recipes, restaurants, diets, drinks, beer, wine, alcohol
+- health_beauty — symptoms, medicine, cosmetics, fitness, weight loss
+- esoteric — horoscopes, astrology, tarot, magic
+- psychology — personal growth, motivation, anxiety
+- travel — tours, hotels, tickets, resorts, hiking, camping
+- shopping — electronics, clothes, cars, furniture, discounts
+- entertainment — movies, series, games, music, books, memes, jokes
+- tech_personal — phone setup, social media, personal apps
+- nature_weather — weather, forecasts, plants, wildlife
+- personal_finance — personal investments, crypto, personal budget
+- education_hobby — language learning, crafts, self-development courses
+- gambling — betting, casino, lottery
+- pets — pet care, veterinary, pet food, breeds
+- politics — politics, elections, parties, geopolitics
+- military — wars, military, weapons, army
+- other_off_topic — any other personal questions
 
-ВАЖНО:
-- Если вопрос связан с ЗАКУПКАМИ (даже в личном контексте) — это procurement
-  Пример: "Как провести закупку?" — procurement
-  Пример: "Как помириться с женой?" — family_personal (не закупки)
-- Если вопрос о работе отдела закупок — procurement
-- Запросы на редактирование, улучшение, переформулировку — это procurement (рабочие задачи)
-  Пример: "как это улучшить, сформулируй" — procurement
-  Пример: "перефразируй этот абзац" — procurement
-- При сомнениях относи к procurement (лучше не блокировать рабочий запрос)
+RULES:
+- If the query is about PROCUREMENT (even in personal context) → procurement
+- Text editing/improvement requests → procurement (work tasks)
+- When in doubt → procurement (better not to block a work query)
 
-ПРИМЕРЫ:
-"какое пиво лучше" → food_cooking
-"как подобрать цветы для девушки" → family_personal
-"классное вино" → food_cooking
-"какая погода" → nature_weather
-"закупка труб" → procurement
-"как провести тендер" → procurement
-"ремонт квартиры" → household
-"где купить iPhone" → shopping
-
-УТОЧНЯЮЩИЕ ВОПРОСЫ И ПРОДОЛЖЕНИЕ ДИАЛОГА:
-- Если запрос — это ПРОДОЛЖЕНИЕ или УТОЧНЕНИЕ предыдущего разговора (например: "подробнее", "а ещё?", "что насчёт...", "а если...", "расскажи больше"), классифицируй его НА ОСНОВЕ ТЕМЫ РАЗГОВОРА, а не буквального текста.
-- Пример: предыдущий разговор о закупках, уточнение "а как это на практике?" = procurement
-- Если есть история разговора — ОБЯЗАТЕЛЬНО учитывай её при классификации.
-
-Ответь ОДНИМ словом — названием категории из списка выше.`;
+You MUST respond with EXACTLY ONE word from the list above. Nothing else. No explanations.`;
 
 const MAX_HISTORY = 4;
 
@@ -122,11 +102,61 @@ export interface ClassifyResult {
   category: OffTopicCategory;
 }
 
+/**
+ * Keyword-based fallback classifier.
+ * Used when LLM returns empty/invalid response (e.g. safety filter).
+ */
+function keywordClassify(text: string): OffTopicCategory {
+  const lower = text.toLowerCase();
+
+  // Procurement keywords — check first
+  const procurementPatterns = [
+    /закупк/i, /тендер/i, /аукцион/i, /котировк/i, /поставк/i, /снабжен/i,
+    /логистик/i, /склад/i, /договор/i, /контракт/i, /специфик/i, /регламент/i,
+    /норматив/i, /стандарт/i, /ценообраз/i, /смет/i, /бюджет/i, /мтр/i, /тмц/i,
+    /приёмк/i, /приемк/i, /рекламаци/i, /поставщик/i, /контрагент/i,
+    /44.?фз/i, /223.?фз/i, /закон.*закупк/i, /документаци/i,
+    /переформулир/i, /перефразир/i, /улучш.*текст/i, /редактир/i,
+    /коммерческ.*предлож/i, /техническ.*задан/i, /тз\b/i,
+  ];
+  for (const p of procurementPatterns) {
+    if (p.test(lower)) return "procurement";
+  }
+
+  // Off-topic keyword patterns
+  const offTopicMap: [RegExp, OffTopicCategory][] = [
+    [/пиво|вино|водк|коктейл|рецепт|готов[иь]|кулинар|ресторан|кафе|диет|калори/i, "food_cooking"],
+    [/погод|прогноз.*температур|дожд|снег.*завтра|климат/i, "nature_weather"],
+    [/гороскоп|астролог|таро|гадан|магия|сонник|знак.*зодиак/i, "esoteric"],
+    [/фильм|сериал|кино|музык|песн|книг[уаи]|игр[уаы]|мем|анекдот/i, "entertainment"],
+    [/жен[аеуы]|муж[а-я]*|свидан|свадьб|развод|отношен|девушк|парен/i, "family_personal"],
+    [/ремонт.*квартир|уборк|дач[аеу]|интерьер|обои|плитк/i, "household"],
+    [/здоров|болезн|лекарств|таблетк|симптом|врач|больниц|похуде|фитнес|косметик/i, "health_beauty"],
+    [/психолог|тревожн|мотивац|депресси|самооценк/i, "psychology"],
+    [/тур[аы]|отель|билет.*самол|курорт|путешеств|поход|кемпинг|отпуск/i, "travel"],
+    [/купить.*iphone|купить.*телефон|скидк|распродаж|магазин.*одежд|автомобил/i, "shopping"],
+    [/настро.*телефон|соцсет|instagram|tiktok|telegram.*личн/i, "tech_personal"],
+    [/инвестиц.*личн|криптовалют|биткоин|личный.*бюджет/i, "personal_finance"],
+    [/изуч.*язык|рукодел|курс.*саморазвит|хобби/i, "education_hobby"],
+    [/ставк|казино|лотере|букмекер/i, "gambling"],
+    [/собак|кошк|котён|щенок|питомец|ветеринар|корм.*животн/i, "pets"],
+    [/политик|выбор.*президент|партия|геополитик/i, "politics"],
+    [/войн[аеуы]|военн|оружи|армия|танк[аи]/i, "military"],
+  ];
+
+  for (const [pattern, category] of offTopicMap) {
+    if (pattern.test(lower)) return category;
+  }
+
+  // If no keywords matched, default to procurement (don't block)
+  return "procurement";
+}
+
 export async function classifyOffTopic(
   userMessage: string,
   conversationHistory?: { role: string; content: string }[]
 ): Promise<ClassifyResult> {
-  // Короткие сообщения — считаем целевыми (как в sgc-legal-ai)
+  // Короткие сообщения — считаем целевыми
   if (!userMessage || userMessage.trim().length < 10) {
     return { isOffTopic: false, category: "procurement" };
   }
@@ -135,42 +165,52 @@ export async function classifyOffTopic(
   if (conversationHistory && conversationHistory.length > 0) {
     const recent = conversationHistory.slice(-MAX_HISTORY);
     const historyLines = recent.map((m) => {
-      const role = m.role === "user" ? "Пользователь" : "Ассистент";
+      const role = m.role === "user" ? "User" : "Assistant";
       const content = m.content.length > 300 ? m.content.slice(0, 300) + "..." : m.content;
       return `${role}: ${content}`;
     });
     userPrompt =
-      `Контекст предыдущего разговора:\n${historyLines.join("\n")}\n\n` +
-      `Новый запрос пользователя: ${userMessage}`;
+      `Conversation context:\n${historyLines.join("\n")}\n\n` +
+      `New user query: ${userMessage}`;
   } else {
-    userPrompt = userMessage;
+    userPrompt = `Classify this query: ${userMessage}`;
   }
 
   try {
     const { text } = await generateText({
       model: google("gemini-3-flash-preview"),
       system: CLASSIFIER_PROMPT,
-      messages: [{ role: "user", content: userPrompt }],
+      prompt: userPrompt,
       maxTokens: 20,
       temperature: 0,
     });
 
-    const result = text.trim().toLowerCase();
-    console.log(`[OffTopic] Query: "${userMessage.slice(0, 80)}" → LLM raw: "${result}"`);
+    const result = text.trim().toLowerCase().replace(/[^a-z_]/g, "");
+    console.log(`[OffTopic] Query: "${userMessage.slice(0, 80)}" → LLM raw: "${text.trim()}", parsed: "${result}"`);
 
-    // Простой парсинг как в sgc-legal-ai: проверяем вхождение категории в ответ
-    for (const category of ALL_CATEGORIES) {
-      if (result.includes(category)) {
-        const isOffTopic = category !== "procurement";
-        console.log(`[OffTopic] Classified as: ${category}, isOffTopic: ${isOffTopic}`);
-        return { isOffTopic, category };
+    // Check if LLM returned a valid category
+    if (result) {
+      for (const category of ALL_CATEGORIES) {
+        if (result.includes(category)) {
+          const isOffTopic = category !== "procurement";
+          console.log(`[OffTopic] LLM classified as: ${category}, isOffTopic: ${isOffTopic}`);
+          return { isOffTopic, category };
+        }
       }
     }
 
-    console.warn(`[OffTopic] Unknown category: "${result}", defaulting to procurement`);
-    return { isOffTopic: false, category: "procurement" };
+    // LLM returned empty or unknown category — use keyword fallback
+    console.warn(`[OffTopic] LLM returned invalid: "${text.trim()}", using keyword fallback`);
+    const fallbackCategory = keywordClassify(userMessage);
+    const isOffTopic = fallbackCategory !== "procurement";
+    console.log(`[OffTopic] Keyword fallback: ${fallbackCategory}, isOffTopic: ${isOffTopic}`);
+    return { isOffTopic, category: fallbackCategory };
   } catch (e) {
-    console.error("[OffTopic] Classification failed:", e);
-    return { isOffTopic: false, category: "procurement" };
+    console.error("[OffTopic] LLM classification failed:", e);
+    // On error, use keyword fallback instead of defaulting to procurement
+    const fallbackCategory = keywordClassify(userMessage);
+    const isOffTopic = fallbackCategory !== "procurement";
+    console.log(`[OffTopic] Error fallback (keywords): ${fallbackCategory}, isOffTopic: ${isOffTopic}`);
+    return { isOffTopic, category: fallbackCategory };
   }
 }
