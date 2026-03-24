@@ -778,11 +778,11 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   // Filter sources by category
   const filteredSources = docCategoryFilter === "all"
     ? sources
-    : sources.filter((s) => (s.folder_path || "other") === docCategoryFilter);
+    : sources.filter((s) => (s.folder_path || "standards") === docCategoryFilter);
 
   // Count per category
   const categoryCounts = DOC_CATEGORIES.reduce((acc, cat) => {
-    acc[cat.key] = sources.filter((s) => (s.folder_path || "other") === cat.key).length;
+    acc[cat.key] = sources.filter((s) => (s.folder_path || "standards") === cat.key).length;
     return acc;
   }, {} as Record<string, number>);
 
@@ -1423,7 +1423,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                                   </label>
                                   <select
                                     className="admin-category-select"
-                                    value={parsedFileCategories[i] || "other"}
+                                    value={parsedFileCategories[i] || "standards"}
                                     onChange={(e) => {
                                       setParsedFileCategories((prev) => {
                                         const next = [...prev];
