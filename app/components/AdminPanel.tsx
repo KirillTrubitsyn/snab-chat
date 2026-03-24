@@ -945,13 +945,27 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                             <div style={{ position: "relative" }}>
                               <button
                                 className="admin-doc-action-btn"
-                                onClick={(e) => { e.stopPropagation(); setOpenMenuId(isMenuOpen ? null : doc.id); }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuId(isMenuOpen ? null : doc.id);
+                                }}
                                 title="Действия"
                               >
                                 <span className="material-symbols-outlined">more_vert</span>
                               </button>
                               {isMenuOpen && (
-                                <div className="admin-doc-card-dropdown" onClick={(e) => e.stopPropagation()}>
+                                <div
+                                  className="admin-doc-card-dropdown"
+                                  ref={(el) => {
+                                    if (el) {
+                                      const rect = el.getBoundingClientRect();
+                                      if (rect.bottom > window.innerHeight) {
+                                        el.classList.add("flip-up");
+                                      }
+                                    }
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
                                   <div className="admin-doc-dropdown-label">Переместить в:</div>
                                   {DOC_CATEGORIES.map((cat) => (
                                     <button

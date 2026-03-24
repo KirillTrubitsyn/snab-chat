@@ -3844,8 +3844,9 @@ input, textarea {
 /* Card dropdown */
 .admin-doc-card-dropdown {
   position: absolute;
-  top: 56px;
-  right: 12px;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
   background: #fff;
   border: 1px solid #E2E8F0;
   border-radius: 8px;
@@ -3853,6 +3854,13 @@ input, textarea {
   z-index: 50;
   min-width: 220px;
   padding: 6px;
+}
+
+.admin-doc-card-dropdown.flip-up {
+  top: auto;
+  bottom: 100%;
+  margin-top: 0;
+  margin-bottom: 4px;
 }
 
 .admin-doc-dropdown-label {
