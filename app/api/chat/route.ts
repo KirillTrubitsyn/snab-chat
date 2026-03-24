@@ -5,12 +5,16 @@ import { hybridSearch, filterByRelevance } from "@/app/lib/retrieval";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
 import { createServiceClient } from "@/app/lib/supabase";
+import { classifyOffTopic, CATEGORY_LABELS, type OffTopicCategory } from "@/app/lib/off-topic-classifier";
+import { notifyOffTopic } from "@/app/lib/telegram";
+import { logError } from "@/app/lib/error-logger";
 
 export const runtime = "nodejs";
 
 const MAX_UPLOADED_DOC_CHARS = 50000;
 
 export async function POST(req: NextRequest) {
+ try {
   // Проверка авторизации
   const invite = await getInviteCodeFromHeader(req);
   if (!invite) {
@@ -45,8 +49,8 @@ export async function POST(req: NextRequest) {
     searchQuery = `${searchQuery} ${docPreview}`.slice(0, 1000);
   }
 
-  // Run save, context load, and RAG search in parallel
-  const [, contextResult, searchResults] = await Promise.all([
+  // Run save, context load, RAG search, and off-topic classification in parallel
+  const [, contextResult, searchResults, offTopicResult] = await Promise.all([
     conversationId
       ? saveMessage(conversationId, "user", userMessage.content)
       : Promise.resolve(),
@@ -54,7 +58,25 @@ export async function POST(req: NextRequest) {
       ? loadConversationContext(conversationId)
       : Promise.resolve(null),
     hybridSearch(searchQuery, 20),
+    classifyOffTopic(userMessage.content, messages.slice(0, -1)),
   ]);
+
+  // Fire-and-forget: сохраняем нецелевой запрос + ТГ-уведомление
+  if (offTopicResult.isOffTopic && !isAdminCode(invite.code)) {
+    const supabase = createServiceClient();
+    const inviteCodeId = invite.id.startsWith("admin-") ? null : invite.id;
+    const categoryLabel = CATEGORY_LABELS[offTopicResult.category as OffTopicCategory] ?? offTopicResult.category;
+    Promise.all([
+      supabase.from("off_topic_queries").insert({
+        invite_code_id: inviteCodeId,
+        user_name: invite.name,
+        organization: invite.organization ?? null,
+        category: offTopicResult.category,
+        query_text: userMessage.content.slice(0, 5000),
+      }),
+      notifyOffTopic(invite.name, userMessage.content, offTopicResult.category, categoryLabel, invite.organization),
+    ]).catch((e) => console.error("[OffTopic] fire-and-forget error:", e));
+  }
 
   const contextMessages: { role: string; content: string }[] =
     contextResult?.messages ?? [];
@@ -206,4 +228,13 @@ ${uploadedDocsContext}`;
       "X-Sources": encodeURIComponent(JSON.stringify(sourceFilenames)),
     },
   });
+ } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    logError({
+      type: "chat",
+      message: errMsg,
+      endpoint: "/api/chat",
+    }).catch(() => {});
+    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+ }
 }

@@ -11,12 +11,23 @@ const ADMIN_CODES: Record<string, string> = {
   "КИРИЛЛ-АДМИН": "Трубицын Кирилл Андреевич",
 };
 
+// Порядковый номер админа (для отображения пользователю без ФИО)
+const ADMIN_NUMBERS: Record<string, number> = {
+  "ИВАН-АДМИН": 1,
+  "АНДРЕЙ-АДМИН": 2,
+  "КИРИЛЛ-АДМИН": 3,
+};
+
 export function isAdminCode(code: string): boolean {
   return code.toUpperCase() in ADMIN_CODES;
 }
 
 export function getAdminName(code: string): string | null {
   return ADMIN_CODES[code.toUpperCase()] ?? null;
+}
+
+export function getAdminNumber(code: string): number | null {
+  return ADMIN_NUMBERS[code.toUpperCase()] ?? null;
 }
 
 // ============================================================
@@ -27,6 +38,7 @@ export interface InviteCode {
   id: string;
   code: string;
   name: string;
+  organization: string | null;
   uses_remaining: number | null;
   device_limit: number | null;
   is_active: boolean;
@@ -200,6 +212,7 @@ export async function getInviteCodeFromHeader(
       id: `admin-${code.toUpperCase()}`,
       code: code.toUpperCase(),
       name: getAdminName(code) ?? "Админ",
+      organization: "Админ",
       uses_remaining: null,
       device_limit: null,
       is_active: true,

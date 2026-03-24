@@ -49,10 +49,10 @@ interface ParsedFile {
 
 interface NontargetItem {
   id: string;
-  user_question: string;
-  assistant_response: string;
   user_name: string;
   organization: string | null;
+  category: string;
+  query_text: string;
   created_at: string;
 }
 
@@ -63,6 +63,58 @@ interface UserMessageItem {
   content: string;
   created_at: string;
 }
+
+interface SupportItem {
+  id: string;
+  user_name: string;
+  organization: string | null;
+  message: string;
+  admin_reply: string | null;
+  admin_number: number | null;
+  status: string;
+  created_at: string;
+  replied_at: string | null;
+}
+
+interface ErrorItem {
+  id: string;
+  error_type: string;
+  error_message: string;
+  endpoint: string | null;
+  user_name: string | null;
+  organization: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  procurement: "Закупки и снабжение",
+  household: "Быт и дом",
+  family_personal: "Семья и отношения",
+  food_cooking: "Еда и кулинария",
+  health_beauty: "Здоровье и красота",
+  esoteric: "Эзотерика и гороскопы",
+  psychology: "Психология",
+  travel: "Путешествия",
+  shopping: "Покупки и товары",
+  entertainment: "Развлечения",
+  tech_personal: "Личные технологии",
+  nature_weather: "Природа и погода",
+  personal_finance: "Личные финансы",
+  education_hobby: "Образование и хобби",
+  gambling: "Азартные игры",
+  pets: "Домашние питомцы",
+  politics: "Политика",
+  military: "Войны и военное дело",
+  other_off_topic: "Прочее нецелевое",
+};
+
+const ERROR_TYPE_LABELS: Record<string, string> = {
+  chat: "Чат",
+  parse: "Парсинг",
+  ingest: "Индексация",
+  client: "Клиент",
+};
 
 interface AdminPanelProps {
   adminCode: string;
@@ -99,7 +151,7 @@ function getInitials(name: string): string {
 }
 
 export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanelProps) {
-  const [tab, setTab] = useState<"codes" | "activity" | "documents" | "nontarget" | "messages">("activity");
+  const [tab, setTab] = useState<"codes" | "activity" | "documents" | "nontarget" | "messages" | "support" | "errors">("activity");
 
   // Invite codes state
   const [codes, setCodes] = useState<InviteCode[]>([]);
@@ -139,13 +191,31 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Nontarget queries state
+  // Nontarget queries state (LLM-classified)
   const [nontargetQueries, setNontargetQueries] = useState<NontargetItem[]>([]);
+  const [nontargetStats, setNontargetStats] = useState<{ total: number; by_category: Record<string, number>; by_user: Record<string, { count: number; lastQuery: string; lastDate: string }> }>({ total: 0, by_category: {}, by_user: {} });
   const [nontargetLoading, setNontargetLoading] = useState(false);
+  const [nontargetDays, setNontargetDays] = useState(7);
 
   // User messages state
   const [userMessages, setUserMessages] = useState<UserMessageItem[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
+
+  // Support state
+  const [supportMessages, setSupportMessages] = useState<SupportItem[]>([]);
+  const [supportStats, setSupportStats] = useState({ total: 0, open: 0, answered: 0, closed: 0 });
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [supportFilter, setSupportFilter] = useState<string>(""); // "", "open", "answered", "closed"
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
+  const [replySending, setReplySending] = useState(false);
+
+  // Errors state
+  const [errorLogs, setErrorLogs] = useState<ErrorItem[]>([]);
+  const [errorsLoading, setErrorsLoading] = useState(false);
+  const [errorsDays, setErrorsDays] = useState(7);
+  const [errorTypeFilter, setErrorTypeFilter] = useState("all");
+  const [expandedErrors, setExpandedErrors] = useState<Set<string>>(new Set());
 
   // Search/filter state
   const [searchName, setSearchName] = useState("");
@@ -187,12 +257,13 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const loadNontarget = useCallback(async () => {
     setNontargetLoading(true);
     try {
-      const res = await fetch("/api/admin/activity?type=nontarget", { headers });
+      const res = await fetch(`/api/admin/off-topic?days=${nontargetDays}`, { headers });
       const data = await res.json();
-      if (data.nontarget) setNontargetQueries(data.nontarget);
+      if (data.queries) setNontargetQueries(data.queries);
+      if (data.stats) setNontargetStats(data.stats);
     } catch { /* ignore */ }
     setNontargetLoading(false);
-  }, [adminCode]);
+  }, [adminCode, nontargetDays]);
 
   const loadUserMessages = useCallback(async () => {
     setMessagesLoading(true);
@@ -204,13 +275,37 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     setMessagesLoading(false);
   }, [adminCode]);
 
+  const loadSupport = useCallback(async () => {
+    setSupportLoading(true);
+    try {
+      const url = supportFilter ? `/api/admin/support?status=${supportFilter}` : "/api/admin/support";
+      const res = await fetch(url, { headers });
+      const data = await res.json();
+      if (data.messages) setSupportMessages(data.messages);
+      if (data.stats) setSupportStats(data.stats);
+    } catch { /* ignore */ }
+    setSupportLoading(false);
+  }, [adminCode, supportFilter]);
+
+  const loadErrors = useCallback(async () => {
+    setErrorsLoading(true);
+    try {
+      const res = await fetch(`/api/admin/errors?days=${errorsDays}&type=${errorTypeFilter}`, { headers });
+      const data = await res.json();
+      if (data.errors) setErrorLogs(data.errors);
+    } catch { /* ignore */ }
+    setErrorsLoading(false);
+  }, [adminCode, errorsDays, errorTypeFilter]);
+
   useEffect(() => {
     if (tab === "codes") loadCodes();
     else if (tab === "activity") loadActivity();
     else if (tab === "documents") loadSources();
     else if (tab === "nontarget") loadNontarget();
     else if (tab === "messages") loadUserMessages();
-  }, [tab, loadCodes, loadActivity, loadSources, loadNontarget, loadUserMessages]);
+    else if (tab === "support") loadSupport();
+    else if (tab === "errors") loadErrors();
+  }, [tab, loadCodes, loadActivity, loadSources, loadNontarget, loadUserMessages, loadSupport, loadErrors]);
 
   /* ── Invite code actions ── */
 
@@ -294,6 +389,48 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     setEditChatLimit(c.chat_limit !== null ? String(c.chat_limit) : "");
     setEditInfographicLimit(c.infographic_limit !== null ? String(c.infographic_limit) : "");
     setEditDeviceLimit(c.device_limit !== null ? String(c.device_limit) : "");
+  };
+
+  /* ── Support actions ── */
+
+  const replySupportMessage = async (id: string) => {
+    if (!replyText.trim()) return;
+    setReplySending(true);
+    try {
+      await fetch("/api/admin/support", {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ id, reply: replyText.trim() }),
+      });
+      setReplyingTo(null);
+      setReplyText("");
+      loadSupport();
+    } catch { /* ignore */ }
+    setReplySending(false);
+  };
+
+  const deleteSupportMessage = async (id: string) => {
+    if (!confirm("Удалить это обращение?")) return;
+    try {
+      await fetch(`/api/admin/support?id=${id}`, { method: "DELETE", headers });
+      loadSupport();
+    } catch { /* ignore */ }
+  };
+
+  /* ── Error actions ── */
+
+  const deleteError = async (id: string) => {
+    try {
+      await fetch(`/api/admin/errors?id=${id}`, { method: "DELETE", headers });
+      setErrorLogs((prev) => prev.filter((e) => e.id !== id));
+    } catch { /* ignore */ }
+  };
+
+  const deleteNontargetQuery = async (id: string) => {
+    try {
+      await fetch(`/api/admin/off-topic?id=${id}`, { method: "DELETE", headers });
+      setNontargetQueries((prev) => prev.filter((q) => q.id !== id));
+    } catch { /* ignore */ }
   };
 
   const cleanupOrphanedConversations = async () => {
@@ -417,6 +554,8 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     { key: "codes" as const, label: "Инвайт-коды", icon: "key" },
     { key: "documents" as const, label: "Документы", icon: "description" },
     { key: "nontarget" as const, label: "Нецелевые запросы", icon: "block" },
+    { key: "support" as const, label: "Поддержка", icon: "headset_mic" },
+    { key: "errors" as const, label: "Ошибки", icon: "error" },
     { key: "messages" as const, label: "Сообщения", icon: "forum" },
   ];
 
@@ -923,23 +1062,48 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                 )}
               </div>
             )}
-            {/* ── Tab: Nontarget Queries ── */}
+            {/* ── Tab: Nontarget Queries (LLM-classified) ── */}
             {tab === "nontarget" && (
               <div>
-                <div className="admin-card admin-card-table">
+                {/* Period selector + stats */}
+                <div className="admin-card">
                   <div className="admin-card-header">
                     <div className="admin-card-header-left">
                       <h3 className="admin-card-title">Нецелевые запросы</h3>
-                      <span className="admin-card-badge">{nontargetQueries.length}</span>
+                      <span className="admin-card-badge">{nontargetStats.total}</span>
                     </div>
                     <div className="admin-card-actions">
+                      {[1, 7, 30, 90].map((d) => (
+                        <button
+                          key={d}
+                          className={`admin-btn-secondary ${nontargetDays === d ? "admin-btn-active" : ""}`}
+                          onClick={() => setNontargetDays(d)}
+                        >
+                          {d === 1 ? "Сегодня" : `${d} дн`}
+                        </button>
+                      ))}
                       <button className="admin-btn-secondary" onClick={loadNontarget} disabled={nontargetLoading}>
                         <span className="material-symbols-outlined">refresh</span>
-                        Обновить
                       </button>
                     </div>
                   </div>
 
+                  {/* Category breakdown */}
+                  {Object.keys(nontargetStats.by_category).length > 0 && (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "0 16px 16px" }}>
+                      {Object.entries(nontargetStats.by_category)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([cat, count]) => (
+                          <span key={cat} className="admin-code-badge" style={{ fontSize: 12 }}>
+                            {CATEGORY_LABELS[cat] ?? cat}: {count}
+                          </span>
+                        ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Queries list */}
+                <div className="admin-card admin-card-table">
                   {nontargetLoading ? (
                     <div className="admin-loading-text">
                       <div className="admin-spinner" />
@@ -948,39 +1112,257 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                   ) : nontargetQueries.length === 0 ? (
                     <div className="admin-empty">
                       <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3, marginBottom: 12 }}>block</span>
-                      <p>Нет нецелевых запросов</p>
-                      <p style={{ fontSize: 12, marginTop: 4 }}>Запросы без релевантных документов будут отображаться здесь</p>
+                      <p>Нет нецелевых запросов за этот период</p>
                     </div>
                   ) : (
                     <div className="admin-table-wrap">
                       <table className="admin-table">
                         <thead>
                           <tr>
-                            <th style={{ width: "15%" }}>ФИО</th>
-                            <th style={{ width: "15%" }}>Организация</th>
-                            <th style={{ width: "30%" }}>Запрос пользователя</th>
-                            <th style={{ width: "30%" }}>Ответ системы</th>
-                            <th style={{ width: "10%", textAlign: "right" }}>Время</th>
+                            <th style={{ width: "13%" }}>ФИО</th>
+                            <th style={{ width: "12%" }}>Организация</th>
+                            <th style={{ width: "15%" }}>Категория</th>
+                            <th style={{ width: "45%" }}>Запрос</th>
+                            <th style={{ width: "10%" }}>Время</th>
+                            <th style={{ width: "5%", textAlign: "right" }}></th>
                           </tr>
                         </thead>
                         <tbody>
                           {nontargetQueries.map((q) => (
                             <tr key={q.id}>
                               <td className="admin-cell-name">{q.user_name}</td>
+                              <td>{q.organization || <span className="admin-text-muted">—</span>}</td>
                               <td>
-                                {q.organization || <span className="admin-text-muted">—</span>}
+                                <span className="admin-code-badge" style={{ fontSize: 11 }}>
+                                  {CATEGORY_LABELS[q.category] ?? q.category}
+                                </span>
                               </td>
-                              <td className="admin-cell-title" title={q.user_question}>
-                                {q.user_question}
+                              <td className="admin-cell-message">{q.query_text}</td>
+                              <td className="admin-cell-date">{formatDateTime(q.created_at)}</td>
+                              <td style={{ textAlign: "right" }}>
+                                <button
+                                  className="admin-action-link admin-action-danger"
+                                  onClick={() => deleteNontargetQuery(q.id)}
+                                  title="Удалить"
+                                >
+                                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                                </button>
                               </td>
-                              <td className="admin-cell-title admin-text-muted" title={q.assistant_response}>
-                                {q.assistant_response}
-                              </td>
-                              <td className="admin-cell-date" style={{ textAlign: "right" }}>{formatDateTime(q.created_at)}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Tab: Support ── */}
+            {tab === "support" && (
+              <div>
+                {/* Stats cards */}
+                <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+                  {[
+                    { label: "Открытые", value: supportStats.open, color: "#e67700" },
+                    { label: "Отвечено", value: supportStats.answered, color: "#2f9e44" },
+                    { label: "Закрытые", value: supportStats.closed, color: "#868e96" },
+                  ].map((s) => (
+                    <div key={s.label} className="admin-card" style={{ flex: 1, textAlign: "center", padding: 16 }}>
+                      <div style={{ fontSize: 28, fontWeight: 700, color: s.color }}>{s.value}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="admin-card admin-card-table">
+                  <div className="admin-card-header">
+                    <div className="admin-card-header-left">
+                      <h3 className="admin-card-title">Обращения</h3>
+                    </div>
+                    <div className="admin-card-actions">
+                      {["", "open", "answered", "closed"].map((f) => (
+                        <button
+                          key={f}
+                          className={`admin-btn-secondary ${supportFilter === f ? "admin-btn-active" : ""}`}
+                          onClick={() => setSupportFilter(f)}
+                        >
+                          {f === "" ? "Все" : f === "open" ? "Открытые" : f === "answered" ? "Отвечено" : "Закрытые"}
+                        </button>
+                      ))}
+                      <button className="admin-btn-secondary" onClick={loadSupport} disabled={supportLoading}>
+                        <span className="material-symbols-outlined">refresh</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {supportLoading ? (
+                    <div className="admin-loading-text">
+                      <div className="admin-spinner" />
+                      Загрузка...
+                    </div>
+                  ) : supportMessages.length === 0 ? (
+                    <div className="admin-empty">
+                      <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3, marginBottom: 12 }}>headset_mic</span>
+                      <p>Нет обращений</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 16 }}>
+                      {supportMessages.map((m) => (
+                        <div key={m.id} className="admin-card" style={{ padding: 16 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                            <div>
+                              <strong>{m.user_name}</strong>
+                              {m.organization && <span className="admin-text-muted"> · {m.organization}</span>}
+                            </div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                              <span className={`admin-status ${m.status === "open" ? "active" : m.status === "answered" ? "" : "inactive"}`}>
+                                {m.status === "open" ? "Открыто" : m.status === "answered" ? "Отвечено" : "Закрыто"}
+                              </span>
+                              <span className="admin-cell-date">{formatDateTime(m.created_at)}</span>
+                            </div>
+                          </div>
+                          <div style={{ background: "var(--bg-secondary, #f5f5f5)", borderRadius: 8, padding: 12, marginBottom: 8 }}>
+                            {m.message}
+                          </div>
+                          {m.admin_reply && (
+                            <div style={{ background: "#e8f4fd", borderRadius: 8, padding: 12, marginBottom: 8, borderLeft: "3px solid #1976d2" }}>
+                              <div style={{ fontSize: 12, color: "#1976d2", marginBottom: 4 }}>
+                                Ответ администратора {m.admin_number ?? ""} · {m.replied_at ? formatDateTime(m.replied_at) : ""}
+                              </div>
+                              {m.admin_reply}
+                            </div>
+                          )}
+                          <div style={{ display: "flex", gap: 8 }}>
+                            {!m.admin_reply && replyingTo !== m.id && (
+                              <button className="admin-btn-primary" onClick={() => { setReplyingTo(m.id); setReplyText(""); }}>
+                                Ответить
+                              </button>
+                            )}
+                            {replyingTo === m.id && (
+                              <div style={{ flex: 1 }}>
+                                <textarea
+                                  className="admin-textarea"
+                                  value={replyText}
+                                  onChange={(e) => setReplyText(e.target.value)}
+                                  placeholder="Введите ответ..."
+                                  rows={3}
+                                  style={{ width: "100%", marginBottom: 8 }}
+                                />
+                                <div style={{ display: "flex", gap: 8 }}>
+                                  <button className="admin-btn-primary" onClick={() => replySupportMessage(m.id)} disabled={replySending || !replyText.trim()}>
+                                    {replySending ? "Отправка..." : "Отправить"}
+                                  </button>
+                                  <button className="admin-btn-secondary" onClick={() => setReplyingTo(null)}>Отмена</button>
+                                </div>
+                              </div>
+                            )}
+                            <button
+                              className="admin-action-link admin-action-danger"
+                              onClick={() => deleteSupportMessage(m.id)}
+                              title="Удалить"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Tab: Errors ── */}
+            {tab === "errors" && (
+              <div>
+                <div className="admin-card admin-card-table">
+                  <div className="admin-card-header">
+                    <div className="admin-card-header-left">
+                      <h3 className="admin-card-title">Ошибки</h3>
+                      <span className="admin-card-badge">{errorLogs.length}</span>
+                    </div>
+                    <div className="admin-card-actions">
+                      {[1, 7, 30, 90].map((d) => (
+                        <button
+                          key={d}
+                          className={`admin-btn-secondary ${errorsDays === d ? "admin-btn-active" : ""}`}
+                          onClick={() => setErrorsDays(d)}
+                        >
+                          {d === 1 ? "Сегодня" : `${d} дн`}
+                        </button>
+                      ))}
+                      <span style={{ width: 1, background: "var(--border-color, #e0e0e0)", alignSelf: "stretch" }} />
+                      {["all", "chat", "parse", "ingest", "client"].map((t) => (
+                        <button
+                          key={t}
+                          className={`admin-btn-secondary ${errorTypeFilter === t ? "admin-btn-active" : ""}`}
+                          onClick={() => setErrorTypeFilter(t)}
+                        >
+                          {t === "all" ? "Все" : ERROR_TYPE_LABELS[t] ?? t}
+                        </button>
+                      ))}
+                      <button className="admin-btn-secondary" onClick={loadErrors} disabled={errorsLoading}>
+                        <span className="material-symbols-outlined">refresh</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {errorsLoading ? (
+                    <div className="admin-loading-text">
+                      <div className="admin-spinner" />
+                      Загрузка...
+                    </div>
+                  ) : errorLogs.length === 0 ? (
+                    <div className="admin-empty">
+                      <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3, marginBottom: 12 }}>check_circle</span>
+                      <p>Нет ошибок за этот период</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 16 }}>
+                      {errorLogs.map((e) => (
+                        <div key={e.id} className="admin-card" style={{ padding: 12 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                              <span className="admin-code-badge" style={{
+                                fontSize: 11,
+                                background: e.error_type === "chat" ? "#fff3bf" : e.error_type === "client" ? "#ffe8cc" : e.error_type === "parse" ? "#d3f9d8" : "#e7f5ff",
+                              }}>
+                                {ERROR_TYPE_LABELS[e.error_type] ?? e.error_type}
+                              </span>
+                              {e.user_name && <span style={{ fontSize: 13 }}>{e.user_name}</span>}
+                              {e.endpoint && <span className="admin-text-muted" style={{ fontSize: 12 }}>{e.endpoint}</span>}
+                            </div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                              <span className="admin-cell-date">{formatDateTime(e.created_at)}</span>
+                              <button
+                                className="admin-action-link admin-action-danger"
+                                onClick={() => deleteError(e.id)}
+                                title="Удалить"
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                              </button>
+                            </div>
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 13,
+                              color: "var(--text-secondary)",
+                              cursor: "pointer",
+                              whiteSpace: expandedErrors.has(e.id) ? "pre-wrap" : "nowrap",
+                              overflow: expandedErrors.has(e.id) ? "visible" : "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                            onClick={() => setExpandedErrors((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(e.id)) next.delete(e.id); else next.add(e.id);
+                              return next;
+                            })}
+                          >
+                            {e.error_message}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>

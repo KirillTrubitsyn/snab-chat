@@ -188,7 +188,54 @@ begin
 end;
 $$;
 
--- 9. RLS (Row Level Security) — отключено для service role
+-- 9. Таблица нецелевых запросов (LLM-классифицированные)
+create table if not exists off_topic_queries (
+  id uuid primary key default gen_random_uuid(),
+  invite_code_id uuid references invite_codes(id) on delete set null,
+  user_name text not null,
+  organization text,
+  category text not null,
+  query_text text not null,
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_off_topic_created on off_topic_queries(created_at desc);
+create index if not exists idx_off_topic_category on off_topic_queries(category);
+
+-- 10. Таблица обращений в поддержку
+create table if not exists support_messages (
+  id uuid primary key default gen_random_uuid(),
+  invite_code_id uuid references invite_codes(id) on delete set null,
+  user_name text not null,
+  organization text,
+  message text not null,
+  admin_reply text,
+  admin_number int,
+  status text default 'open' check (status in ('open', 'answered', 'closed')),
+  created_at timestamptz default now(),
+  replied_at timestamptz
+);
+
+create index if not exists idx_support_created on support_messages(created_at desc);
+create index if not exists idx_support_status on support_messages(status);
+
+-- 11. Таблица логов ошибок
+create table if not exists error_logs (
+  id uuid primary key default gen_random_uuid(),
+  error_type text not null,
+  error_message text not null,
+  endpoint text,
+  user_name text,
+  organization text,
+  invite_code_id uuid references invite_codes(id) on delete set null,
+  metadata jsonb,
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_errors_created on error_logs(created_at desc);
+create index if not exists idx_errors_type on error_logs(error_type);
+
+-- 12. RLS (Row Level Security) — отключено для service role
 -- При необходимости включите RLS и настройте политики:
 -- alter table sources enable row level security;
 -- alter table chunks enable row level security;
