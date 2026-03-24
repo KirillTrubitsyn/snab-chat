@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "ai/react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import InviteGate from "./InviteGate";
 import { containsMarkdownTable } from "@/app/lib/markdown-tables";
 
@@ -823,6 +824,7 @@ function MessageBubble({
     <div className="message message-ai">
       <div className="message-content">
         <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
           components={{
             a: ({ children, href }) => {
               // Handle our injected source: links
