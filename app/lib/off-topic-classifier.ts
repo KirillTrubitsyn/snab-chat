@@ -156,11 +156,19 @@ export async function classifyOffTopic(
     });
 
     const result = text.trim().toLowerCase();
+    console.log(`[OffTopic] Query: "${userMessage.slice(0, 80)}" → LLM result: "${result}"`);
 
-    for (const cat of ALL_CATEGORIES) {
-      if (result.includes(cat)) {
-        return { isOffTopic: cat !== "procurement", category: cat };
-      }
+    // Match: either LLM result contains category name, or category name contains LLM result
+    // (e.g. LLM returns "family" → matches "family_personal")
+    // Require at least 4 chars for partial match to avoid false positives
+    const matched = ALL_CATEGORIES.filter(
+      (cat) => result.includes(cat) || (result.length >= 4 && cat.includes(result))
+    ).sort((a, b) => b.length - a.length);
+
+    if (matched.length > 0) {
+      const cat = matched[0];
+      console.log(`[OffTopic] Classified as: ${cat}, isOffTopic: ${cat !== "procurement"}`);
+      return { isOffTopic: cat !== "procurement", category: cat };
     }
 
     // Не распознали — считаем целевым
