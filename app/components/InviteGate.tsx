@@ -19,16 +19,27 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  const getOrCreateDeviceId = (): string => {
+    const key = "snabchat_device_id";
+    let deviceId = localStorage.getItem(key);
+    if (!deviceId) {
+      deviceId = crypto.randomUUID();
+      localStorage.setItem(key, deviceId);
+    }
+    return deviceId;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     try {
+      const deviceId = getOrCreateDeviceId();
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: code.trim() }),
+        body: JSON.stringify({ code: code.trim(), device_id: deviceId }),
       });
 
       const data = await res.json();
