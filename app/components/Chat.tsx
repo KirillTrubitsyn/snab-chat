@@ -1614,6 +1614,7 @@ export default function Chat() {
             <button
               className="header-logo-btn"
               onClick={() => {
+                setActiveView("chat");
                 setActiveConvId(null);
                 convIdRef.current = null;
                 setChatKey(`new-${Date.now()}`);
@@ -1667,7 +1668,7 @@ export default function Chat() {
               <span className="btn-label">База знаний</span>
             </button>
             <button
-              className="header-labeled-btn"
+              className="header-labeled-btn primary"
               onClick={() => {
                 setActiveView("chat");
                 setActiveConvId(null);

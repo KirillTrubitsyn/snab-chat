@@ -486,7 +486,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const navItems = [
     { key: "activity" as const, label: "Активность", icon: "monitoring" },
     { key: "codes" as const, label: "Инвайт-коды", icon: "key" },
-    { key: "documents" as const, label: "Документы", icon: "description" },
+    { key: "documents" as const, label: "База знаний", icon: "menu_book" },
     { key: "nontarget" as const, label: "Нецелевые запросы", icon: "block" },
     { key: "messages" as const, label: "Сообщения", icon: "forum" },
   ];

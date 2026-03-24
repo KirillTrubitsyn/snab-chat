@@ -1445,6 +1445,16 @@ input, textarea {
   color: #fff;
 }
 
+.header-labeled-btn.primary {
+  color: #fff;
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.header-labeled-btn.primary:hover {
+  background: #1d4ed8;
+}
+
 .header-labeled-btn svg {
   flex-shrink: 0;
 }
