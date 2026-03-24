@@ -1731,7 +1731,7 @@ export default function Chat() {
               <span className="btn-label">Инфографика</span>
             </button>
             <button
-              className={`header-labeled-btn ${activeView === "knowledge-base" ? "accent" : ""}`}
+              className={`header-labeled-btn accent${activeView === "knowledge-base" ? " active" : ""}`}
               onClick={() => setActiveView(activeView === "knowledge-base" ? "chat" : "knowledge-base")}
               title="База знаний"
             >
