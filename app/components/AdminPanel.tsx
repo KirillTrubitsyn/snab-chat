@@ -56,14 +56,6 @@ interface NontargetItem {
   created_at: string;
 }
 
-interface UserMessageItem {
-  id: string;
-  user_name: string;
-  organization: string | null;
-  content: string;
-  created_at: string;
-}
-
 interface SupportItem {
   id: string;
   user_name: string;
@@ -193,7 +185,7 @@ function getInitials(name: string): string {
 }
 
 export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanelProps) {
-  const [tab, setTab] = useState<"codes" | "activity" | "documents" | "nontarget" | "messages" | "support" | "errors">("activity");
+  const [tab, setTab] = useState<"codes" | "activity" | "documents" | "nontarget" | "support" | "errors">("activity");
 
   // Invite codes state
   const [codes, setCodes] = useState<InviteCode[]>([]);
@@ -395,10 +387,9 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     else if (tab === "activity") loadActivity();
     else if (tab === "documents") loadSources();
     else if (tab === "nontarget") loadNontarget();
-    else if (tab === "messages") loadUserMessages();
     else if (tab === "support") loadSupport();
     else if (tab === "errors") loadErrors();
-  }, [tab, loadCodes, loadActivity, loadSources, loadNontarget, loadUserMessages, loadSupport, loadErrors]);
+  }, [tab, loadCodes, loadActivity, loadSources, loadNontarget, loadSupport, loadErrors]);
 
   /* ── Invite code actions ── */
 
@@ -695,7 +686,6 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     { key: "nontarget" as const, label: "Нецелевые запросы", icon: "block" },
     { key: "support" as const, label: "Поддержка", icon: "headset_mic" },
     { key: "errors" as const, label: "Ошибки", icon: "error" },
-    { key: "messages" as const, label: "Сообщения", icon: "forum" },
   ];
 
   /* ── Render ── */

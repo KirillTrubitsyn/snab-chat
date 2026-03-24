@@ -10,19 +10,22 @@ export async function GET(req: NextRequest) {
   const supabase = createServiceClient();
 
   // Для обычных пользователей — только свои обращения
-  if (!isAdminCode(invite.code)) {
-    const { data, error } = await supabase
-      .from("support_messages")
-      .select("id, message, admin_reply, admin_number, status, created_at, replied_at")
-      .eq("invite_code_id", invite.id)
-      .order("created_at", { ascending: true })
-      .limit(100);
+  // Для админов — их обращения (по user_name, т.к. invite_code_id = null)
+  let query = supabase
+    .from("support_messages")
+    .select("id, message, admin_reply, admin_number, status, created_at, replied_at")
+    .order("created_at", { ascending: true })
+    .limit(100);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ messages: data ?? [] });
+  if (isAdminCode(invite.code)) {
+    query = query.eq("user_name", invite.name);
+  } else {
+    query = query.eq("invite_code_id", invite.id);
   }
 
-  return NextResponse.json({ messages: [] });
+  const { data, error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ messages: data ?? [] });
 }
 
 export async function POST(req: NextRequest) {

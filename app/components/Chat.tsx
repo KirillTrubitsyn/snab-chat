@@ -1171,25 +1171,38 @@ export default function Chat() {
         ).length;
         setUnreadSupportCount(unread);
       }
-    } catch { /* ignore */ }
+    } catch (e) { console.error("[Support] load error:", e); }
   }, [inviteCode]);
 
   useEffect(() => {
     loadSupportHistory();
   }, [loadSupportHistory]);
 
+  // Polling: every 15s when modal is open, every 60s in background (for badge)
+  useEffect(() => {
+    if (!inviteCode) return;
+    const interval = setInterval(() => {
+      loadSupportHistory();
+    }, showSupportModal ? 15000 : 60000);
+    return () => clearInterval(interval);
+  }, [inviteCode, showSupportModal, loadSupportHistory]);
+
   const sendSupportMessage = async () => {
     if (!supportMessage.trim() || supportSending) return;
     setSupportSending(true);
     try {
-      await fetch("/api/support", {
+      const res = await fetch("/api/support", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
         body: JSON.stringify({ message: supportMessage.trim() }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("[Support] POST error:", err);
+      }
       setSupportMessage("");
       await loadSupportHistory();
-    } catch { /* ignore */ }
+    } catch (e) { console.error("[Support] send error:", e); }
     setSupportSending(false);
   };
 
