@@ -101,50 +101,123 @@ async function parseImageToMarkdown(
 }
 
 function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
-  const workbook = XLSX.read(buffer, { type: "buffer" });
+  const workbook = XLSX.read(buffer, { type: "buffer", cellStyles: true });
   const parts: string[] = [];
+
+  // Add filename as document header
+  const cleanName = filename
+    .replace(/\.(xlsx|xls)$/i, "")
+    .replace(/_/g, " ");
+  parts.push(`# ${cleanName}\n`);
 
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) continue;
 
+    const range = XLSX.utils.decode_range(sheet["!ref"] || "A1");
+    const totalRows = range.e.r - range.s.r + 1;
+    const totalCols = range.e.c - range.s.c + 1;
+    if (totalRows === 0 || totalCols === 0) continue;
+
+    // Sheet heading
+    if (workbook.SheetNames.length > 1) {
+      parts.push(`## Лист: ${sheetName}\n`);
+    }
+
     const rows: string[][] = XLSX.utils.sheet_to_json(sheet, {
       header: 1,
       defval: "",
+      blankrows: false,
     });
 
     if (rows.length === 0) continue;
 
-    // Sheet heading
-    if (workbook.SheetNames.length > 1) {
-      parts.push(`## ${sheetName}`);
-    } else {
-      parts.push(`## ${filename}`);
+    // Handle merged cells: detect and annotate
+    const merges = sheet["!merges"] || [];
+    const mergeMap = new Map<string, string>();
+    for (const merge of merges) {
+      const topLeft = XLSX.utils.encode_cell({ r: merge.s.r, c: merge.s.c });
+      const val = sheet[topLeft]?.v ?? "";
+      for (let r = merge.s.r; r <= merge.e.r; r++) {
+        for (let c = merge.s.c; c <= merge.e.c; c++) {
+          const key = `${r}:${c}`;
+          mergeMap.set(key, String(val));
+        }
+      }
     }
 
-    // Build markdown table
-    const header = rows[0];
-    if (header.length === 0) continue;
-
-    parts.push(
-      "| " + header.map((c) => String(c).replace(/\|/g, "\\|")).join(" | ") + " |"
+    // Detect if first row is likely a header (non-numeric, short values)
+    const firstRow = rows[0];
+    const isHeaderRow = firstRow.every(
+      (c) => typeof c === "string" || (String(c).length < 80 && isNaN(Number(c)))
     );
-    parts.push("| " + header.map(() => "---").join(" | ") + " |");
 
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      // Skip completely empty rows
-      if (row.every((c) => String(c).trim() === "")) continue;
-      parts.push(
-        "| " +
-          header.map((_, j) =>
-            String(row[j] ?? "").replace(/\|/g, "\\|").replace(/\n/g, " ")
-          ).join(" | ") +
-          " |"
+    // For small tables (< 30 rows): use markdown table format
+    if (rows.length <= 30) {
+      const header = rows[0].map((c) =>
+        String(c).replace(/\|/g, "\\|").replace(/\n/g, " ").trim()
       );
-    }
+      if (header.length === 0 || header.every((h) => h === "")) continue;
 
-    parts.push("");
+      parts.push(
+        "| " + header.join(" | ") + " |"
+      );
+      parts.push("| " + header.map(() => "---").join(" | ") + " |");
+
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (row.every((c) => String(c).trim() === "")) continue;
+        parts.push(
+          "| " +
+            header.map((_, j) =>
+              String(row[j] ?? "")
+                .replace(/\|/g, "\\|")
+                .replace(/\n/g, " ")
+                .trim()
+            ).join(" | ") +
+            " |"
+        );
+      }
+      parts.push("");
+    } else {
+      // For large tables (> 30 rows): use structured text format
+      // This is better for RAG because markdown tables get mangled in chunking
+      const headerRow = isHeaderRow ? rows[0] : null;
+
+      if (headerRow) {
+        parts.push(`**Столбцы**: ${headerRow.filter(Boolean).map(String).join(", ")}\n`);
+      }
+
+      const dataRows = isHeaderRow ? rows.slice(1) : rows;
+
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
+        if (row.every((c) => String(c).trim() === "")) continue;
+
+        if (headerRow) {
+          // Named format: "Столбец: Значение"
+          const pairs = headerRow
+            .map((h, j) => {
+              const val = String(row[j] ?? "").trim();
+              const hStr = String(h).trim();
+              return val && hStr ? `${hStr}: ${val}` : null;
+            })
+            .filter(Boolean);
+          if (pairs.length > 0) {
+            parts.push(`- Строка ${i + 1}: ${pairs.join(" | ")}`);
+          }
+        } else {
+          // No header: just list values
+          const vals = row
+            .map((c) => String(c).trim())
+            .filter(Boolean);
+          if (vals.length > 0) {
+            parts.push(`- ${vals.join(" | ")}`);
+          }
+        }
+      }
+      parts.push("");
+    }
   }
 
   return parts.join("\n");
