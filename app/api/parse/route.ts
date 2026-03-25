@@ -12,6 +12,7 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
+    const folderPath = (formData.get("folderPath") as string) || null;
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const markdown = await parseToMarkdown(buffer, file.type, file.name);
-    const tags = await autoTag(markdown, file.name);
+    const tags = await autoTag(markdown, file.name, folderPath);
     const chunks = chunkMarkdown(markdown);
 
     return NextResponse.json({

@@ -88,7 +88,7 @@ export function detectCategory(tags: string[], filename?: string): string {
 export function getCategoryLabel(key: string): string {
   return DOCUMENT_CATEGORIES.find((c) => c.key === key)?.label || "Стандарты и Положения";
 }
-export async function autoTag(markdown: string, filename?: string): Promise<string[]> {
+export async function autoTag(markdown: string, filename?: string, folderPath?: string | null): Promise<string[]> {
   const preview = markdown.slice(0, 5000);
   try {
     const { text } = await withGoogleApiLimit(() => generateText({
@@ -96,6 +96,7 @@ export async function autoTag(markdown: string, filename?: string): Promise<stri
       prompt: `Ты — классификатор документов RAG-базы знаний «СнабЧат» Дирекции по закупкам СГК (Сибирская генерирующая компания).
 Проанализируй текст документа и сгенерируй массив из 12-18 тегов на русском языке.
 ${filename ? `\nИмя файла: "${filename}"` : ""}
+${folderPath ? `\nРаздел базы знаний: "${folderPath}"` : ""}
 СТРУКТУРА ТЕГОВ (все группы обязательны):
 1. ТИП ДОКУМЕНТА (1 тег, ВСЕГДА первый) — одно из значений:
    стандарт, положение, приказ, инструкция, методика, форма, шаблон, схема,
