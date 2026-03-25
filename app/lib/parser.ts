@@ -36,7 +36,18 @@ export async function parseToMarkdown(
   if (mimeType === "application/pdf" || filename.endsWith(".pdf")) {
     const pdfParse = (await import("pdf-parse")).default;
     const data = await pdfParse(buffer);
-    return addHeadingHeuristics(data.text);
+    let text = data.text;
+
+    // Check if PDF is scanned (image-based) — too little text extracted
+    const isScannedPdf = !text || text.replace(/\s/g, "").length < 50;
+    if (isScannedPdf) {
+      console.log(
+        `[parser] PDF "${filename}" appears to be scanned (extracted only ${text?.length || 0} chars). Using Gemini OCR...`
+      );
+      text = await ocrPdfWithGemini(buffer, filename);
+    }
+
+    return addHeadingHeuristics(text);
   }
 
   if (
@@ -57,6 +68,51 @@ export async function parseToMarkdown(
 
   // Fallback: treat as plain text
   return buffer.toString("utf-8");
+}
+
+async function ocrPdfWithGemini(
+  buffer: Buffer,
+  filename: string
+): Promise<string> {
+  const { GoogleGenAI } = await import("@google/genai");
+  const client = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
+
+  const base64 = buffer.toString("base64");
+
+  const result = await withGoogleApiLimit(async () => {
+    return client.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              inlineData: {
+                mimeType: "application/pdf",
+                data: base64,
+              },
+            },
+            {
+              text: `Извлеки весь текст из этого PDF-документа. Документ называется "${filename}".
+Правила:
+- Сохраняй структуру документа: заголовки, абзацы, списки, таблицы
+- Таблицы форматируй в markdown-формате
+- Если документ содержит приказ, положение или другой нормативный документ — сохрани нумерацию пунктов
+- Не добавляй ничего от себя, извлекай только то, что есть в документе
+- Если текст нечитаем или размыт — пропусти этот фрагмент
+- Результат верни в формате markdown`,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  const extractedText = result.text ?? "";
+  console.log(
+    `[parser] Gemini OCR extracted ${extractedText.length} chars from "${filename}"`
+  );
+  return extractedText;
 }
 
 async function parseImageToMarkdown(
