@@ -1816,6 +1816,13 @@ export default function Chat() {
                     </svg>
                     База знаний
                   </button>
+                  <button
+                    className="mobile-hamburger-item"
+                    onClick={() => { setMobileMenuOpen(false); setRightOpen((o) => !o); }}
+                  >
+                    <HistoryIcon />
+                    История диалогов
+                  </button>
                 </div>
               )}
             </div>
@@ -1929,9 +1936,6 @@ export default function Chat() {
                 <path d="M12 20h9" />
                 <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
               </svg>
-            </button>
-            <button className="menu-btn" onClick={() => setRightOpen((o) => !o)}>
-              <HistoryIcon />
             </button>
             {/* Desktop: inline logout button */}
             <button
