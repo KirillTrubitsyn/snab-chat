@@ -584,7 +584,7 @@ function DocumentViewer({
     }
     fetch(`/api/sources/content?id=${source.id}`)
       .then((r) => r.json())
-      .then((d) => setContent(cleanMarkdown(d.markdown || "")))
+      .then((d) => setContent(d.markdown || ""))
       .catch(() => setContent("Не удалось загрузить содержимое"))
       .finally(() => setLoading(false));
   }, [source.id, isPdf, isExcel, hasOriginal]);
