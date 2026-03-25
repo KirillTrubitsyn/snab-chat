@@ -632,8 +632,10 @@ function DocumentViewer({
           ) : excelSheets ? (
             <ExcelViewer sheets={excelSheets} />
           ) : (
-            <div className="document-viewer-content" style={{ whiteSpace: "pre-wrap" }}>
-              {content || ""}
+            <div className="document-viewer-content">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {content || ""}
+              </ReactMarkdown>
             </div>
           )}
         </div>
