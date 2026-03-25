@@ -933,7 +933,7 @@ function MessageBubble({
   );
 }
 
-function EmptyState() {
+function EmptyState({ onChipClick }: { onChipClick?: (text: string) => void }) {
   return (
     <div className="empty-state">
       <div className="welcome-logo-glow">
@@ -950,12 +950,12 @@ function EmptyState() {
       </div>
       <div className="welcome-chips">
         <div className="welcome-chips-row">
-          <button className="welcome-chip" type="button" onClick={() => handleSubmit(undefined, "Какие полномочия у ЦЗК?")}>Полномочия ЦЗК</button>
-          <button className="welcome-chip" type="button" onClick={() => handleSubmit(undefined, "Каков порядок проведения аварийной закупки?")}>Порядок аварийной закупки</button>
+          <button className="welcome-chip" type="button" onClick={() => onChipClick?.("Какие полномочия у ЦЗК?")}>Полномочия ЦЗК</button>
+          <button className="welcome-chip" type="button" onClick={() => onChipClick?.("Каков порядок проведения аварийной закупки?")}>Порядок аварийной закупки</button>
         </div>
         <div className="welcome-chips-row">
-          <button className="welcome-chip" type="button" onClick={() => handleSubmit(undefined, "Какие этапы согласования договора на закупку?")}>Этапы согласования договора</button>
-          <button className="welcome-chip" type="button" onClick={() => handleSubmit(undefined, "Когда проводится переторжка?")}>Когда проводится переторжка</button>
+          <button className="welcome-chip" type="button" onClick={() => onChipClick?.("Какие этапы согласования договора на закупку?")}>Этапы согласования договора</button>
+          <button className="welcome-chip" type="button" onClick={() => onChipClick?.("Когда проводится переторжка?")}>Когда проводится переторжка</button>
         </div>
       </div>
     </div>
@@ -2193,7 +2193,7 @@ export default function Chat() {
                 {hasSummary && (
                   <div className="summary-notice">ℹ Ранние сообщения сжаты в резюме</div>
                 )}
-                {messages.length === 0 && !hasSummary && <EmptyState />}
+                {messages.length === 0 && !hasSummary && <EmptyState onChipClick={(text) => handleSubmit(undefined, text)} />}
                 {messages.map((m, idx) => {
                   const prevUserMsg = m.role === "assistant"
                     ? [...messages].slice(0, idx).reverse().find((pm) => pm.role === "user")
