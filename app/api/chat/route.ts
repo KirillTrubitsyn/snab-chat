@@ -8,6 +8,7 @@ import { createServiceClient } from "@/app/lib/supabase";
 import { classifyOffTopic, CATEGORY_LABELS, type OffTopicCategory } from "@/app/lib/off-topic-classifier";
 import { notifyOffTopic } from "@/app/lib/telegram";
 import { logError } from "@/app/lib/error-logger";
+import { extractSearchHints } from "@/app/lib/query-analyzer";
 
 export const runtime = "nodejs";
 
@@ -49,6 +50,9 @@ export async function POST(req: NextRequest) {
     searchQuery = `${searchQuery} ${docPreview}`.slice(0, 1000);
   }
 
+  // Extract tag hints from query for filtered search
+  const searchHints = extractSearchHints(userMessage.content);
+
   // Run save, context load, RAG search, and off-topic classification in parallel
   const [, contextResult, searchResults, offTopicResult] = await Promise.all([
     conversationId
@@ -57,7 +61,7 @@ export async function POST(req: NextRequest) {
     conversationId
       ? loadConversationContext(conversationId)
       : Promise.resolve(null),
-    hybridSearch(searchQuery, 20),
+    hybridSearch(searchQuery, 20, searchHints),
     classifyOffTopic(userMessage.content, messages.slice(0, -1)),
   ]);
 
