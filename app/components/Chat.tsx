@@ -950,12 +950,12 @@ function EmptyState() {
       </div>
       <div className="welcome-chips">
         <div className="welcome-chips-row">
-          <button className="welcome-chip" type="button">Как провести закупку?</button>
-          <button className="welcome-chip" type="button">Сроки подачи заявок</button>
+          <button className="welcome-chip" type="button" onClick={() => handleSubmit(undefined, "Какие полномочия у ЦЗК?")}>Полномочия ЦЗК</button>
+          <button className="welcome-chip" type="button" onClick={() => handleSubmit(undefined, "Каков порядок проведения аварийной закупки?")}>Порядок аварийной закупки</button>
         </div>
         <div className="welcome-chips-row">
-          <button className="welcome-chip" type="button">Проверить ТЗ</button>
-          <button className="welcome-chip" type="button">Требования к поставщикам</button>
+          <button className="welcome-chip" type="button" onClick={() => handleSubmit(undefined, "Какие этапы согласования договора на закупку?")}>Этапы согласования договора</button>
+          <button className="welcome-chip" type="button" onClick={() => handleSubmit(undefined, "Какие документы нужны для участия в тендере?")}>Документы для тендера</button>
         </div>
       </div>
     </div>
@@ -1521,9 +1521,9 @@ export default function Chat() {
 
   /* ── Submit handler with pending logic ── */
   const handleSubmit = useCallback(
-    async (e?: FormEvent) => {
+    async (e?: FormEvent, overrideText?: string) => {
       e?.preventDefault();
-      const text = input.trim();
+      const text = (overrideText ?? input).trim();
       const hasFiles = chatFiles.filter((f) => !f.parsing && !f.error && f.markdown).length > 0;
       const hasPhotos = chatPhotos.filter((p) => !p.parsing && !p.error && p.markdown).length > 0;
       if ((!text && !hasFiles && !hasPhotos) || isLoading || isSending) return;
