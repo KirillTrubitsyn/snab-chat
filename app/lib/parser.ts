@@ -124,7 +124,7 @@ async function parseImageToMarkdown(
 
   const { text } = await withGoogleApiLimit(() =>
     generateText({
-      model: google("gemini-3-flash"),
+      model: google("gemini-3-flash-preview"),
       messages: [
         {
           role: "user",
