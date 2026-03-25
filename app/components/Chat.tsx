@@ -955,7 +955,7 @@ function EmptyState() {
         </div>
         <div className="welcome-chips-row">
           <button className="welcome-chip" type="button" onClick={() => handleSubmit(undefined, "Какие этапы согласования договора на закупку?")}>Этапы согласования договора</button>
-          <button className="welcome-chip" type="button" onClick={() => handleSubmit(undefined, "Какие документы нужны для участия в тендере?")}>Документы для тендера</button>
+          <button className="welcome-chip" type="button" onClick={() => handleSubmit(undefined, "Когда проводится переторжка?")}>Когда проводится переторжка</button>
         </div>
       </div>
     </div>
