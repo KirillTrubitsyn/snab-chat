@@ -4273,6 +4273,7 @@ input, textarea {
   }
   .admin-modal {
     margin: 12px;
+    max-height: calc(100vh - 24px);
   }
   .admin-doc-header {
     padding: 12px 16px;

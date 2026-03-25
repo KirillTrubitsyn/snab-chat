@@ -21,6 +21,27 @@ export async function POST(req: NextRequest) {
     const tags: string[] = tagsRaw ? JSON.parse(tagsRaw) : [];
     const folderPath = (formData.get("folderPath") as string) || null;
 
+    // Build metadata preamble for each chunk
+    const preambleParts: string[] = [`📄 Документ: ${filename}`];
+    // Extract parent document from filename (text in parentheses at the end)
+    const parentMatch = filename.match(/\(([^)]+)\)[^)]*$/);
+    if (parentMatch) {
+      preambleParts.push(`📎 Родительский документ: ${parentMatch[1].replace(/_/g, ' ')}`);
+    }
+    // Extract document type from first tag
+    if (tags.length > 0) {
+      preambleParts.push(`📂 Тип: ${tags[0]}`);
+    }
+    // Extract category from second tag
+    if (tags.length > 1) {
+      preambleParts.push(`🏷️ Категория: ${tags[1]}`);
+    }
+    // Add folder path if provided
+    if (folderPath) {
+      preambleParts.push(`📁 Раздел: ${folderPath}`);
+    }
+    const preamble = preambleParts.join(' | ');
+
     const supabase = createServiceClient();
 
     // Upload original file to Supabase Storage if provided
@@ -86,7 +107,7 @@ export async function POST(req: NextRequest) {
         source_id: source.id,
         source_filename: filename,
         chunk_index: chunk.index,
-        content: chunk.content,
+        content: `${preamble}\n\n${chunk.content}`,
         embedding: JSON.stringify(embeddings[j]),
         tags,
       }));
