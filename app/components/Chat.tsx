@@ -2135,7 +2135,7 @@ export default function Chat() {
                     </svg>
                     <p>Нет загруженных документов</p>
                   </div>
-                ) : (
+                ) : (<>
                 <KBSearchBar
                   inviteCode={inviteCode}
                   folder={kbCategoryFilter === "all" ? undefined : kbCategoryFilter}
@@ -2239,6 +2239,7 @@ export default function Chat() {
                         );
                       })}
                   </div>
+                </>
                 )}
               </div>
             </main>
