@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "@/app/lib/google-ai";
 import { streamText } from "ai";
-import { multiQuerySearch, filterByRelevance } from "@/app/lib/retrieval";
+import { multiQuerySearch, filterByRhelevance } from "@/app/lib/retrieval";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
 import { createServiceClient } from "@/app/lib/supabase";
