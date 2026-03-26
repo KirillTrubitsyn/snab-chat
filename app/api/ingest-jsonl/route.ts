@@ -13,7 +13,7 @@ import { logError } from "@/app/lib/error-logger";
  * Body: {
  *   statements: Array<{ text, source_file, source_document, section, table_type? }>,
  *   sourceId?: string,     // Ð¿ÐµÑÐµÐ´Ð°ÑÐ¼ Ð¿ÑÐ¸ Ð¿Ð¾Ð²ÑÐ¾ÑÐ½ÑÑ Ð²ÑÐ·Ð¾Ð²Ð°Ñ Ð´Ð»Ñ ÑÐ¾Ð³Ð¾ Ð¶Ðµ source_file
- *   chunkOffset?: number   // ÑÐ¼ÐµÑÐµÐ½Ð¸Ðµ Ð¸Ð½Ð´ÐµÐºÑÐ° ÑÐ°Ð½ÐºÐ°
+ *   chunkOffset?: number   // ÑÐ¼ÐµÑÐµÐ½Ð¸Ðµ Ð¸Ð½Ðh´ÐµÐºÑÐ° ÑÐ°Ð½ÐºÐ°
  * }
  *
  * Response: { sourceId, inserted, total }
@@ -57,7 +57,15 @@ export async function POST(req: NextRequest) {
   if (adminCheck instanceof NextResponse) return adminCheck;
 
   try {
-    const body = await req.json();
+    let body: any;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
     const statements: JsonlStatement[] = body.statements ?? [];
     let sourceId: string | null = body.sourceId ?? null;
     const chunkOffset: number = body.chunkOffset ?? 0;
