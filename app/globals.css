@@ -4483,7 +4483,7 @@ input, textarea {
   border: none;
   color: #94A3B8;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.15s;h
 }
 
 .admin-doc-card-menu-btn:hover {
@@ -4493,24 +4493,14 @@ input, textarea {
 
 /* Card dropdown */
 .admin-doc-card-dropdown {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 4px;
+  position: fixed;
   background: #fff;
   border: 1px solid #E2E8F0;
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  z-index: 50;
+  z-index: 9999;
   min-width: 220px;
   padding: 6px;
-}
-
-.admin-doc-card-dropdown.flip-up {
-  top: auto;
-  bottom: 100%;
-  margin-top: 0;
-  margin-bottom: 4px;
 }
 
 .admin-doc-dropdown-label {
