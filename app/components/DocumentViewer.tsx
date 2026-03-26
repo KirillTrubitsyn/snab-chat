@@ -121,13 +121,13 @@ export default function DocumentViewer({
           } else {
             fetch(`/api/sources/content?id=${source.id}`)
               .then((r) => r.json())
-              .then((d) => setContent(d.markdown || "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u043c\u043e\u0435"))
-              .catch(() => setContent("\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u043c\u043e\u0435"))
+              .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
+              .catch(() => setContent("Не удалось загрузить содержимое"))
               .finally(() => setLoading(false));
           }
         })
         .catch(() => {
-          setContent("\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u043c\u043e\u0435");
+          setContent("Не удалось загрузить содержимое");
           setLoading(false);
         });
       return;
@@ -142,16 +142,16 @@ export default function DocumentViewer({
           } else {
             fetch(`/api/sources/content?id=${source.id}`)
               .then((r) => r.json())
-              .then((d) => setContent(d.markdown || "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u043c\u043e\u0435"))
-              .catch(() => setContent("\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u043c\u043e\u0435"))
+              .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
+              .catch(() => setContent("Не удалось загрузить содержимое"))
               .finally(() => setLoading(false));
           }
         })
         .catch(() => {
           fetch(`/api/sources/content?id=${source.id}`)
             .then((r) => r.json())
-            .then((d) => setContent(d.markdown || "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u043c\u043e\u0435"))
-            .catch(() => setContent("\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u043c\u043e\u0435"))
+            .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
+            .catch(() => setContent("Не удалось загрузить содержимое"))
             .finally(() => setLoading(false));
         });
       return;
@@ -159,7 +159,7 @@ export default function DocumentViewer({
     fetch(`/api/sources/content?id=${source.id}`)
       .then((r) => r.json())
       .then((d) => setContent(d.markdown || ""))
-      .catch(() => setContent("\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u043c\u043e\u0435"))
+      .catch(() => setContent("Не удалось загрузить содержимое"))
       .finally(() => setLoading(false));
   }, [source.id, isPdf, isExcel, isDocx, hasOriginal]);
 
@@ -187,16 +187,16 @@ export default function DocumentViewer({
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              {hasOriginal ? `\u0421\u043a\u0430\u0447\u0430\u0442\u044c (${source.filename.split('.').pop()?.toUpperCase()})` : "\u0421\u043a\u0430\u0447\u0430\u0442\u044c (.md)"}
+              {hasOriginal ? `Скачать (${source.filename.split('.').pop()?.toUpperCase()})` : "Скачать (.md)"}
             </button>
             <button className="btn-secondary" onClick={onClose}>
-              \u0417\u0430\u043a\u0440\u044b\u0442\u044c
+              Закрыть
             </button>
           </div>
         </div>
         <div className="document-viewer-body">
           {loading ? (
-            <div className="document-viewer-loading">\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430...</div>
+            <div className="document-viewer-loading">Загрузка...</div>
           ) : isPdf && hasOriginal ? (
             <iframe
               src={`/api/sources/download?id=${source.id}&action=view`}
