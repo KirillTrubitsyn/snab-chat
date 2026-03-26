@@ -61,12 +61,15 @@ ON-TOPIC queries (respond with: procurement):
 - Supply chain, deliveries, logistics, warehouse
 - Contracts, specifications, agreements
 - Regulations, standards, normative documents
-- Pricing, estimates, procurement budgets
+- Pricing, estimates, procurement budgets, НМЦК, НМЦЖ, НМЦ (начальная максимальная цена контракта/жизненного цикла)
 - Materials, goods acceptance, claims
 - Supplier qualification, counterparties
 - Russian procurement laws (44-FZ, 223-FZ)
 - Preparing procurement documentation
 - Editing, improving, rephrasing work texts
+- Procurement abbreviations: НМЦК, НМЦЖ, НМЦ, ОКПД, ЕП, ТРУ, ТЗ, КП, ОЗ, НДС, ФАС, ЕИС, ЭТП, РНП, ОТР, СМР, ПИР
+- Responsibility assignment, organizational structure related to procurement processes
+- Any query mentioning work/service pricing, cost estimation, contract formation
 
 OFF-TOPIC categories:
 - household — home repair, cleaning, interior design, dacha
@@ -92,6 +95,9 @@ RULES:
 - If the query is about PROCUREMENT (even in personal context) → procurement
 - Text editing/improvement requests → procurement (work tasks)
 - When in doubt → procurement (better not to block a work query)
+- Russian procurement abbreviations (НМЦК, НМЦЖ, НМЦ, ОКПД, ЕИС, ЭТП, РНП, ФАС, СМР, ПИР, ТРУ) → ALWAYS procurement
+- Queries about responsibility, assignment, or organizational roles related to pricing, contracts, works, or services → procurement
+- Do NOT confuse professional/work queries with personal topics
 
 You MUST respond with EXACTLY ONE word from the list above. Nothing else. No explanations.`;
 
@@ -118,6 +124,14 @@ function keywordClassify(text: string): OffTopicCategory {
     /44.?фз/i, /223.?фз/i, /закон.*закупк/i, /документаци/i,
     /переформулир/i, /перефразир/i, /улучш.*текст/i, /редактир/i,
     /коммерческ.*предлож/i, /техническ.*задан/i, /тз\b/i,
+    /нмцк/i, /нмцж/i, /\bнмц\b/i, /начальн.*максимальн.*цен/i,
+    /окпд/i, /\bеис\b/i, /\bэтп\b/i, /\bрнп\b/i, /\bфас\b/i,
+    /\bсмр\b/i, /\bпир\b/i, /\bотр\b/i, /\bтру\b/i,
+    /единствен.*поставщик/i, /конкурс/i, /лот[аеуы\b]/i,
+    /обеспечен.*заявк/i, /обеспечен.*контракт/i, /обеспечен.*исполнен/i,
+    /субподряд/i, /генподряд/i, /подрядчик/i, /исполнител/i,
+    /заказчик/i, /извещен.*закупк/i, /протокол.*закупк/i,
+    /формирован.*цен/i, /обоснован.*цен/i, /расчёт.*цен/i, /расчет.*цен/i,
   ];
   for (const p of procurementPatterns) {
     if (p.test(lower)) return "procurement";
@@ -158,6 +172,13 @@ export async function classifyOffTopic(
 ): Promise<ClassifyResult> {
   // Короткие сообщения — считаем целевыми
   if (!userMessage || userMessage.trim().length < 10) {
+    return { isOffTopic: false, category: "procurement" };
+  }
+
+  // Быстрая проверка ключевыми словами ДО LLM — если очевидно закупочный, не тратим время
+  const keywordPreCheck = keywordClassify(userMessage);
+  if (keywordPreCheck === "procurement") {
+    console.log(`[OffTopic] Keyword pre-check: procurement → skipping LLM`);
     return { isOffTopic: false, category: "procurement" };
   }
 
