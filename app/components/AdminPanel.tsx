@@ -302,6 +302,9 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   // Search/filter state
   const [searchName, setSearchName] = useState("");
 
+  // Mobile sidebar state
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const headers = { "x-admin-code": encodeURIComponent(adminCode) };
 
   /* ── Load data ── */
@@ -828,8 +831,12 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
 
   return (
     <div className="admin-layout">
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && (
+        <div className="admin-sidebar-overlay" onClick={() => setSidebarOpen(false)} />
+      )}
       {/* Sidebar */}
-      <aside className="admin-sidebar">
+      <aside className={`admin-sidebar ${sidebarOpen ? "open" : ""}`}>
         <a href="/" className="admin-sidebar-logo">
           <svg width="36" height="36" viewBox="0 0 512 512" fill="none">
             <rect width="512" height="512" rx="112" fill="#F0F4FA"/>
@@ -851,7 +858,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
             <button
               key={item.key}
               className={`admin-sidebar-nav-item ${tab === item.key ? "active" : ""}`}
-              onClick={() => setTab(item.key)}
+              onClick={() => { setTab(item.key); setSidebarOpen(false); }}
             >
               <span className="material-symbols-outlined">{item.icon}</span>
               <span>{item.label}</span>
@@ -870,10 +877,13 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
       <div className="admin-main">
         {/* Top bar */}
         <header className="admin-topbar">
+          <button className="admin-topbar-hamburger" onClick={() => setSidebarOpen(!sidebarOpen)}>
+            <span className="material-symbols-outlined">{sidebarOpen ? "close" : "menu"}</span>
+          </button>
           <div className="admin-topbar-spacer" />
           <a href="/" className="admin-topbar-link">
             <span className="material-symbols-outlined">chat</span>
-            К чату
+            <span className="admin-topbar-link-text">К чату</span>
           </a>
           <div className="admin-topbar-divider" />
           <div className="admin-topbar-user">
@@ -886,7 +896,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
           <div className="admin-topbar-divider" />
           <button onClick={onLogout} className="admin-topbar-logout">
             <span className="material-symbols-outlined">logout</span>
-            Выйти
+            <span className="admin-topbar-link-text">Выйти</span>
           </button>
         </header>
 

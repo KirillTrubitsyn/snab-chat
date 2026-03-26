@@ -4583,37 +4583,91 @@ input, textarea {
   box-shadow: 0 0 0 3px rgba(36, 99, 235, 0.1);
 }
 
+/* ── Hamburger button (hidden on desktop) ── */
+
+.admin-topbar-hamburger {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #334155;
+  padding: 6px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.admin-topbar-hamburger:hover {
+  background: #F1F5F9;
+}
+.admin-topbar-hamburger .material-symbols-outlined {
+  font-size: 24px;
+}
+
+/* ── Sidebar overlay ── */
+
+.admin-sidebar-overlay {
+  display: none;
+}
+
 /* ── Responsive ── */
 
 @media (max-width: 1024px) {
+  .admin-topbar-hamburger {
+    display: flex;
+  }
   .admin-sidebar {
     position: fixed;
     left: -260px;
     top: 0;
     height: 100%;
-    z-index: 100;
+    z-index: 200;
     transition: left 0.25s ease;
   }
   .admin-sidebar.open {
     left: 0;
   }
+  .admin-sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 199;
+  }
   .admin-topbar {
     padding: 0 16px;
+  }
+  .admin-topbar-user-info {
+    display: none;
+  }
+  .admin-topbar-link-text {
+    display: none;
   }
 }
 
 @media (max-width: 768px) {
   .admin-workspace {
-    padding: 16px;
+    padding: 12px;
   }
   .admin-card {
-    padding: 16px;
+    padding: 12px;
+    border-radius: 12px;
+  }
+  .admin-card-table {
+    padding: 0;
   }
   .admin-card-header {
     padding: 16px;
     flex-direction: column;
     gap: 12px;
     align-items: flex-start;
+  }
+  .admin-card-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .admin-card-title {
+    font-size: 18px;
   }
   .admin-form-row {
     flex-direction: column;
@@ -4622,10 +4676,6 @@ input, textarea {
   .admin-form-field {
     width: 100% !important;
     min-width: 0 !important;
-  }
-  .admin-table th,
-  .admin-table td {
-    padding: 12px 16px;
   }
   .admin-modal {
     margin: 12px;
@@ -4639,6 +4689,131 @@ input, textarea {
   }
   .invite-gate-card {
     padding: 32px 24px;
+  }
+
+  /* ── Table → Card layout on mobile ── */
+
+  .admin-table-wrap {
+    overflow-x: visible;
+  }
+  .admin-table {
+    display: block;
+  }
+  .admin-table thead {
+    display: none;
+  }
+  .admin-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .admin-table tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 14px 16px;
+    gap: 4px 12px;
+    border-bottom: 1px solid #E2E8F0;
+    position: relative;
+  }
+  .admin-table tbody tr:last-child {
+    border-bottom: none;
+  }
+  .admin-table tbody tr:hover td {
+    background: transparent;
+  }
+  .admin-table td {
+    padding: 0;
+    border-bottom: none;
+    display: inline;
+    font-size: 14px;
+  }
+
+  /* Checkbox cell */
+  .admin-table td:first-child {
+    position: absolute;
+    left: 16px;
+    top: 16px;
+  }
+  .admin-table td:first-child ~ td {
+    padding-left: 32px;
+  }
+
+  /* Name cell: full width */
+  .admin-cell-name {
+    font-weight: 600;
+    font-size: 15px;
+  }
+
+  /* Status badges inline */
+  .admin-status {
+    font-size: 11px;
+  }
+
+  /* Message/content cell: full width, muted */
+  .admin-cell-title {
+    width: 100%;
+    color: #64748B;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Date cell */
+  .admin-cell-date {
+    font-size: 12px;
+    color: #94A3B8;
+    text-align: left !important;
+    margin-left: auto;
+  }
+
+  /* Action buttons */
+  .admin-table td:last-child {
+    margin-left: auto;
+  }
+
+  /* Code badge */
+  .admin-code-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+  }
+
+  /* ── Topbar compact ── */
+  .admin-topbar {
+    height: 56px;
+    gap: 12px;
+  }
+  .admin-topbar-divider {
+    height: 20px;
+  }
+  .admin-topbar-logout {
+    font-size: 0;
+    gap: 0;
+  }
+  .admin-topbar-logout .material-symbols-outlined {
+    font-size: 20px;
+  }
+
+  /* ── Buttons compact ── */
+  .admin-btn-secondary {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+  .admin-btn-secondary .material-symbols-outlined {
+    font-size: 16px;
+  }
+  .admin-btn-danger {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+
+  /* ── Search field ── */
+  .admin-search-field input {
+    font-size: 16px; /* prevent iOS zoom */
+  }
+  .admin-form-field input {
+    font-size: 16px;
   }
 }
 
