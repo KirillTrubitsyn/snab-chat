@@ -8,7 +8,7 @@ import remarkGfm from "remark-gfm";
 import InviteGate from "./InviteGate";
 import { containsMarkdownTable } from "@/app/lib/markdown-tables";
 
-/* ── Types ── */
+/* ââ Types ââ */
 
 interface Conversation {
   id: string;
@@ -46,7 +46,7 @@ interface ChatPhoto {
   error?: string;
 }
 
-/* ── SpeechRecognition types ── */
+/* ââ SpeechRecognition types ââ */
 
 interface SpeechRecognitionEvent extends Event {
   resultIndex: number;
@@ -72,7 +72,7 @@ declare global {
   }
 }
 
-/* ── Helpers ── */
+/* ââ Helpers ââ */
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
@@ -81,7 +81,7 @@ function formatDate(dateStr: string): string {
     d.getDate() === now.getDate() &&
     d.getMonth() === now.getMonth() &&
     d.getFullYear() === now.getFullYear();
-  if (isToday) return "сегодня";
+  if (isToday) return "ÑÐµÐ³Ð¾Ð´Ð½Ñ";
 
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
@@ -89,16 +89,16 @@ function formatDate(dateStr: string): string {
     d.getDate() === yesterday.getDate() &&
     d.getMonth() === yesterday.getMonth() &&
     d.getFullYear() === yesterday.getFullYear();
-  if (isYesterday) return "вчера";
+  if (isYesterday) return "Ð²ÑÐµÑÐ°";
 
   const months = [
-    "янв", "фев", "мар", "апр", "май", "июн",
-    "июл", "авг", "сен", "окт", "ноя", "дек",
+    "ÑÐ½Ð²", "ÑÐµÐ²", "Ð¼Ð°Ñ", "Ð°Ð¿Ñ", "Ð¼Ð°Ð¹", "Ð¸ÑÐ½",
+    "Ð¸ÑÐ»", "Ð°Ð²Ð³", "ÑÐµÐ½", "Ð¾ÐºÑ", "Ð½Ð¾Ñ", "Ð´ÐµÐº",
   ];
   return `${d.getDate()} ${months[d.getMonth()]}`;
 }
 
-/* ── Inline SVG icons ── */
+/* ââ Inline SVG icons ââ */
 
 function SpektrIcon({ size = 24 }: { size?: number }) {
   return (
@@ -160,7 +160,7 @@ function InfographicIcon({ size = 20 }: { size?: number }) {
   );
 }
 
-/* ── VoiceButton ── */
+/* ââ VoiceButton ââ */
 
 function VoiceButton({ onTranscript, disabled }: { onTranscript: (text: string) => void; disabled?: boolean }) {
   const [isRecording, setIsRecording] = useState(false);
@@ -255,7 +255,7 @@ function VoiceButton({ onTranscript, disabled }: { onTranscript: (text: string) 
       disabled={disabled}
       type="button"
       className={`voice-btn ${isRecording ? "recording" : ""}`}
-      title={isRecording ? "Остановить запись" : "Голосовой ввод"}
+      title={isRecording ? "ÐÑÑÐ°Ð½Ð¾Ð²Ð¸ÑÑ Ð·Ð°Ð¿Ð¸ÑÑ" : "ÐÐ¾Ð»Ð¾ÑÐ¾Ð²Ð¾Ð¹ Ð²Ð²Ð¾Ð´"}
     >
       {isRecording ? (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -273,7 +273,7 @@ function VoiceButton({ onTranscript, disabled }: { onTranscript: (text: string) 
   );
 }
 
-/* ── CameraButton (mobile only) ── */
+/* ââ CameraButton (mobile only) ââ */
 
 function CameraButton({
   onCapture,
@@ -314,11 +314,11 @@ function CameraButton({
           videoRef.current
             ?.play()
             .then(() => setReady(true))
-            .catch(() => setError("Не удалось запустить видео"));
+            .catch(() => setError("ÐÐµ ÑÐ´Ð°Ð»Ð¾ÑÑ Ð·Ð°Ð¿ÑÑÑÐ¸ÑÑ Ð²Ð¸Ð´ÐµÐ¾"));
         };
       }
     } catch {
-      setError("Нет доступа к камере");
+      setError("ÐÐµÑ Ð´Ð¾ÑÑÑÐ¿Ð° Ðº ÐºÐ°Ð¼ÐµÑÐµ");
     }
   }, [facingMode, stream]);
 
@@ -377,7 +377,7 @@ function CameraButton({
         disabled={disabled || isLimitReached}
         type="button"
         className="camera-btn"
-        title="Сделать фото документа"
+        title="Ð¡Ð´ÐµÐ»Ð°ÑÑ ÑÐ¾ÑÐ¾ Ð´Ð¾ÐºÑÐ¼ÐµÐ½ÑÐ°"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
@@ -411,7 +411,7 @@ function CameraButton({
           {error ? (
             <div className="camera-error">
               <p>{error}</p>
-              <button onClick={startCamera} className="camera-retry" type="button">Повторить</button>
+              <button onClick={startCamera} className="camera-retry" type="button">ÐÐ¾Ð²ÑÐ¾ÑÐ¸ÑÑ</button>
             </div>
           ) : (
             <>
@@ -438,13 +438,13 @@ function CameraButton({
   );
 }
 
-/* ── Sub-components ── */
+/* ââ Sub-components ââ */
 
 function cleanMarkdown(text: string): string {
   let s = text;
   // Remove backslash escapes from mammoth: \( \) \. \- etc.
   s = s.replace(/\\([().,;:!?\-\[\]{}+=#])/g, "$1");
-  // Decode URL-encoded strings (%D1%81%D1%80... → readable text)
+  // Decode URL-encoded strings (%D1%81%D1%80... â readable text)
   s = s.replace(/%[0-9A-Fa-f]{2}(?:%[0-9A-Fa-f]{2})*/g, (match) => {
     try { return decodeURIComponent(match); } catch { return match; }
   });
@@ -459,7 +459,7 @@ function cleanMarkdown(text: string): string {
   s = s.replace(/~~([^~]+)~~/g, "$1");
   // Remove inline code backticks
   s = s.replace(/`([^`]+)`/g, "$1");
-  // Remove link syntax [text](url) → text
+  // Remove link syntax [text](url) â text
   s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
   // Remove image syntax ![alt](url)
   s = s.replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1");
@@ -553,6 +553,7 @@ function DocumentViewer({
   onClose: () => void;
 }) {
   const [content, setContent] = useState<string | null>(null);
+  const [docxHtml, setDocxHtml] = useState<string | null>(null);
   const [excelSheets, setExcelSheets] = useState<ExcelSheet[] | null>(null);
   const [loading, setLoading] = useState(true);
   const isPdf = source.mime_type?.includes("pdf");
@@ -561,6 +562,10 @@ function DocumentViewer({
     source.mime_type?.includes("excel") ||
     source.filename?.endsWith(".xlsx") ||
     source.filename?.endsWith(".xls");
+  const isDocx =
+    source.mime_type?.includes("wordprocessingml") ||
+    source.filename?.endsWith(".docx") ||
+    source.filename?.endsWith(".doc");
   const hasOriginal = !!source.storage_path;
 
   useEffect(() => {
@@ -575,19 +580,33 @@ function DocumentViewer({
           if (d.sheets && d.sheets.length > 0) {
             setExcelSheets(d.sheets);
           } else {
-            setContent("Не удалось загрузить содержимое");
+            setContent("ÐÐµ ÑÐ´Ð°Ð»Ð¾ÑÑ Ð·Ð°Ð³ÑÑÐ·Ð¸ÑÑ ÑÐ¾Ð´ÐµÑÐ¶Ð¸Ð¼Ð¾Ðµ");
           }
         })
-        .catch(() => setContent("Не удалось загрузить содержимое"))
+        .catch(() => setContent("ÐÐµ ÑÐ´Ð°Ð»Ð¾ÑÑ Ð·Ð°Ð³ÑÑÐ·Ð¸ÑÑ ÑÐ¾Ð´ÐµÑÐ¶Ð¸Ð¼Ð¾Ðµ"))
+        .finally(() => setLoading(false));
+      return;
+    }
+    if (isDocx && hasOriginal) {
+      fetch(`/api/sources/docx-html?id=${source.id}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.html) {
+            setDocxHtml(d.html);
+          } else {
+            setContent("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435");
+          }
+        })
+        .catch(() => setContent("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044C \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435"))
         .finally(() => setLoading(false));
       return;
     }
     fetch(`/api/sources/content?id=${source.id}`)
       .then((r) => r.json())
       .then((d) => setContent(d.markdown || ""))
-      .catch(() => setContent("Не удалось загрузить содержимое"))
+      .catch(() => setContent("ÐÐµ ÑÐ´Ð°Ð»Ð¾ÑÑ Ð·Ð°Ð³ÑÑÐ·Ð¸ÑÑ ÑÐ¾Ð´ÐµÑÐ¶Ð¸Ð¼Ð¾Ðµ"))
       .finally(() => setLoading(false));
-  }, [source.id, isPdf, isExcel, hasOriginal]);
+  }, [source.id, isPdf, isExcel, isDocx, hasOriginal]);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -613,16 +632,16 @@ function DocumentViewer({
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              {hasOriginal ? `Скачать (${source.filename.split('.').pop()?.toUpperCase()})` : "Скачать (.md)"}
+              {hasOriginal ? `Ð¡ÐºÐ°ÑÐ°ÑÑ (${source.filename.split('.').pop()?.toUpperCase()})` : "Ð¡ÐºÐ°ÑÐ°ÑÑ (.md)"}
             </button>
             <button className="btn-secondary" onClick={onClose}>
-              Закрыть
+              ÐÐ°ÐºÑÑÑÑ
             </button>
           </div>
         </div>
         <div className="document-viewer-body">
           {loading ? (
-            <div className="document-viewer-loading">Загрузка...</div>
+            <div className="document-viewer-loading">ÐÐ°Ð³ÑÑÐ·ÐºÐ°...</div>
           ) : isPdf && hasOriginal ? (
             <iframe
               src={`/api/sources/download?id=${source.id}&action=view`}
@@ -631,6 +650,11 @@ function DocumentViewer({
             />
           ) : excelSheets ? (
             <ExcelViewer sheets={excelSheets} />
+          ) : docxHtml ? (
+            <div
+              className="document-viewer-content docx-preview"
+              dangerouslySetInnerHTML={{ __html: docxHtml }}
+            />
           ) : (
             <div className="document-viewer-content">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -703,11 +727,11 @@ function MessageBubble({
         <div className="message-infographic-card">
           <div className="message-infographic-label">
             <InfographicIcon size={14} />
-            Инфографика{message.metadata.topic ? `: ${message.metadata.topic}` : ""}
+            ÐÐ½ÑÐ¾Ð³ÑÐ°ÑÐ¸ÐºÐ°{message.metadata.topic ? `: ${message.metadata.topic}` : ""}
           </div>
           <img
             src={message.metadata.image_base64}
-            alt={message.metadata.topic || "Инфографика"}
+            alt={message.metadata.topic || "ÐÐ½ÑÐ¾Ð³ÑÐ°ÑÐ¸ÐºÐ°"}
             className="message-infographic-image"
           />
           {message.content && (
@@ -719,7 +743,7 @@ function MessageBubble({
               <polyline points="7 10 12 15 17 10" />
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-            Скачать PNG
+            Ð¡ÐºÐ°ÑÐ°ÑÑ PNG
           </button>
         </div>
       </div>
@@ -749,8 +773,8 @@ function MessageBubble({
     const nameNoExt = normName.replace(/\.\w+$/, "");
     src = allSources.find((doc) => normalize(doc.filename).replace(/\.\w+$/, "") === nameNoExt);
     if (src) return src;
-    // Match by document code pattern (e.g., "С-ГК-В5-02" found in both text and filename)
-    const codeMatch = n.match(/[А-ЯA-Z][\w-]*(?:В\d|У\d|Б\d)[\w-]*/i);
+    // Match by document code pattern (e.g., "Ð¡-ÐÐ-Ð5-02" found in both text and filename)
+    const codeMatch = n.match(/[Ð-Ð¯A-Z][\w-]*(?:Ð\d|Ð£\d|Ð\d)[\w-]*/i);
     if (codeMatch) {
       const code = codeMatch[0].toLowerCase();
       src = allSources.find((doc) => doc.filename.toLowerCase().includes(code));
@@ -758,7 +782,7 @@ function MessageBubble({
     return src;
   };
 
-  // Make all source tags clickable — if no exact source found, open download search
+  // Make all source tags clickable â if no exact source found, open download search
   const handleSourceClick = (sourceName: string) => {
     const src = findSource(sourceName);
     if (src) {
@@ -770,11 +794,11 @@ function MessageBubble({
   const linkifyContent = (text: string): string => {
     if (allSources.length === 0) return text;
 
-    // Extract document codes from filenames (e.g., "С-НМГРЭС-В5-03", "И-ГК-В5-02", "Пл-ГК-В5-03")
+    // Extract document codes from filenames (e.g., "Ð¡-ÐÐÐÐ Ð­Ð¡-Ð5-03", "Ð-ÐÐ-Ð5-02", "ÐÐ»-ÐÐ-Ð5-03")
     const codePatterns: { code: string; sourceId: number }[] = [];
     for (const src of allSources) {
-      // Match codes like: С-НМГРЭС-В5-03, И-ГК-В1/У6-02, Пл-ГК-В5-03, М-ГК-В1/У4-01
-      const codes = src.filename.match(/[А-ЯA-Zа-яa-z]{1,4}-[А-ЯA-Zа-яa-z/]{1,15}-[А-ЯA-Zа-яa-z0-9/]{1,6}-\d{1,3}/gi);
+      // Match codes like: Ð¡-ÐÐÐÐ Ð­Ð¡-Ð5-03, Ð-ÐÐ-Ð1/Ð£6-02, ÐÐ»-ÐÐ-Ð5-03, Ð-ÐÐ-Ð1/Ð£4-01
+      const codes = src.filename.match(/[Ð-Ð¯A-ZÐ°-Ña-z]{1,4}-[Ð-Ð¯A-ZÐ°-Ña-z/]{1,15}-[Ð-Ð¯A-ZÐ°-Ña-z0-9/]{1,6}-\d{1,3}/gi);
       if (codes) {
         for (const code of codes) {
           codePatterns.push({ code, sourceId: src.id });
@@ -803,7 +827,7 @@ function MessageBubble({
       const lastClose = before.lastIndexOf("]");
       if (lastOpen > lastClose) return match;
 
-      // Check if preceded by ]( — we'd be inside a link URL
+      // Check if preceded by ]( â we'd be inside a link URL
       const justBefore = text.substring(Math.max(0, offset - 10), offset);
       if (justBefore.includes("](")) return match;
 
@@ -838,7 +862,7 @@ function MessageBubble({
                     <button
                       className="source-link-btn"
                       onClick={() => onViewSource(src)}
-                      title={`Открыть: ${src.filename}`}
+                      title={`ÐÑÐºÑÑÑÑ: ${src.filename}`}
                     >
                       {children}
                     </button>
@@ -853,7 +877,7 @@ function MessageBubble({
                   <button
                     className="source-link-btn"
                     onClick={() => onViewSource(src)}
-                    title={`Открыть: ${src.filename}`}
+                    title={`ÐÑÐºÑÑÑÑ: ${src.filename}`}
                   >
                     {children}
                   </button>
@@ -868,7 +892,7 @@ function MessageBubble({
       </div>
       {message.sources && message.sources.length > 0 && (
         <div className="message-sources">
-          <div className="message-sources-label">Источники:</div>
+          <div className="message-sources-label">ÐÑÑÐ¾ÑÐ½Ð¸ÐºÐ¸:</div>
           <div className="message-sources-list">
             {message.sources.map((s, i) => {
               const src = findSource(s);
@@ -877,7 +901,7 @@ function MessageBubble({
                   key={i}
                   className={`message-source-tag source-clickable${!src ? " source-unlinked" : ""}`}
                   onClick={() => handleSourceClick(s)}
-                  title={src ? "Открыть документ" : "Документ не найден в базе"}
+                  title={src ? "ÐÑÐºÑÑÑÑ Ð´Ð¾ÐºÑÐ¼ÐµÐ½Ñ" : "ÐÐ¾ÐºÑÐ¼ÐµÐ½Ñ Ð½Ðµ Ð½Ð°Ð¹Ð´ÐµÐ½ Ð² Ð±Ð°Ð·Ðµ"}
                 >
                   {s}
                 </button>
@@ -892,17 +916,17 @@ function MessageBubble({
             <button
               className="message-infographic-btn"
               onClick={() => onCreateInfographic(message.content)}
-              title="Создать инфографику на основе этого ответа"
+              title="Ð¡Ð¾Ð·Ð´Ð°ÑÑ Ð¸Ð½ÑÐ¾Ð³ÑÐ°ÑÐ¸ÐºÑ Ð½Ð° Ð¾ÑÐ½Ð¾Ð²Ðµ ÑÑÐ¾Ð³Ð¾ Ð¾ÑÐ²ÐµÑÐ°"
             >
               <InfographicIcon size={14} />
-              Создать инфографику
+              Ð¡Ð¾Ð·Ð´Ð°ÑÑ Ð¸Ð½ÑÐ¾Ð³ÑÐ°ÑÐ¸ÐºÑ
             </button>
           )}
           {onExportDocx && (
             <button
               className="message-infographic-btn message-export-btn"
               onClick={() => onExportDocx(message.content)}
-              title="Скачать ответ в формате DOCX"
+              title="Ð¡ÐºÐ°ÑÐ°ÑÑ Ð¾ÑÐ²ÐµÑ Ð² ÑÐ¾ÑÐ¼Ð°ÑÐµ DOCX"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -910,14 +934,14 @@ function MessageBubble({
                 <line x1="12" y1="18" x2="12" y2="12" />
                 <polyline points="9 15 12 18 15 15" />
               </svg>
-              Скачать .docx
+              Ð¡ÐºÐ°ÑÐ°ÑÑ .docx
             </button>
           )}
           {onExportExcel && (
             <button
               className="message-infographic-btn message-export-btn"
               onClick={() => onExportExcel(message.content)}
-              title="Скачать таблицы в формате Excel"
+              title="Ð¡ÐºÐ°ÑÐ°ÑÑ ÑÐ°Ð±Ð»Ð¸ÑÑ Ð² ÑÐ¾ÑÐ¼Ð°ÑÐµ Excel"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -926,7 +950,7 @@ function MessageBubble({
                 <line x1="9" y1="3" x2="9" y2="21" />
                 <line x1="15" y1="3" x2="15" y2="21" />
               </svg>
-              Скачать .xlsx
+              Ð¡ÐºÐ°ÑÐ°ÑÑ .xlsx
             </button>
           )}
         </div>
@@ -941,23 +965,23 @@ function EmptyState({ onChipClick }: { onChipClick?: (text: string) => void }) {
       <div className="welcome-logo-glow">
         <SpektrIcon size={96} />
       </div>
-      <div className="welcome-dept">Дирекция по закупкам</div>
+      <div className="welcome-dept">ÐÐ¸ÑÐµÐºÑÐ¸Ñ Ð¿Ð¾ Ð·Ð°ÐºÑÐ¿ÐºÐ°Ð¼</div>
       <div className="welcome-brand">
-        <span style={{ color: '#003A7A' }}>Снаб</span><span style={{ color: '#0099CC' }}>Чат</span>
+        <span style={{ color: '#003A7A' }}>Ð¡Ð½Ð°Ð±</span><span style={{ color: '#0099CC' }}>Ð§Ð°Ñ</span>
       </div>
       <div className="welcome-divider" />
-      <div className="welcome-role">Ваш ИИ-ассистент по закупкам</div>
+      <div className="welcome-role">ÐÐ°Ñ ÐÐ-Ð°ÑÑÐ¸ÑÑÐµÐ½Ñ Ð¿Ð¾ Ð·Ð°ÐºÑÐ¿ÐºÐ°Ð¼</div>
       <div className="welcome-desc">
-        Помогу разобраться в процедурах, найти нужный документ, подготовить ответ или проверить соответствие требованиям
+        ÐÐ¾Ð¼Ð¾Ð³Ñ ÑÐ°Ð·Ð¾Ð±ÑÐ°ÑÑÑÑ Ð² Ð¿ÑÐ¾ÑÐµÐ´ÑÑÐ°Ñ, Ð½Ð°Ð¹ÑÐ¸ Ð½ÑÐ¶Ð½ÑÐ¹ Ð´Ð¾ÐºÑÐ¼ÐµÐ½Ñ, Ð¿Ð¾Ð´Ð³Ð¾ÑÐ¾Ð²Ð¸ÑÑ Ð¾ÑÐ²ÐµÑ Ð¸Ð»Ð¸ Ð¿ÑÐ¾Ð²ÐµÑÐ¸ÑÑ ÑÐ¾Ð¾ÑÐ²ÐµÑÑÑÐ²Ð¸Ðµ ÑÑÐµÐ±Ð¾Ð²Ð°Ð½Ð¸ÑÐ¼
       </div>
       <div className="welcome-chips">
         <div className="welcome-chips-row">
-          <button className="welcome-chip" type="button" onClick={() => onChipClick?.("Какие полномочия у ЦЗК?")}>Полномочия ЦЗК</button>
-          <button className="welcome-chip" type="button" onClick={() => onChipClick?.("Каков порядок проведения аварийной закупки?")}>Порядок аварийной закупки</button>
+          <button className="welcome-chip" type="button" onClick={() => onChipClick?.("ÐÐ°ÐºÐ¸Ðµ Ð¿Ð¾Ð»Ð½Ð¾Ð¼Ð¾ÑÐ¸Ñ Ñ Ð¦ÐÐ?")}>ÐÐ¾Ð»Ð½Ð¾Ð¼Ð¾ÑÐ¸Ñ Ð¦ÐÐ</button>
+          <button className="welcome-chip" type="button" onClick={() => onChipClick?.("ÐÐ°ÐºÐ¾Ð² Ð¿Ð¾ÑÑÐ´Ð¾Ðº Ð¿ÑÐ¾Ð²ÐµÐ´ÐµÐ½Ð¸Ñ Ð°Ð²Ð°ÑÐ¸Ð¹Ð½Ð¾Ð¹ Ð·Ð°ÐºÑÐ¿ÐºÐ¸?")}>ÐÐ¾ÑÑÐ´Ð¾Ðº Ð°Ð²Ð°ÑÐ¸Ð¹Ð½Ð¾Ð¹ Ð·Ð°ÐºÑÐ¿ÐºÐ¸</button>
         </div>
         <div className="welcome-chips-row">
-          <button className="welcome-chip" type="button" onClick={() => onChipClick?.("Какие этапы согласования договора на закупку?")}>Этапы согласования договора</button>
-          <button className="welcome-chip" type="button" onClick={() => onChipClick?.("Когда проводится переторжка?")}>Когда проводится переторжка</button>
+          <button className="welcome-chip" type="button" onClick={() => onChipClick?.("ÐÐ°ÐºÐ¸Ðµ ÑÑÐ°Ð¿Ñ ÑÐ¾Ð³Ð»Ð°ÑÐ¾Ð²Ð°Ð½Ð¸Ñ Ð´Ð¾Ð³Ð¾Ð²Ð¾ÑÐ° Ð½Ð° Ð·Ð°ÐºÑÐ¿ÐºÑ?")}>Ð­ÑÐ°Ð¿Ñ ÑÐ¾Ð³Ð»Ð°ÑÐ¾Ð²Ð°Ð½Ð¸Ñ Ð´Ð¾Ð³Ð¾Ð²Ð¾ÑÐ°</button>
+          <button className="welcome-chip" type="button" onClick={() => onChipClick?.("ÐÐ¾Ð³Ð´Ð° Ð¿ÑÐ¾Ð²Ð¾Ð´Ð¸ÑÑÑ Ð¿ÐµÑÐµÑÐ¾ÑÐ¶ÐºÐ°?")}>ÐÐ¾Ð³Ð´Ð° Ð¿ÑÐ¾Ð²Ð¾Ð´Ð¸ÑÑÑ Ð¿ÐµÑÐµÑÐ¾ÑÐ¶ÐºÐ°</button>
         </div>
       </div>
     </div>
@@ -976,12 +1000,12 @@ function TypingBubble() {
   );
 }
 
-/* ═══════════════════════════════════════════════
+/* âââââââââââââââââââââââââââââââââââââââââââââââ
    Main Chat component
-   ═══════════════════════════════════════════════ */
+   âââââââââââââââââââââââââââââââââââââââââââââââ */
 
 export default function Chat() {
-  /* ── Auth State ── */
+  /* ââ Auth State ââ */
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [inviteCode, setInviteCode] = useState<string>("");
   const inviteCodeRef = useRef<string>("");
@@ -993,12 +1017,12 @@ export default function Chat() {
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const isAdmin = typeof window !== "undefined" && localStorage.getItem("snabchat_is_admin") === "true";
 
-  /* ── Keep inviteCodeRef in sync ── */
+  /* ââ Keep inviteCodeRef in sync ââ */
   useEffect(() => {
     inviteCodeRef.current = inviteCode;
   }, [inviteCode]);
 
-  /* ── Check existing auth on mount ── */
+  /* ââ Check existing auth on mount ââ */
   useEffect(() => {
     const code = localStorage.getItem("snabchat_invite_code");
     const name = localStorage.getItem("snabchat_user_name");
@@ -1060,7 +1084,7 @@ export default function Chat() {
     .map((w) => w[0]?.toUpperCase() || "")
     .join("");
 
-  /* ── State ── */
+  /* ââ State ââ */
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   // Unique key for useChat to avoid stale message cache when starting new chats
@@ -1093,7 +1117,7 @@ export default function Chat() {
 
   const router = useRouter();
 
-  /* ── Infographic navigation ── */
+  /* ââ Infographic navigation ââ */
   const navigateToInfographic = useCallback((content?: string) => {
     const ctx: Record<string, string> = {};
     if (content) ctx.documentText = content;
@@ -1165,14 +1189,14 @@ export default function Chat() {
     }
   }, [xlsxDownloading]);
 
-  /* ── Refs ── */
+  /* ââ Refs ââ */
   const convIdRef = useRef<string | null>(null);
   const pendingSubmitRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
 
-  /* ── useChat ── */
+  /* ââ useChat ââ */
   const {
     messages,
     input,
@@ -1187,7 +1211,7 @@ export default function Chat() {
     headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
   });
 
-  /* ── Load conversations ── */
+  /* ââ Load conversations ââ */
   const loadConversations = useCallback(async () => {
     if (!inviteCode) return;
     try {
@@ -1205,7 +1229,7 @@ export default function Chat() {
     loadConversations();
   }, [loadConversations]);
 
-  /* ── Load sources ── */
+  /* ââ Load sources ââ */
   const loadSources = useCallback(async () => {
     try {
       const res = await fetch("/api/sources");
@@ -1220,7 +1244,7 @@ export default function Chat() {
     loadSources();
   }, [loadSources]);
 
-  /* ── Support ── */
+  /* ââ Support ââ */
   const loadSupportHistory = useCallback(async () => {
     if (!inviteCode) return;
     try {
@@ -1281,7 +1305,7 @@ export default function Chat() {
     setUnreadSupportCount(0);
   };
 
-  /* ── Switch conversation ── */
+  /* ââ Switch conversation ââ */
   const switchConversation = useCallback(
     async (convId: string) => {
       setActiveConvId(convId);
@@ -1315,20 +1339,20 @@ export default function Chat() {
     [setMessages]
   );
 
-  /* ── Create conversation ── */
+  /* ââ Create conversation ââ */
   const createConversation = useCallback(
     async (title?: string) => {
       const res = await fetch("/api/conversations", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-        body: JSON.stringify({ title: title || "Новый диалог" }),
+        body: JSON.stringify({ title: title || "ÐÐ¾Ð²ÑÐ¹ Ð´Ð¸Ð°Ð»Ð¾Ð³" }),
       });
       if (!res.ok) {
-        throw new Error(`Не удалось создать диалог: ${res.status}`);
+        throw new Error(`ÐÐµ ÑÐ´Ð°Ð»Ð¾ÑÑ ÑÐ¾Ð·Ð´Ð°ÑÑ Ð´Ð¸Ð°Ð»Ð¾Ð³: ${res.status}`);
       }
       const conv = await res.json();
       if (!conv.id) {
-        throw new Error("Сервер не вернул ID диалога");
+        throw new Error("Ð¡ÐµÑÐ²ÐµÑ Ð½Ðµ Ð²ÐµÑÐ½ÑÐ» ID Ð´Ð¸Ð°Ð»Ð¾Ð³Ð°");
       }
       setConversations((prev) => [conv, ...prev]);
       setActiveConvId(conv.id);
@@ -1340,7 +1364,7 @@ export default function Chat() {
     [setMessages]
   );
 
-  /* ── Delete conversation ── */
+  /* ââ Delete conversation ââ */
   const deleteConversation = useCallback(
     async (convId: string, e?: React.MouseEvent) => {
       e?.stopPropagation();
@@ -1359,7 +1383,7 @@ export default function Chat() {
     [activeConvId, setMessages]
   );
 
-  /* ── Chat file attach handlers ── */
+  /* ââ Chat file attach handlers ââ */
   const MAX_CHAT_FILES = 5;
   const MAX_CHAT_PHOTOS = 10;
   const MAX_CHAT_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
@@ -1385,11 +1409,11 @@ export default function Chat() {
     } catch {
       if (isPhoto) {
         setChatPhotos((prev) =>
-          prev.map((p) => (p.id === fileId ? { ...p, parsing: false, error: "Ошибка распознавания" } : p))
+          prev.map((p) => (p.id === fileId ? { ...p, parsing: false, error: "ÐÑÐ¸Ð±ÐºÐ° ÑÐ°ÑÐ¿Ð¾Ð·Ð½Ð°Ð²Ð°Ð½Ð¸Ñ" } : p))
         );
       } else {
         setChatFiles((prev) =>
-          prev.map((f) => (f.id === fileId ? { ...f, parsing: false, error: "Ошибка обработки" } : f))
+          prev.map((f) => (f.id === fileId ? { ...f, parsing: false, error: "ÐÑÐ¸Ð±ÐºÐ° Ð¾Ð±ÑÐ°Ð±Ð¾ÑÐºÐ¸" } : f))
         );
       }
     }
@@ -1401,7 +1425,7 @@ export default function Chat() {
 
       for (const file of newFiles) {
         if (file.size > MAX_CHAT_FILE_SIZE) {
-          alert(`Файл "${file.name}" превышает 25 МБ`);
+          alert(`Ð¤Ð°Ð¹Ð» "${file.name}" Ð¿ÑÐµÐ²ÑÑÐ°ÐµÑ 25 ÐÐ`);
           continue;
         }
         const ext = file.name.split(".").pop()?.toLowerCase() || "";
@@ -1409,7 +1433,7 @@ export default function Chat() {
         // Route images to photos
         if (IMAGE_EXTENSIONS.includes(ext)) {
           if (chatPhotos.length >= MAX_CHAT_PHOTOS) {
-            alert(`Максимум ${MAX_CHAT_PHOTOS} фото`);
+            alert(`ÐÐ°ÐºÑÐ¸Ð¼ÑÐ¼ ${MAX_CHAT_PHOTOS} ÑÐ¾ÑÐ¾`);
             continue;
           }
           const photoId = `cp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -1424,11 +1448,11 @@ export default function Chat() {
 
         // Documents
         if (!["pdf", "docx", "xlsx", "xls"].includes(ext)) {
-          alert(`Формат .${ext} не поддерживается. Допустимые: PDF, DOCX, XLSX, изображения`);
+          alert(`Ð¤Ð¾ÑÐ¼Ð°Ñ .${ext} Ð½Ðµ Ð¿Ð¾Ð´Ð´ÐµÑÐ¶Ð¸Ð²Ð°ÐµÑÑÑ. ÐÐ¾Ð¿ÑÑÑÐ¸Ð¼ÑÐµ: PDF, DOCX, XLSX, Ð¸Ð·Ð¾Ð±ÑÐ°Ð¶ÐµÐ½Ð¸Ñ`);
           continue;
         }
         if (chatFiles.length >= MAX_CHAT_FILES) {
-          alert(`Максимум ${MAX_CHAT_FILES} файлов`);
+          alert(`ÐÐ°ÐºÑÐ¸Ð¼ÑÐ¼ ${MAX_CHAT_FILES} ÑÐ°Ð¹Ð»Ð¾Ð²`);
           break;
         }
 
@@ -1469,7 +1493,7 @@ export default function Chat() {
     });
   }, []);
 
-  /* ── Bulk delete sources ── */
+  /* ââ Bulk delete sources ââ */
   const deleteSelectedSources = useCallback(async () => {
     if (selectedSourceIds.size === 0) return;
     const ids = Array.from(selectedSourceIds);
@@ -1488,7 +1512,7 @@ export default function Chat() {
     }
   }, [selectedSourceIds]);
 
-  /* ── Bulk delete conversations ── */
+  /* ââ Bulk delete conversations ââ */
   const deleteSelectedConversations = useCallback(async () => {
     if (selectedConvIds.size === 0) return;
     const ids = Array.from(selectedConvIds);
@@ -1521,7 +1545,7 @@ export default function Chat() {
     setConvBulkMode(false);
   }, [setMessages]);
 
-  /* ── Submit handler with pending logic ── */
+  /* ââ Submit handler with pending logic ââ */
   const handleSubmit = useCallback(
     async (e?: FormEvent, overrideText?: string) => {
       e?.preventDefault();
@@ -1538,13 +1562,13 @@ export default function Chat() {
       const readyPhotos = chatPhotos.filter((p) => !p.parsing && !p.error && p.markdown);
       const attachedDocuments = [
         ...readyFiles.map((f) => ({ filename: f.filename, markdown: f.markdown })),
-        ...readyPhotos.map((p, i) => ({ filename: p.file.name || `Фото ${i + 1}`, markdown: p.markdown })),
+        ...readyPhotos.map((p, i) => ({ filename: p.file.name || `Ð¤Ð¾ÑÐ¾ ${i + 1}`, markdown: p.markdown })),
       ];
       const attachmentNames = [
         ...readyFiles.map((f) => f.filename),
-        ...readyPhotos.map((p) => p.file.name || "Фото"),
+        ...readyPhotos.map((p) => p.file.name || "Ð¤Ð¾ÑÐ¾"),
       ];
-      const messageText = text || (attachmentNames.length > 0 ? `Проверь ${attachmentNames.length === 1 ? "документ" : "документы"}: ${attachmentNames.join(", ")}` : "");
+      const messageText = text || (attachmentNames.length > 0 ? `ÐÑÐ¾Ð²ÐµÑÑ ${attachmentNames.length === 1 ? "Ð´Ð¾ÐºÑÐ¼ÐµÐ½Ñ" : "Ð´Ð¾ÐºÑÐ¼ÐµÐ½ÑÑ"}: ${attachmentNames.join(", ")}` : "");
 
       // Clear files, photos and input immediately
       setChatFiles([]);
@@ -1561,8 +1585,8 @@ export default function Chat() {
           newId = await createConversation(title);
         } catch (err) {
           console.error("Failed to create conversation:", err);
-          const errMsg = err instanceof Error ? err.message : "Не удалось создать диалог";
-          setChatError(errMsg.includes("401") ? "Ошибка авторизации. Попробуйте перелогиниться." : errMsg);
+          const errMsg = err instanceof Error ? err.message : "ÐÐµ ÑÐ´Ð°Ð»Ð¾ÑÑ ÑÐ¾Ð·Ð´Ð°ÑÑ Ð´Ð¸Ð°Ð»Ð¾Ð³";
+          setChatError(errMsg.includes("401") ? "ÐÑÐ¸Ð±ÐºÐ° Ð°Ð²ÑÐ¾ÑÐ¸Ð·Ð°ÑÐ¸Ð¸. ÐÐ¾Ð¿ÑÐ¾Ð±ÑÐ¹ÑÐµ Ð¿ÐµÑÐµÐ»Ð¾Ð³Ð¸Ð½Ð¸ÑÑÑÑ." : errMsg);
           setInput(messageText);
           pendingSubmitRef.current = null;
           setIsSending(false);
@@ -1587,9 +1611,9 @@ export default function Chat() {
 
           if (!res.ok || !res.body) {
             if (res.status === 401) {
-              setChatError("Ошибка авторизации. Попробуйте перелогиниться.");
+              setChatError("ÐÑÐ¸Ð±ÐºÐ° Ð°Ð²ÑÐ¾ÑÐ¸Ð·Ð°ÑÐ¸Ð¸. ÐÐ¾Ð¿ÑÐ¾Ð±ÑÐ¹ÑÐµ Ð¿ÐµÑÐµÐ»Ð¾Ð³Ð¸Ð½Ð¸ÑÑÑÑ.");
             } else {
-              setChatError("Не удалось получить ответ от ИИ. Попробуйте ещё раз.");
+              setChatError("ÐÐµ ÑÐ´Ð°Ð»Ð¾ÑÑ Ð¿Ð¾Ð»ÑÑÐ¸ÑÑ Ð¾ÑÐ²ÐµÑ Ð¾Ñ ÐÐ. ÐÐ¾Ð¿ÑÐ¾Ð±ÑÐ¹ÑÐµ ÐµÑÑ ÑÐ°Ð·.");
             }
             throw new Error(`Stream failed: ${res.status}`);
           }
@@ -1669,9 +1693,9 @@ export default function Chat() {
 
         if (!res.ok || !res.body) {
           if (res.status === 401) {
-            setChatError("Ошибка авторизации. Попробуйте перелогиниться.");
+            setChatError("ÐÑÐ¸Ð±ÐºÐ° Ð°Ð²ÑÐ¾ÑÐ¸Ð·Ð°ÑÐ¸Ð¸. ÐÐ¾Ð¿ÑÐ¾Ð±ÑÐ¹ÑÐµ Ð¿ÐµÑÐµÐ»Ð¾Ð³Ð¸Ð½Ð¸ÑÑÑÑ.");
           } else {
-            setChatError("Не удалось получить ответ от ИИ. Попробуйте ещё раз.");
+            setChatError("ÐÐµ ÑÐ´Ð°Ð»Ð¾ÑÑ Ð¿Ð¾Ð»ÑÑÐ¸ÑÑ Ð¾ÑÐ²ÐµÑ Ð¾Ñ ÐÐ. ÐÐ¾Ð¿ÑÐ¾Ð±ÑÐ¹ÑÐµ ÐµÑÑ ÑÐ°Ð·.");
           }
           throw new Error(`Stream failed: ${res.status}`);
         }
@@ -1727,13 +1751,13 @@ export default function Chat() {
     [input, isLoading, isSending, messages, chatFiles, chatPhotos, setInput, setMessages, createConversation, loadConversations]
   );
 
-  /* ── Auto-scroll ── */
+  /* ââ Auto-scroll ââ */
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
-  /* ── Key handler ── */
+  /* ââ Key handler ââ */
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -1741,10 +1765,10 @@ export default function Chat() {
     }
   };
 
-  /* ── Derived ── */
+  /* ââ Derived ââ */
   const lastIsUser = messages.length > 0 && messages[messages.length - 1]?.role === "user";
 
-  /* ── Render ── */
+  /* ââ Render ââ */
 
   // Show loading spinner
   if (authLoading) {
@@ -1759,7 +1783,7 @@ export default function Chat() {
   return (
     <>
       <div className="app-layout">
-        {/* ── Header ── */}
+        {/* ââ Header ââ */}
         <header className="app-header">
           <div className="header-brand">
             {/* Mobile: hamburger menu with nav buttons */}
@@ -1767,7 +1791,7 @@ export default function Chat() {
               <button
                 className="menu-btn"
                 onClick={() => setMobileMenuOpen((o) => !o)}
-                title="Меню"
+                title="ÐÐµÐ½Ñ"
               >
                 <MenuIcon />
                 {unreadSupportCount > 0 && (
@@ -1787,7 +1811,7 @@ export default function Chat() {
                       <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
                       <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                     </svg>
-                    Обучение
+                    ÐÐ±ÑÑÐµÐ½Ð¸Ðµ
                   </a>
                   <button
                     className="mobile-hamburger-item"
@@ -1796,7 +1820,7 @@ export default function Chat() {
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
                     </svg>
-                    Поддержка
+                    ÐÐ¾Ð´Ð´ÐµÑÐ¶ÐºÐ°
                     {unreadSupportCount > 0 && (
                       <span className="mobile-hamburger-item-badge">{unreadSupportCount}</span>
                     )}
@@ -1806,7 +1830,7 @@ export default function Chat() {
                     onClick={() => { setMobileMenuOpen(false); navigateToInfographic(); }}
                   >
                     <InfographicIcon />
-                    Инфографика
+                    ÐÐ½ÑÐ¾Ð³ÑÐ°ÑÐ¸ÐºÐ°
                   </button>
                   <button
                     className={`mobile-hamburger-item${activeView === "knowledge-base" ? " active" : ""}`}
@@ -1816,14 +1840,14 @@ export default function Chat() {
                       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
                       <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
                     </svg>
-                    База знаний
+                    ÐÐ°Ð·Ð° Ð·Ð½Ð°Ð½Ð¸Ð¹
                   </button>
                   <button
                     className="mobile-hamburger-item"
                     onClick={() => { setMobileMenuOpen(false); setRightOpen((o) => !o); }}
                   >
                     <HistoryIcon />
-                    История диалогов
+                    ÐÑÑÐ¾ÑÐ¸Ñ Ð´Ð¸Ð°Ð»Ð¾Ð³Ð¾Ð²
                   </button>
                 </div>
               )}
@@ -1838,11 +1862,11 @@ export default function Chat() {
                 setMessages([]);
                 setHasSummary(false);
               }}
-              title="На главную"
+              title="ÐÐ° Ð³Ð»Ð°Ð²Ð½ÑÑ"
             >
               <SpektrIcon size={36} />
               <span style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontWeight: 700, fontSize: 22, letterSpacing: '-0.02em', lineHeight: 1 }}>
-                <span style={{ color: '#003A7A' }}>Снаб</span><span style={{ color: '#0099CC' }}>Чат</span>
+                <span style={{ color: '#003A7A' }}>Ð¡Ð½Ð°Ð±</span><span style={{ color: '#0099CC' }}>Ð§Ð°Ñ</span>
               </span>
             </button>
             <div className="header-divider desktop-only" />
@@ -1851,31 +1875,31 @@ export default function Chat() {
             </span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            {hasSummary && <span className="memory-pill">Память активна</span>}
+            {hasSummary && <span className="memory-pill">ÐÐ°Ð¼ÑÑÑ Ð°ÐºÑÐ¸Ð²Ð½Ð°</span>}
             {/* Desktop: nav buttons inline */}
             <a
               className="header-labeled-btn accent desktop-only"
               href="https://academy.snabchat.app/"
               target="_blank"
               rel="noopener noreferrer"
-              title="Обучение"
+              title="ÐÐ±ÑÑÐµÐ½Ð¸Ðµ"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
                 <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
               </svg>
-              <span className="btn-label">Обучение</span>
+              <span className="btn-label">ÐÐ±ÑÑÐµÐ½Ð¸Ðµ</span>
             </a>
             <button
               className="header-labeled-btn accent desktop-only"
               onClick={openSupportModal}
-              title="Поддержка"
+              title="ÐÐ¾Ð´Ð´ÐµÑÐ¶ÐºÐ°"
               style={{ position: "relative" }}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
               </svg>
-              <span className="btn-label">Поддержка</span>
+              <span className="btn-label">ÐÐ¾Ð´Ð´ÐµÑÐ¶ÐºÐ°</span>
               {unreadSupportCount > 0 && (
                 <span style={{
                   position: "absolute", top: -4, right: -4,
@@ -1888,21 +1912,21 @@ export default function Chat() {
             <button
               className="header-labeled-btn accent desktop-only"
               onClick={() => navigateToInfographic()}
-              title="Генератор инфографики"
+              title="ÐÐµÐ½ÐµÑÐ°ÑÐ¾Ñ Ð¸Ð½ÑÐ¾Ð³ÑÐ°ÑÐ¸ÐºÐ¸"
             >
               <InfographicIcon />
-              <span className="btn-label">Инфографика</span>
+              <span className="btn-label">ÐÐ½ÑÐ¾Ð³ÑÐ°ÑÐ¸ÐºÐ°</span>
             </button>
             <button
               className={`header-labeled-btn accent desktop-only${activeView === "knowledge-base" ? " active" : ""}`}
               onClick={() => setActiveView(activeView === "knowledge-base" ? "chat" : "knowledge-base")}
-              title="База знаний"
+              title="ÐÐ°Ð·Ð° Ð·Ð½Ð°Ð½Ð¸Ð¹"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
                 <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
               </svg>
-              <span className="btn-label">База знаний</span>
+              <span className="btn-label">ÐÐ°Ð·Ð° Ð·Ð½Ð°Ð½Ð¸Ð¹</span>
             </button>
             <button
               className="header-labeled-btn primary desktop-only"
@@ -1914,13 +1938,13 @@ export default function Chat() {
                 setMessages([]);
                 setHasSummary(false);
               }}
-              title="Новый чат"
+              title="ÐÐ¾Ð²ÑÐ¹ ÑÐ°Ñ"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 20h9" />
                 <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
               </svg>
-              <span className="btn-label">Новый чат</span>
+              <span className="btn-label">ÐÐ¾Ð²ÑÐ¹ ÑÐ°Ñ</span>
             </button>
             <button
               className="menu-btn"
@@ -1932,7 +1956,7 @@ export default function Chat() {
                 setMessages([]);
                 setHasSummary(false);
               }}
-              title="Новый чат"
+              title="ÐÐ¾Ð²ÑÐ¹ ÑÐ°Ñ"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 20h9" />
@@ -1943,7 +1967,7 @@ export default function Chat() {
             <button
               className="header-action-btn desktop-only"
               onClick={handleLogout}
-              title="Выйти"
+              title="ÐÑÐ¹ÑÐ¸"
               style={{ color: "var(--text-muted)" }}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1970,7 +1994,7 @@ export default function Chat() {
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                       </svg>
-                      Админ-панель
+                      ÐÐ´Ð¼Ð¸Ð½-Ð¿Ð°Ð½ÐµÐ»Ñ
                     </a>
                   )}
                   <button className="user-menu-item" onClick={handleLogout}>
@@ -1979,7 +2003,7 @@ export default function Chat() {
                       <polyline points="16 17 21 12 16 7" />
                       <line x1="21" y1="12" x2="9" y2="12" />
                     </svg>
-                    Выйти
+                    ÐÑÐ¹ÑÐ¸
                   </button>
                 </div>
               )}
@@ -1987,19 +2011,19 @@ export default function Chat() {
           </div>
         </header>
 
-        {/* ── Body ── */}
+        {/* ââ Body ââ */}
         <div className="app-body">
           {/* Sidebar overlay (mobile) */}
           {rightOpen && (
             <div className="sidebar-overlay" onClick={() => setRightOpen(false)} />
           )}
 
-          {/* ── Main ── */}
+          {/* ââ Main ââ */}
           {activeView === "knowledge-base" ? (
             <main className="main-area">
               <div className="kb-view">
                 <div className="kb-header">
-                  <h2 className="kb-title">База знаний</h2>
+                  <h2 className="kb-title">ÐÐ°Ð·Ð° Ð·Ð½Ð°Ð½Ð¸Ð¹</h2>
                   <span className="kb-badge">{sources.length}</span>
                   {isAdmin && sources.length > 0 && (
                     <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
@@ -2009,7 +2033,7 @@ export default function Chat() {
                           style={{ fontSize: 12, padding: "5px 12px" }}
                           onClick={() => setBulkSelectMode(true)}
                         >
-                          Выбрать
+                          ÐÑÐ±ÑÐ°ÑÑ
                         </button>
                       ) : (
                         <>
@@ -2027,7 +2051,7 @@ export default function Chat() {
                           >
                             {(() => {
                               const filtered = sources.filter((s) => kbCategoryFilter === "all" || (s.folder_path || "other") === kbCategoryFilter);
-                              return selectedSourceIds.size === filtered.length && filtered.every((s) => selectedSourceIds.has(s.id)) ? "Снять всё" : "Выбрать все";
+                              return selectedSourceIds.size === filtered.length && filtered.every((s) => selectedSourceIds.has(s.id)) ? "Ð¡Ð½ÑÑÑ Ð²ÑÑ" : "ÐÑÐ±ÑÐ°ÑÑ Ð²ÑÐµ";
                             })()}
                           </button>
                           <button
@@ -2040,14 +2064,14 @@ export default function Chat() {
                             disabled={selectedSourceIds.size === 0}
                             onClick={deleteSelectedSources}
                           >
-                            Удалить ({selectedSourceIds.size})
+                            Ð£Ð´Ð°Ð»Ð¸ÑÑ ({selectedSourceIds.size})
                           </button>
                           <button
                             className="btn-secondary"
                             style={{ fontSize: 12, padding: "5px 12px" }}
                             onClick={() => { setSelectedSourceIds(new Set()); setBulkSelectMode(false); }}
                           >
-                            ✕
+                            â
                           </button>
                         </>
                       )}
@@ -2060,17 +2084,17 @@ export default function Chat() {
                     className={`kb-pill ${kbCategoryFilter === "all" ? "active" : ""}`}
                     onClick={() => setKbCategoryFilter("all")}
                   >
-                    Все ({sources.length})
+                    ÐÑÐµ ({sources.length})
                   </button>
                   {[
-                    { key: "npa", label: "НПА" },
-                    { key: "standards", label: "Стандарты и Положения" },
-                    { key: "forms", label: "Формы и Шаблоны" },
-                    { key: "schemas", label: "Схемы процессов" },
-                    { key: "instructions", label: "Инструкции и Методики" },
-                    { key: "pricing", label: "Ценообразование" },
-                    { key: "references", label: "Справочники и Реестры" },
-                    { key: "contracts", label: "Договоры" },
+                    { key: "npa", label: "ÐÐÐ" },
+                    { key: "standards", label: "Ð¡ÑÐ°Ð½Ð´Ð°ÑÑÑ Ð¸ ÐÐ¾Ð»Ð¾Ð¶ÐµÐ½Ð¸Ñ" },
+                    { key: "forms", label: "Ð¤Ð¾ÑÐ¼Ñ Ð¸ Ð¨Ð°Ð±Ð»Ð¾Ð½Ñ" },
+                    { key: "schemas", label: "Ð¡ÑÐµÐ¼Ñ Ð¿ÑÐ¾ÑÐµÑÑÐ¾Ð²" },
+                    { key: "instructions", label: "ÐÐ½ÑÑÑÑÐºÑÐ¸Ð¸ Ð¸ ÐÐµÑÐ¾Ð´Ð¸ÐºÐ¸" },
+                    { key: "pricing", label: "Ð¦ÐµÐ½Ð¾Ð¾Ð±ÑÐ°Ð·Ð¾Ð²Ð°Ð½Ð¸Ðµ" },
+                    { key: "references", label: "Ð¡Ð¿ÑÐ°Ð²Ð¾ÑÐ½Ð¸ÐºÐ¸ Ð¸ Ð ÐµÐµÑÑÑÑ" },
+                    { key: "contracts", label: "ÐÐ¾Ð³Ð¾Ð²Ð¾ÑÑ" },
                   ].map((cat) => {
                     const count = sources.filter((s) => (s.folder_path || "standards") === cat.key).length;
                     return (
@@ -2091,7 +2115,7 @@ export default function Chat() {
                       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                       <polyline points="14 2 14 8 20 8" />
                     </svg>
-                    <p>Нет загруженных документов</p>
+                    <p>ÐÐµÑ Ð·Ð°Ð³ÑÑÐ¶ÐµÐ½Ð½ÑÑ Ð´Ð¾ÐºÑÐ¼ÐµÐ½ÑÐ¾Ð²</p>
                   </div>
                 ) : (
                   <div className="kb-list">
@@ -2100,15 +2124,15 @@ export default function Chat() {
                       .map((doc) => {
                         const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : "docx";
                         const catLabel = [
-                          { key: "npa", label: "НПА" },
-                          { key: "standards", label: "Стандарты и Положения" },
-                          { key: "forms", label: "Формы и Шаблоны" },
-                          { key: "schemas", label: "Схемы процессов" },
-                          { key: "instructions", label: "Инструкции и Методики" },
-                          { key: "pricing", label: "Ценообразование" },
-                          { key: "references", label: "Справочники и Реестры" },
-                          { key: "contracts", label: "Договоры" },
-                        ].find((c) => c.key === (doc.folder_path || "standards"))?.label || "Стандарты и Положения";
+                          { key: "npa", label: "ÐÐÐ" },
+                          { key: "standards", label: "Ð¡ÑÐ°Ð½Ð´Ð°ÑÑÑ Ð¸ ÐÐ¾Ð»Ð¾Ð¶ÐµÐ½Ð¸Ñ" },
+                          { key: "forms", label: "Ð¤Ð¾ÑÐ¼Ñ Ð¸ Ð¨Ð°Ð±Ð»Ð¾Ð½Ñ" },
+                          { key: "schemas", label: "Ð¡ÑÐµÐ¼Ñ Ð¿ÑÐ¾ÑÐµÑÑÐ¾Ð²" },
+                          { key: "instructions", label: "ÐÐ½ÑÑÑÑÐºÑÐ¸Ð¸ Ð¸ ÐÐµÑÐ¾Ð´Ð¸ÐºÐ¸" },
+                          { key: "pricing", label: "Ð¦ÐµÐ½Ð¾Ð¾Ð±ÑÐ°Ð·Ð¾Ð²Ð°Ð½Ð¸Ðµ" },
+                          { key: "references", label: "Ð¡Ð¿ÑÐ°Ð²Ð¾ÑÐ½Ð¸ÐºÐ¸ Ð¸ Ð ÐµÐµÑÑÑÑ" },
+                          { key: "contracts", label: "ÐÐ¾Ð³Ð¾Ð²Ð¾ÑÑ" },
+                        ].find((c) => c.key === (doc.folder_path || "standards"))?.label || "Ð¡ÑÐ°Ð½Ð´Ð°ÑÑÑ Ð¸ ÐÐ¾Ð»Ð¾Ð¶ÐµÐ½Ð¸Ñ";
                         return (
                           <div
                             key={doc.id}
@@ -2153,7 +2177,7 @@ export default function Chat() {
                                 {doc.tags && doc.tags.length > 0 && (
                                   <>
                                     <span>&middot;</span>
-                                    <span>{doc.tags.length} тегов</span>
+                                    <span>{doc.tags.length} ÑÐµÐ³Ð¾Ð²</span>
                                   </>
                                 )}
                               </div>
@@ -2162,7 +2186,7 @@ export default function Chat() {
                               <button
                                 className="kb-action-btn"
                                 onClick={() => setViewingSource(doc)}
-                                title="Просмотр"
+                                title="ÐÑÐ¾ÑÐ¼Ð¾ÑÑ"
                               >
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                                   <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
@@ -2172,7 +2196,7 @@ export default function Chat() {
                               <a
                                 className="kb-action-btn"
                                 href={`/api/sources/download?id=${doc.id}&action=download`}
-                                title="Скачать"
+                                title="Ð¡ÐºÐ°ÑÐ°ÑÑ"
                               >
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -2193,7 +2217,7 @@ export default function Chat() {
             <div className="chat-column">
               <div className="messages-area" ref={scrollRef}>
                 {hasSummary && (
-                  <div className="summary-notice">ℹ Ранние сообщения сжаты в резюме</div>
+                  <div className="summary-notice">â¹ Ð Ð°Ð½Ð½Ð¸Ðµ ÑÐ¾Ð¾Ð±ÑÐµÐ½Ð¸Ñ ÑÐ¶Ð°ÑÑ Ð² ÑÐµÐ·ÑÐ¼Ðµ</div>
                 )}
                 {messages.length === 0 && !hasSummary && <EmptyState onChipClick={(text) => handleSubmit(undefined, text)} />}
                 {messages.map((m, idx) => {
@@ -2207,8 +2231,8 @@ export default function Chat() {
                       allSources={sources}
                       onViewSource={setViewingSource}
                       onCreateInfographic={m.role === "assistant" ? navigateToInfographic : undefined}
-                      onExportDocx={m.role === "assistant" ? (content: string) => handleExportDocx(content, prevUserMsg?.content || "Запрос") : undefined}
-                      onExportExcel={m.role === "assistant" && containsMarkdownTable(m.content) ? (content: string) => handleExportExcel(content, prevUserMsg?.content || "Запрос") : undefined}
+                      onExportDocx={m.role === "assistant" ? (content: string) => handleExportDocx(content, prevUserMsg?.content || "ÐÐ°Ð¿ÑÐ¾Ñ") : undefined}
+                      onExportExcel={m.role === "assistant" && containsMarkdownTable(m.content) ? (content: string) => handleExportExcel(content, prevUserMsg?.content || "ÐÐ°Ð¿ÑÐ¾Ñ") : undefined}
                     />
                   );
                 })}
@@ -2216,7 +2240,7 @@ export default function Chat() {
                 {chatError && (
                   <div className="message message-error" style={{ background: "var(--error-bg, #fef2f2)", border: "1px solid var(--error-border, #fecaca)", borderRadius: 12, padding: "12px 18px", margin: "8px 0", color: "var(--error-text, #991b1b)", fontSize: 14 }}>
                     {chatError}
-                    <button onClick={() => setChatError(null)} style={{ marginLeft: 12, background: "none", border: "none", cursor: "pointer", color: "inherit", fontWeight: 600 }}>×</button>
+                    <button onClick={() => setChatError(null)} style={{ marginLeft: 12, background: "none", border: "none", cursor: "pointer", color: "inherit", fontWeight: 600 }}>Ã</button>
                   </div>
                 )}
               </div>
@@ -2226,13 +2250,13 @@ export default function Chat() {
                 {chatPhotos.length > 0 && (
                   <div className="photo-preview-bar">
                     <div className="photo-preview-header">
-                      <span className="photo-preview-count">Фото: {chatPhotos.length}/{MAX_CHAT_PHOTOS}</span>
-                      {chatPhotos.some((p) => p.parsing) && <span className="photo-preview-processing">Распознавание...</span>}
+                      <span className="photo-preview-count">Ð¤Ð¾ÑÐ¾: {chatPhotos.length}/{MAX_CHAT_PHOTOS}</span>
+                      {chatPhotos.some((p) => p.parsing) && <span className="photo-preview-processing">Ð Ð°ÑÐ¿Ð¾Ð·Ð½Ð°Ð²Ð°Ð½Ð¸Ðµ...</span>}
                     </div>
                     <div className="photo-preview-grid">
                       {chatPhotos.map((p) => (
                         <div key={p.id} className="photo-preview-item">
-                          <img src={p.preview} alt="Фото" className="photo-preview-img" />
+                          <img src={p.preview} alt="Ð¤Ð¾ÑÐ¾" className="photo-preview-img" />
                           {p.parsing && (
                             <div className="photo-preview-overlay">
                               <div className="chip-spinner" />
@@ -2252,7 +2276,7 @@ export default function Chat() {
                               </svg>
                             </div>
                           )}
-                          <button type="button" className="photo-preview-remove" onClick={() => removeChatPhoto(p.id)} title="Удалить">
+                          <button type="button" className="photo-preview-remove" onClick={() => removeChatPhoto(p.id)} title="Ð£Ð´Ð°Ð»Ð¸ÑÑ">
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
                             </svg>
@@ -2276,8 +2300,8 @@ export default function Chat() {
                           </svg>
                         )}
                         <span className="chip-name" title={f.filename}>{f.filename}</span>
-                        <span className="chip-size">{(f.file.size / 1024 / 1024).toFixed(1)} МБ</span>
-                        <button type="button" className="chip-remove" onClick={() => removeChatFile(f.id)} title="Удалить">
+                        <span className="chip-size">{(f.file.size / 1024 / 1024).toFixed(1)} ÐÐ</span>
+                        <button type="button" className="chip-remove" onClick={() => removeChatFile(f.id)} title="Ð£Ð´Ð°Ð»Ð¸ÑÑ">
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
                           </svg>
@@ -2304,7 +2328,7 @@ export default function Chat() {
                     className="attach-btn"
                     onClick={() => chatFileInputRef.current?.click()}
                     disabled={isSending}
-                    title="Прикрепить файл или фото"
+                    title="ÐÑÐ¸ÐºÑÐµÐ¿Ð¸ÑÑ ÑÐ°Ð¹Ð» Ð¸Ð»Ð¸ ÑÐ¾ÑÐ¾"
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
@@ -2322,7 +2346,7 @@ export default function Chat() {
                     value={input}
                     onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
-                    placeholder={chatFiles.length > 0 || chatPhotos.length > 0 ? "Опишите что проверить или нажмите отправить..." : "Задайте вопрос..."}
+                    placeholder={chatFiles.length > 0 || chatPhotos.length > 0 ? "ÐÐ¿Ð¸ÑÐ¸ÑÐµ ÑÑÐ¾ Ð¿ÑÐ¾Ð²ÐµÑÐ¸ÑÑ Ð¸Ð»Ð¸ Ð½Ð°Ð¶Ð¼Ð¸ÑÐµ Ð¾ÑÐ¿ÑÐ°Ð²Ð¸ÑÑ..." : "ÐÐ°Ð´Ð°Ð¹ÑÐµ Ð²Ð¾Ð¿ÑÐ¾Ñ..."}
                     rows={1}
                     className="chat-input"
                     style={{ maxHeight: 160 }}
@@ -2350,13 +2374,13 @@ export default function Chat() {
           </main>
           )}
 
-          {/* ── Right sidebar: Dialogs ── */}
+          {/* ââ Right sidebar: Dialogs ââ */}
           <aside className={`sidebar-panel right ${rightOpen ? "open" : ""} ${rightCollapsed ? "collapsed" : ""}`}>
             <button
               className="sidebar-collapse-btn"
               onClick={() => setRightCollapsed((c) => !c)}
             >
-              {rightCollapsed ? "Диалоги" : "Свернуть"}
+              {rightCollapsed ? "ÐÐ¸Ð°Ð»Ð¾Ð³Ð¸" : "Ð¡Ð²ÐµÑÐ½ÑÑÑ"}
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points={rightCollapsed ? "15 18 9 12 15 6" : "9 18 15 12 9 6"} />
               </svg>
@@ -2364,7 +2388,7 @@ export default function Chat() {
             <div className="sidebar-content">
               <div className="sidebar-section" style={{ flex: 1 }}>
                 <div className="sidebar-section-title">
-                  <span>ДИАЛОГИ</span>
+                  <span>ÐÐÐÐÐÐÐ</span>
                   <button
                     onClick={() => {
                       setActiveConvId(null);
@@ -2373,7 +2397,7 @@ export default function Chat() {
                       setMessages([]);
                       setHasSummary(false);
                     }}
-                    title="Новый диалог"
+                    title="ÐÐ¾Ð²ÑÐ¹ Ð´Ð¸Ð°Ð»Ð¾Ð³"
                     style={{ fontSize: 16, color: "var(--text-secondary)", lineHeight: 1 }}
                   >
                     +
@@ -2387,7 +2411,7 @@ export default function Chat() {
                         style={{ flex: 1, fontSize: 11, padding: "4px 8px" }}
                         onClick={() => setConvBulkMode(true)}
                       >
-                        Выбрать
+                        ÐÑÐ±ÑÐ°ÑÑ
                       </button>
                     ) : (
                       <>
@@ -2402,7 +2426,7 @@ export default function Chat() {
                             }
                           }}
                         >
-                          {selectedConvIds.size === conversations.length ? "Снять всё" : "Выбрать все"}
+                          {selectedConvIds.size === conversations.length ? "Ð¡Ð½ÑÑÑ Ð²ÑÑ" : "ÐÑÐ±ÑÐ°ÑÑ Ð²ÑÐµ"}
                         </button>
                         <button
                           className="btn-secondary"
@@ -2415,14 +2439,14 @@ export default function Chat() {
                           disabled={selectedConvIds.size === 0}
                           onClick={selectedConvIds.size === conversations.length ? deleteAllConversations : deleteSelectedConversations}
                         >
-                          Удалить ({selectedConvIds.size})
+                          Ð£Ð´Ð°Ð»Ð¸ÑÑ ({selectedConvIds.size})
                         </button>
                         <button
                           className="btn-secondary"
                           style={{ fontSize: 11, padding: "4px 8px" }}
                           onClick={() => { setSelectedConvIds(new Set()); setConvBulkMode(false); }}
                         >
-                          ✕
+                          â
                         </button>
                       </>
                     )}
@@ -2482,7 +2506,7 @@ export default function Chat() {
                         <button
                           className="doc-delete-btn"
                           onClick={(e) => deleteConversation(c.id, e)}
-                          title="Удалить диалог"
+                          title="Ð£Ð´Ð°Ð»Ð¸ÑÑ Ð´Ð¸Ð°Ð»Ð¾Ð³"
                           style={{
                             fontSize: 14,
                             color: "var(--text-muted)",
@@ -2503,10 +2527,10 @@ export default function Chat() {
           </aside>
         </div>
 
-        {/* ── Footer ── */}
+        {/* ââ Footer ââ */}
         <footer className="app-footer">
-          <span className="footer-full">СнабЧат · Дирекция по закупкам · 2026 · </span>
-          Разработка @Кирилл Трубицын
+          <span className="footer-full">Ð¡Ð½Ð°Ð±Ð§Ð°Ñ Â· ÐÐ¸ÑÐµÐºÑÐ¸Ñ Ð¿Ð¾ Ð·Ð°ÐºÑÐ¿ÐºÐ°Ð¼ Â· 2026 Â· </span>
+          Ð Ð°Ð·ÑÐ°Ð±Ð¾ÑÐºÐ° @ÐÐ¸ÑÐ¸Ð»Ð» Ð¢ÑÑÐ±Ð¸ÑÑÐ½
         </footer>
       </div>
 
@@ -2517,7 +2541,7 @@ export default function Chat() {
         />
       )}
 
-      {/* ── Support Modal ── */}
+      {/* ââ Support Modal ââ */}
       {showSupportModal && (
         <div
           style={{
@@ -2541,7 +2565,7 @@ export default function Chat() {
               padding: "16px 20px", borderBottom: "1px solid var(--border-color, #eee)",
               display: "flex", justifyContent: "space-between", alignItems: "center",
             }}>
-              <h3 style={{ margin: 0, fontSize: 18 }}>Поддержка</h3>
+              <h3 style={{ margin: 0, fontSize: 18 }}>ÐÐ¾Ð´Ð´ÐµÑÐ¶ÐºÐ°</h3>
               <button onClick={() => setShowSupportModal(false)} style={{
                 background: "none", border: "none", fontSize: 22, cursor: "pointer",
                 color: "var(--text-muted)", padding: 4,
@@ -2555,7 +2579,7 @@ export default function Chat() {
             }}>
               {supportHistory.length === 0 && (
                 <div style={{ textAlign: "center", color: "var(--text-muted)", padding: 24, fontSize: 14 }}>
-                  Здесь будут ваши обращения в поддержку
+                  ÐÐ´ÐµÑÑ Ð±ÑÐ´ÑÑ Ð²Ð°ÑÐ¸ Ð¾Ð±ÑÐ°ÑÐµÐ½Ð¸Ñ Ð² Ð¿Ð¾Ð´Ð´ÐµÑÐ¶ÐºÑ
                 </div>
               )}
               {supportHistory.map((m) => (
@@ -2577,7 +2601,7 @@ export default function Chat() {
                       borderLeft: "3px solid #1976d2", fontSize: 14, marginLeft: 24,
                     }}>
                       <div style={{ fontSize: 11, color: "#1976d2", marginBottom: 4 }}>
-                        Администратор {m.admin_number ?? ""} · {m.replied_at ? new Date(m.replied_at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) : ""}
+                        ÐÐ´Ð¼Ð¸Ð½Ð¸ÑÑÑÐ°ÑÐ¾Ñ {m.admin_number ?? ""} Â· {m.replied_at ? new Date(m.replied_at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) : ""}
                       </div>
                       {m.admin_reply}
                     </div>
@@ -2591,7 +2615,7 @@ export default function Chat() {
               <textarea
                 value={supportMessage}
                 onChange={(e) => setSupportMessage(e.target.value)}
-                placeholder="Опишите вашу проблему или вопрос..."
+                placeholder="ÐÐ¿Ð¸ÑÐ¸ÑÐµ Ð²Ð°ÑÑ Ð¿ÑÐ¾Ð±Ð»ÐµÐ¼Ñ Ð¸Ð»Ð¸ Ð²Ð¾Ð¿ÑÐ¾Ñ..."
                 rows={3}
                 style={{
                   width: "100%", borderRadius: 10, border: "1px solid var(--border-color, #ddd)",
@@ -2609,7 +2633,7 @@ export default function Chat() {
                   color: "#fff", cursor: supportSending ? "wait" : "pointer",
                 }}
               >
-                {supportSending ? "Отправка..." : "Отправить"}
+                {supportSending ? "ÐÑÐ¿ÑÐ°Ð²ÐºÐ°..." : "ÐÑÐ¿ÑÐ°Ð²Ð¸ÑÑ"}
               </button>
             </div>
           </div>
