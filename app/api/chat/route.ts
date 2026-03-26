@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "@/app/lib/google-ai";
 import { streamText } from "ai";
-import { multiQuerySearch, filterByRhelevance } from "@/app/lib/retrieval";
+import { multiQuerySearch, filterByRelevance, intentAwareRerank } from "@/app/lib/retrieval";
+import { classifyIntent } from "@/app/lib/intent-classifier";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
 import { createServiceClient } from "@/app/lib/supabase";
@@ -54,13 +55,14 @@ export async function POST(req: NextRequest) {
   const searchHints = extractSearchHints(userMessage.content);
 
   // Run save, context load, RAG search, and off-topic classification in parallel
-  const [, contextResult, searchResults, offTopicResult] = await Promise.all([
+  const [, contextResult, intentResult, searchResults, offTopicResult] = await Promise.all([
     conversationId
       ? saveMessage(conversationId, "user", userMessage.content)
       : Promise.resolve(),
     conversationId
       ? loadConversationContext(conversationId)
       : Promise.resolve(null),
+    classifyIntent(searchQuery),
     multiQuerySearch(searchQuery, 20, searchHints),
     classifyOffTopic(userMessage.content, messages.slice(0, -1)),
   ]);
@@ -120,7 +122,8 @@ export async function POST(req: NextRequest) {
     contextResult?.messages ?? [];
 
   // Phase 1: Filter by relevance
-  const { results: relevantChunks, lowConfidence } = filterByRelevance(searchResults);
+  const rerankedResults = intentAwareRerank(searchResults, intentResult);
+  const { results: relevantChunks, lowConfidence } = filterByRelevance(rerankedResults);
 
   // Phase 3a: Structured XML context format
   const ragContext = relevantChunks.length
