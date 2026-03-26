@@ -57,7 +57,15 @@ export async function POST(req: NextRequest) {
   if (adminCheck instanceof NextResponse) return adminCheck;
 
   try {
-    const body = await req.json();
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
     const statements: JsonlStatement[] = body.statements ?? [];
     let sourceId: string | null = body.sourceId ?? null;
     const chunkOffset: number = body.chunkOffset ?? 0;
