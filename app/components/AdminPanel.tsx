@@ -704,6 +704,35 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     } catch { /* ignore */ }
   };
 
+  const recategorizeAll = async () => {
+    let updated = 0;
+    const updates: { id: number; folderPath: string }[] = [];
+    for (const s of sources) {
+      const detected = detectCategoryClient(s.tags || [], s.filename);
+      if (detected !== normalizeFolderPath(s.folder_path)) {
+        updates.push({ id: s.id, folderPath: detected });
+      }
+    }
+    if (updates.length === 0) return;
+    setSources((prev) =>
+      prev.map((s) => {
+        const u = updates.find((x) => x.id === s.id);
+        return u ? { ...s, folder_path: u.folderPath } : s;
+      })
+    );
+    for (const u of updates) {
+      try {
+        await fetch(`/api/sources?id=${u.id}`, {
+          method: "PATCH",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ folder_path: u.folderPath }),
+        });
+        updated++;
+      } catch { /* ignore */ }
+    }
+    alert(`Категории обновлены: ${updated} документов`);
+  };
+
   const startRename = (doc: Source) => {
     setRenamingId(doc.id);
     setRenameValue(doc.filename);
@@ -1210,6 +1239,10 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                             Выбрать
                           </button>
                         )}
+                        <button className="admin-btn-secondary" onClick={recategorizeAll}>
+                          <span className="material-symbols-outlined">auto_fix_high</span>
+                          Пересортировать
+                        </button>
                         <button className="admin-btn-secondary" onClick={loadSources} disabled={sourcesLoading}>
                           <span className="material-symbols-outlined">refresh</span>
                           Обновить
