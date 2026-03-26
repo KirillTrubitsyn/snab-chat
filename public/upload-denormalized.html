@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Загрузка денормализованных данных</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.card{background:#1e293b;border-radius:16px;padding:32px;width:100%;max-width:620px;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+h1{font-size:20px;font-weight:600;margin-bottom:24px;color:#f1f5f9;text-align:center}
+.field{margin-bottom:16px}
+label{display:block;font-size:13px;color:#94a3b8;margin-bottom:6px;font-weight:500}
+input[type=text],input[type=file]{width:100%;padding:10px 14px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:14px;outline:none}
+input[type=text]:focus,input[type=file]:focus{border-color:#3b82f6}
+input[type=file]{cursor:pointer}
+input[type=file]::file-selector-button{background:#334155;color:#e2e8f0;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;margin-right:10px;font-size:13px}
+.checkbox-row{display:flex;align-items:center;gap:8px;margin-bottom:20px;font-size:14px;color:#cbd5e1}
+.checkbox-row input{width:16px;height:16px;accent-color:#3b82f6}
+button{width:100%;padding:12px;background:#3b82f6;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
+button:hover:not(:disabled){background:#2563eb}
+button:disabled{opacity:.4;cursor:not-allowed}
+.progress-wrap{margin-top:20px;display:none}
+.progress-bar-outer{height:8px;background:#334155;border-radius:4px;overflow:hidden;margin-bottom:8px}
+.progress-bar-inner{height:100%;background:linear-gradient(90deg,#3b82f6,#60a5fa);width:0%;transition:width .3s;border-radius:4px}
+.progress-text{font-size:13px;color:#94a3b8;text-align:center;margin-bottom:12px}
+.stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px}
+.stat-box{background:#0f172a;border-radius:8px;padding:10px;text-align:center}
+.stat-box .val{font-size:18px;font-weight:700;color:#f1f5f9}
+.stat-box .lbl{font-size:11px;color:#64748b;margin-top:2px}
+.log-wrap{background:#0f172a;border-radius:8px;padding:12px;max-height:200px;overflow-y:auto;font-family:monospace;font-size:12px;line-height:1.6;color:#94a3b8}
+.log-wrap .ok{color:#4ade80}.log-wrap .err{color:#f87171}.log-wrap .info{color:#60a5fa}
+.done-msg{margin-top:16px;padding:12px;background:#064e3b;border:1px solid #10b981;border-radius:8px;color:#6ee7b7;text-align:center;font-weight:600;display:none}
+.err-msg{background:#450a0a;border-color:#ef4444;color:#fca5a5}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>Загрузка денормализованных данных</h1>
+<div class="field"><label>Админ-код</label><input type="text" id="adminCode" placeholder="КИРИЛЛ-АДМИН" autocomplete="off"></div>
+<div class="field"><label>JSONL файл</label><input type="file" id="fileInput" accept=".jsonl"></div>
+<div class="checkbox-row"><input type="checkbox" id="clearOld"><span>Удалить старые денормализованные данные перед загрузкой</span></div>
+<button id="startBtn" disabled>Начать загрузку</button>
+<div class="progress-wrap" id="progressWrap">
+<div class="progress-bar-outer"><div class="progress-bar-inner" id="progressBar"></div></div>
+<div class="progress-text" id="progressText">0%</div>
+<div class="stats">
+<div class="stat-box"><div class="val" id="statLoaded">0</div><div class="lbl">загружено</div></div>
+<div class="stat-box"><div class="val" id="statErrors">0</div><div class="lbl">ошибок</div></div>
+<div class="stat-box"><div class="val" id="statTotal">0</div><div class="lbl">всего</div></div>
+</div>
+<div class="stats">
+<div class="stat-box"><div class="val" id="statTime">0:00</div><div class="lbl">время</div></div>
+<div class="stat-box"><div class="val" id="statETA">--</div><div class="lbl">осталось</div></div>
+<div class="stat-box"><div class="val" id="statSpeed">--</div><div class="lbl">зап/мин</div></div>
+</div>
+<div class="log-wrap" id="logWrap"></div>
+</div>
+<div class="done-msg" id="doneMsg"></div>
+</div>
+<script>
+const B=15,D=2000,MR=3,aC=document.getElementById("adminCode"),fI=document.getElementById("fileInput"),sB=document.getElementById("startBtn"),pW=document.getElementById("progressWrap"),pB=document.getElementById("progressBar"),pT=document.getElementById("progressText"),lW=document.getElementById("logWrap"),dM=document.getElementById("doneMsg");let R=false;
+function ck(){sB.disabled=R||!aC.value.trim()||!fI.files.length}aC.addEventListener("input",ck);fI.addEventListener("change",ck);
+function lg(m,c){const l=document.createElement("div");l.className=c||"";l.textContent="["+new Date().toLocaleTimeString()+"] "+m;lW.appendChild(l);if(lW.children.length>50)lW.removeChild(lW.firstChild);lW.scrollTop=lW.scrollHeight}
+function ft(ms){const s=Math.floor(ms/1000),m=Math.floor(s/60),h=Math.floor(m/60);return h>0?h+":"+String(m%60).padStart(2,"0")+":"+String(s%60).padStart(2,"0"):m+":"+String(s%60).padStart(2,"0")}
+function ss(id,v){document.getElementById(id).textContent=v}
+async function fr(u,o,r){for(let i=0;i<=r;i++){try{const res=await fetch(u,o);if(res.ok)return await res.json();const b=await res.text();if(i<r&&res.status>=500){lg("HTTP "+res.status+", retry "+(i+1)+"/"+r,"err");await new Promise(r=>setTimeout(r,(i+1)*2000));continue}throw new Error("HTTP "+res.status+": "+b)}catch(e){if(i<r&&!e.message.startsWith("HTTP")){lg("Network err, retry "+(i+1)+"/"+r,"err");await new Promise(r=>setTimeout(r,(i+1)*2000));continue}throw e}}}
+sB.addEventListener("click",async()=>{if(R)return;R=true;ck();pW.style.display="block";dM.style.display="none";lW.innerHTML="";const ac=aC.value.trim(),f=fI.files[0],co=document.getElementById("clearOld").checked,base=window.location.origin,api=base+"/api/ingest-jsonl",hd={"Content-Type":"application/json","x-admin-code":encodeURIComponent(ac)};try{lg("Чтение файла...","info");const t=await f.text(),lines=t.split("\n").filter(l=>l.trim()),recs=[];let pe=0;for(const l of lines){try{recs.push(JSON.parse(l))}catch{pe++}}lg("Прочитано "+recs.length+" записей"+(pe?", "+pe+" ошибок":""),"info");const g=new Map();for(const r of recs){const k=r.source_file||"?";if(!g.has(k))g.set(k,[]);g.get(k).push(r)}lg("Источников: "+g.size,"info");const tot=recs.length;let ld=0,er=0;const st=Date.now();ss("statTotal",tot);if(co){lg("Удаление старых данных...","info");try{const d=await fr(api,{method:"DELETE",headers:hd},MR);lg("Удалено: "+(d.chunksDeleted||0)+" чанков","ok")}catch(e){lg("Ошибка: "+e.message,"err")}}let gi=0;for(const[sf,sm]of g){gi++;let sid=null;const ba=[];for(let i=0;i<sm.length;i+=B)ba.push(sm.slice(i,i+B));for(let b=0;b<ba.length;b++){try{const r=await fr(api,{method:"POST",headers:hd,body:JSON.stringify({statements:ba[b],sourceId:sid,chunkOffset:b*B})},MR);if(!sid&&r.sourceId)sid=r.sourceId;ld+=r.inserted||ba[b].length}catch(e){er+=ba[b].length;lg("Err: "+sf+" #"+(b+1)+": "+e.message,"err")}const dn=ld+er,pc=Math.round(dn/tot*100);pB.style.width=pc+"%";pT.textContent=pc+"% - "+sf+" ("+gi+"/"+g.size+")";ss("statLoaded",ld);ss("statErrors",er);const el=Date.now()-st;ss("statTime",ft(el));if(dn>0){ss("statETA",ft(el/dn*(tot-dn)));ss("statSpeed",(dn/(el/60000)).toFixed(1))}if(b<ba.length-1)await new Promise(r=>setTimeout(r,D))}lg("["+gi+"/"+g.size+"] "+sf+": "+sm.length,"ok");if(gi<g.size)await new Promise(r=>setTimeout(r,D))}const tt=ft(Date.now()-st);dM.textContent="Готово! Загружено: "+ld+", ошибок: "+er+", время: "+tt;dM.className=er>0?"done-msg err-msg":"done-msg";dM.style.display="block";pB.style.width="100%";pT.textContent="100%";lg("Готово! "+ld+" загружено, "+er+" ошибок","ok")}catch(e){dM.textContent="Ошибка: "+e.message;dM.className="done-msg err-msg";dM.style.display="block";lg("ОШИБКА: "+e.message,"err")}R=false;ck()});
+</script>
+</body>
+  </html>
