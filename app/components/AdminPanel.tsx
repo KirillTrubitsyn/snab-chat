@@ -441,7 +441,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     if (!openMenuId) return;
     const close = () => setOpenMenuId(null);
     window.addEventListener("scroll", close, { passive: true, capture: true });
-    return () => window.removeEventListener("scroll", close, { passive: true, capture: true });
+    return () => window.removeEventListener("scroll", close, true);
   }, [openMenuId]);
 
   /* ── Invite code actions ── */
