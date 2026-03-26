@@ -23,6 +23,16 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const markdown = chunks.map((c) => c.content).join("\n\n");
+  const markdown = chunks
+    .map((c) => {
+      // Strip metadata preamble (\uD83D\uDCC4 \u0414\u043E\u043A\u0443\u043C\u0435\u043D\u0442: ... | ...)
+      const text = c.content;
+      const preambleEnd = text.indexOf("\n\n");
+      if (preambleEnd > 0 && preambleEnd < 300 && text.charCodeAt(0) > 127) {
+        return text.slice(preambleEnd + 2);
+      }
+      return text;
+    })
+    .join("\n\n");
   return NextResponse.json({ markdown });
 }
