@@ -301,7 +301,7 @@ function SearchResultCard({
 
   return (
     <div className="kb-card">
-      {/+ ÐÐ°Ð³Ð¾Ð»Ð¾Ð²Ð¾Ðº */}
+      {/* Заголовок */}
       <div className="kb-card__header">
         <span className="material-symbols-outlined kb-card__file-icon">
           {ICON.description}
@@ -347,7 +347,7 @@ function SearchResultCard({
         />
       )}
 
-      {/+ ÐÐµÑÐ°-Ð¸Ð½ÑÐ¾ÑÐ¼Ð°ÑÐ¸Ñ */}
+      {/* Мета-информация */}
       {!compact && (
         <div className="kb-card__meta">
           {result.chunk_count > 0 && (
@@ -366,7 +366,7 @@ function SearchResultCard({
         </div>
       )}
 
-      {/+ Ð¢ÐµÐ³Ð¸ (ÑÐ¾Ð»ÑÐºÐ¾ admin) */}
+      {/* Теги (только admin) */}
       {!compact && result.tags.length > 0 && (
         <div className="kb-card__tags">
           {result.tags
