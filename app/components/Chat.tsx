@@ -7,6 +7,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import InviteGate from "./InviteGate";
 import { containsMarkdownTable } from "@/app/lib/markdown-tables";
+import KBSearchBar from "@/app/components/KBSearchBar";
 
 /* ── Types ── */
 
@@ -2135,6 +2136,18 @@ export default function Chat() {
                     <p>Нет загруженных документов</p>
                   </div>
                 ) : (
+                <KBSearchBar
+                  inviteCode={inviteCode}
+                  folder={kbCategoryFilter === "all" ? undefined : kbCategoryFilter}
+                  mode="chat"
+                  onOpenDocument={(sourceId, filename) => {
+                    const src = sources.find(s => String(s.id) === sourceId);
+                    if (src) setViewingSource(src);
+                  }}
+                  onDownload={(sourceId, filename) => {
+                    window.open("/api/sources/download?id=" + sourceId + "&action=download", "_blank");
+                  }}
+                />
                   <div className="kb-list">
                     {sources
                       .filter((s) => kbCategoryFilter === "all" || (s.folder_path || "standards") === kbCategoryFilter)
