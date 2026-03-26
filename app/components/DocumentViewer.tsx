@@ -94,74 +94,120 @@ export default function DocumentViewer({
   const [docxHtml, setDocxHtml] = useState<string | null>(null);
   const [excelSheets, setExcelSheets] = useState<ExcelSheet[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const isPdf = source.mime_type?.includes("pdf");
-  const isExcel =
-    source.mime_type?.includes("sheet") ||
-    source.mime_type?.includes("excel") ||
-    source.filename?.endsWith(".xlsx") ||
-    source.filename?.endsWith(".xls");
-  const isDocx =
-    source.mime_type?.includes("wordprocessingml") ||
-    source.filename?.endsWith(".docx") ||
-    source.filename?.endsWith(".doc");
-  const hasOriginal = !!source.storage_path;
+  // Resolved source: original file if this is a denormalized document
+  const [resolved, setResolved] = useState<DocumentSource | null>(null);
 
+  // The effective source for display (original if resolved, otherwise the input source)
+  const eff = resolved || source;
+  const isPdf = eff.mime_type?.includes("pdf");
+  const isExcel =
+    eff.mime_type?.includes("sheet") ||
+    eff.mime_type?.includes("excel") ||
+    eff.filename?.endsWith(".xlsx") ||
+    eff.filename?.endsWith(".xls");
+  const isDocx =
+    eff.mime_type?.includes("wordprocessingml") ||
+    eff.filename?.endsWith(".docx") ||
+    eff.filename?.endsWith(".doc");
+  const hasOriginal = !!eff.storage_path;
+  const isDenormalized = source.mime_type === "application/x-denormalized";
+
+  // Step 1: resolve denormalized source to original
   useEffect(() => {
-    if (isPdf && hasOriginal) {
+    if (!isDenormalized) {
+      setResolved(null);
+      return;
+    }
+    fetch(`/api/sources/resolve?id=${source.id}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.original) {
+          setResolved(d.original);
+        }
+      })
+      .catch(() => {});
+  }, [source.id, isDenormalized]);
+
+  // Step 2: load content based on effective source
+  useEffect(() => {
+    // Wait for resolution if denormalized
+    if (isDenormalized && !resolved) {
+      // Still resolving; give it a moment, then fall through
+      const timer = setTimeout(() => {
+        // If still no resolved source after timeout, load denormalized content
+        loadContent(source);
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+    loadContent(eff);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eff.id, resolved]);
+
+  function loadContent(src: DocumentSource) {
+    const srcIsPdf = src.mime_type?.includes("pdf");
+    const srcIsExcel =
+      src.mime_type?.includes("sheet") ||
+      src.mime_type?.includes("excel") ||
+      src.filename?.endsWith(".xlsx") ||
+      src.filename?.endsWith(".xls");
+    const srcIsDocx =
+      src.mime_type?.includes("wordprocessingml") ||
+      src.filename?.endsWith(".docx") ||
+      src.filename?.endsWith(".doc");
+    const srcHasOriginal = !!src.storage_path;
+
+    if (srcIsPdf && srcHasOriginal) {
       setLoading(false);
       return;
     }
-    if (isExcel) {
-      fetch(`/api/sources/excel-data?id=${source.id}`)
+
+    if (srcIsExcel && srcHasOriginal) {
+      fetch(`/api/sources/excel-data?id=${src.id}`)
         .then((r) => r.json())
         .then((d) => {
           if (d.sheets && d.sheets.length > 0) {
             setExcelSheets(d.sheets);
             setLoading(false);
           } else {
-            fetch(`/api/sources/content?id=${source.id}`)
-              .then((r) => r.json())
-              .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
-              .catch(() => setContent("Не удалось загрузить содержимое"))
-              .finally(() => setLoading(false));
+            fetchContent(src.id);
           }
         })
-        .catch(() => {
-          setContent("Не удалось загрузить содержимое");
-          setLoading(false);
-        });
+        .catch(() => fetchContent(src.id));
       return;
     }
-    if (isDocx && hasOriginal) {
-      fetch(`/api/sources/docx-html?id=${source.id}`)
+
+    if (srcIsExcel && !srcHasOriginal) {
+      // No original Excel file; show content from chunks
+      fetchContent(src.id);
+      return;
+    }
+
+    if (srcIsDocx && srcHasOriginal) {
+      fetch(`/api/sources/docx-html?id=${src.id}`)
         .then((r) => r.json())
         .then((d) => {
           if (d.html) {
             setDocxHtml(d.html);
             setLoading(false);
           } else {
-            fetch(`/api/sources/content?id=${source.id}`)
-              .then((r) => r.json())
-              .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
-              .catch(() => setContent("Не удалось загрузить содержимое"))
-              .finally(() => setLoading(false));
+            fetchContent(src.id);
           }
         })
-        .catch(() => {
-          fetch(`/api/sources/content?id=${source.id}`)
-            .then((r) => r.json())
-            .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
-            .catch(() => setContent("Не удалось загрузить содержимое"))
-            .finally(() => setLoading(false));
-        });
+        .catch(() => fetchContent(src.id));
       return;
     }
-    fetch(`/api/sources/content?id=${source.id}`)
+
+    // Default: show content from chunks
+    fetchContent(src.id);
+  }
+
+  function fetchContent(id: number) {
+    fetch(`/api/sources/content?id=${id}`)
       .then((r) => r.json())
-      .then((d) => setContent(d.markdown || ""))
+      .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
       .catch(() => setContent("Не удалось загрузить содержимое"))
       .finally(() => setLoading(false));
-  }, [source.id, isPdf, isExcel, isDocx, hasOriginal]);
+  }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -177,7 +223,7 @@ export default function DocumentViewer({
               style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13 }}
               onClick={() =>
                 window.open(
-                  `/api/sources/download?id=${source.id}&action=download`,
+                  `/api/sources/download?id=${eff.id}&action=download`,
                   "_blank"
                 )
               }
@@ -187,7 +233,7 @@ export default function DocumentViewer({
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              {hasOriginal ? `Скачать (${source.filename.split('.').pop()?.toUpperCase()})` : "Скачать (.md)"}
+              {hasOriginal ? `Скачать (${eff.filename.split('.').pop()?.toUpperCase()})` : "Скачать (.md)"}
             </button>
             <button className="btn-secondary" onClick={onClose}>
               Закрыть
@@ -199,7 +245,7 @@ export default function DocumentViewer({
             <div className="document-viewer-loading">Загрузка...</div>
           ) : isPdf && hasOriginal ? (
             <iframe
-              src={`/api/sources/download?id=${source.id}&action=view`}
+              src={`/api/sources/download?id=${eff.id}&action=view`}
               className="document-viewer-iframe"
               title={source.filename}
             />
