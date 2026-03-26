@@ -579,12 +579,19 @@ function DocumentViewer({
         .then((d) => {
           if (d.sheets && d.sheets.length > 0) {
             setExcelSheets(d.sheets);
+            setLoading(false);
           } else {
-            setContent("Не удалось загрузить содержимое");
+            fetch(`/api/sources/content?id=${source.id}`)
+              .then((r) => r.json())
+              .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
+              .catch(() => setContent("Не удалось загрузить содержимое"))
+              .finally(() => setLoading(false));
           }
         })
-        .catch(() => setContent("Не удалось загрузить содержимое"))
-        .finally(() => setLoading(false));
+        .catch(() => {
+          setContent("Не удалось загрузить содержимое");
+          setLoading(false);
+        });
       return;
     }
     if (isDocx && hasOriginal) {
@@ -593,12 +600,22 @@ function DocumentViewer({
         .then((d) => {
           if (d.html) {
             setDocxHtml(d.html);
+            setLoading(false);
           } else {
-            setContent("Не удалось загрузить содержимое");
+            fetch(`/api/sources/content?id=${source.id}`)
+              .then((r) => r.json())
+              .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
+              .catch(() => setContent("Не удалось загрузить содержимое"))
+              .finally(() => setLoading(false));
           }
         })
-        .catch(() => setContent("Не удалось загрузить содержимое"))
-        .finally(() => setLoading(false));
+        .catch(() => {
+          fetch(`/api/sources/content?id=${source.id}`)
+              .then((r) => r.json())
+              .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
+              .catch(() => setContent("Не удалось загрузить содержимое"))
+              .finally(() => setLoading(false));
+        });
       return;
     }
     fetch(`/api/sources/content?id=${source.id}`)
