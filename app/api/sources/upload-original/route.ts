@@ -1,0 +1,117 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createServiceClient } from "@/app/lib/supabase";
+import { requireAdmin } from "@/app/lib/auth";
+
+/**
+ * POST /api/sources/upload-original
+ *
+ * ÐÐ°Ð³ÑÑÐ¶Ð°ÐµÑ Ð¾ÑÐ¸Ð³Ð¸Ð½Ð°Ð»ÑÐ½ÑÐ¹ ÑÐ°Ð¹Ð» Ð² Supabase Storage Ð¸ Ð¿ÑÐ¸Ð²ÑÐ·ÑÐ²Ð°ÐµÑ ÐµÐ³Ð¾
+ * Ðº ÑÑÑÐµÑÑÐ²ÑÑÑÐµÐ¹ Ð´ÐµÐ½Ð¾ÑÐ¼Ð°Ð»Ð¸Ð·Ð¾Ð²Ð°Ð½Ð½Ð¾Ð¹ source-Ð·Ð°Ð¿Ð¸ÑÐ¸.
+ *
+ * ÐÑÐ¸Ð½Ð¸Ð¼Ð°ÐµÑ multipart/form-data:
+ *   - file: Ð±Ð¸Ð½Ð°ÑÐ½ÑÐ¹ ÑÐ°Ð¹Ð»
+ *   - filename: Ð¸Ð¼Ñ ÑÐ°Ð¹Ð»Ð° Ð´Ð»Ñ ÑÐ¾Ð¿Ð¾ÑÑÐ°Ð²Ð»ÐµÐ½Ð¸Ñ Ñ Ð´ÐµÐ½Ð¾ÑÐ¼Ð°Ð»Ð¸Ð·Ð¾Ð²Ð°Ð½Ð½ÑÐ¼ Ð¸ÑÑÐ¾ÑÐ½Ð¸ÐºÐ¾Ð¼
+ *
+ * ÐÐ¾Ð³Ð¸ÐºÐ°:
+ * 1. ÐÐ°ÑÐ¾Ð´Ð¸Ñ Ð´ÐµÐ½Ð¾ÑÐ¼Ð°Ð»Ð¸Ð·Ð¾Ð²Ð°Ð½Ð½ÑÐ¹ source Ð¿Ð¾ filename
+ * 2. ÐÐ°Ð³ÑÑÐ¶Ð°ÐµÑ ÑÐ°Ð¹Ð» Ð² storage bucket "documents"
+ * 3. ÐÐ±Ð½Ð¾Ð²Ð»ÑÐµÑ source: ÑÑÐ°Ð²Ð¸Ñ storage_path Ð¸ Ð¿ÑÐ°Ð²Ð¸Ð»ÑÐ½ÑÐ¹ mime_type
+ */
+export async function POST(req: NextRequest) {
+  const adminCheck = requireAdmin(req);
+  if (adminCheck instanceof NextResponse) return adminCheck;
+
+  try {
+    const formData = await req.formData();
+    const file = formData.get("file") as File | null;
+    const filename = (formData.get("filename") as string) || file?.name;
+
+    if (!file || !filename) {
+      return NextResponse.json(
+        { error: "Missing file or filename" },
+        { status: 400 }
+      );
+    }
+
+    const supabase = createServiceClient();
+
+    // Find denormalized source by filename
+    const { data: sources, error: findErr } = await supabase
+      .from("sources")
+      .select("id, filename, mime_type, storage_path")
+      .eq("filename", filename)
+      .eq("mime_type", "application/x-denormalized");
+
+    if (findErr) {
+      return NextResponse.json(
+        { error: `DB error: ${findErr.message}` },
+        { status: 500 }
+      );
+    }
+
+    if (!sources || sources.length === 0) {
+      return NextResponse.json(
+        { error: `No denormalized source found for: ${filename}` },
+        { status: 404 }
+      );
+    }
+
+    const source = sources[0];
+
+    // Determine mime_type from file extension
+    const ext = filename.split(".").pop()?.toLowerCase();
+    const mimeMap: Record<string, string> = {
+      pdf: "application/pdf",
+      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      doc: "application/msword",
+      xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      xls: "application/vnd.ms-excel",
+    };
+    const newMimeType = mimeMap[ext || ""] || file.type || "application/octet-stream";
+
+    // Upload to Supabase Storage
+    const storagePath = `originals/${Date.now()}_${filename}`;
+    const buffer = Buffer.from(await file.arrayBuffer());
+
+    const { error: uploadErr } = await supabase.storage
+      .from("documents")
+      .upload(storagePath, buffer, {
+        contentType: newMimeType,
+        upsert: false,
+      });
+
+    if (uploadErr) {
+      return NextResponse.json(
+        { error: `Storage upload error: ${uploadErr.message}` },
+        { status: 500 }
+      );
+    }
+
+    // Update source record
+    const { error: updateErr } = await supabase
+      .from("sources")
+      .update({
+        storage_path: storagePath,
+        mime_type: newMimeType,
+      })
+      .eq("id", source.id);
+
+    if (updateErr) {
+      return NextResponse.json(
+        { error: `DB update error: ${updateErr.message}` },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      source_id: source.id,
+      filename,
+      storage_path: storagePath,
+      mime_type: newMimeType,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Internal server error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
