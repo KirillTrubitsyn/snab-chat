@@ -69,8 +69,8 @@ export async function POST(req: NextRequest) {
     };
     const newMimeType = mimeMap[ext || ""] || file.type || "application/octet-stream";
 
-    // Upload to Supabase Storage
-    const storagePath = `originals/${Date.now()}_${filename}`;
+    // Upload to Supabase Storage (use source ID + extension to avoid Cyrillic path issues)
+    const storagePath = `originals/${source.id}_${Date.now()}.${ext}`;
     const buffer = Buffer.from(await file.arrayBuffer());
 
     const { error: uploadErr } = await supabase.storage
