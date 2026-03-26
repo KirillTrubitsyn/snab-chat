@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import DocumentViewer, { DocumentSource } from "./DocumentViewer";
 
 /* ── Types ── */
 
@@ -255,6 +256,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [selectedSourceIds, setSelectedSourceIds] = useState<Set<number>>(new Set());
+  const [viewingSource, setViewingSource] = useState<DocumentSource | null>(null);
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
 
   // Upload state
@@ -1354,16 +1356,13 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                             </div>
                           </div>
                           <div className="admin-doc-row-actions">
-                            <a
-                              href={`/api/sources/download?id=${doc.id}&action=view`}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <button
                               className="admin-doc-action-btn"
                               title="Просмотр"
-                              onClick={(e) => e.stopPropagation()}
+                              onClick={(e) => { e.stopPropagation(); setViewingSource(doc); }}
                             >
                               <span className="material-symbols-outlined">visibility</span>
-                            </a>
+                            </button>
                             <a
                               href={`/api/sources/download?id=${doc.id}&action=download`}
                               className="admin-doc-action-btn"
@@ -2081,6 +2080,12 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
             </div>
           </div>
         </div>
+      )}
+      {viewingSource && (
+        <DocumentViewer
+          source={viewingSource}
+          onClose={() => setViewingSource(null)}
+        />
       )}
     </div>
   );
