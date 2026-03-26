@@ -436,6 +436,14 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     else if (tab === "messages") loadUserMessages();
   }, [tab, loadCodes, loadActivity, loadSources, loadNontarget, loadSupport, loadErrors, loadUserMessages]);
 
+  // Close dropdown on scroll (position: fixed)
+  useEffect(() => {
+    if (!openMenuId) return;
+    const close = () => setOpenMenuId(null);
+    window.addEventListener("scroll", close, { passive: true, capture: true });
+    return () => window.removeEventListener("scroll", close, { passive: true, capture: true });
+  }, [openMenuId]);
+
   /* ── Invite code actions ── */
 
   const createCode = async () => {
@@ -1429,13 +1437,21 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                                 <div
                                   className="admin-doc-card-dropdown"
                                   ref={(el) => {
-                                    if (el) {
-                                      const rect = el.getBoundingClientRect();
-                                      if (rect.bottom > window.innerHeight) {
-                                        el.classList.add("flip-up");
-                                      }
-                                    }
-                                  }}
+                    if (el && el.parentElement) {
+                      const btn = el.parentElement.querySelector(".admin-doc-action-btn");
+                      if (btn) {
+                        const btnRect = btn.getBoundingClientRect();
+                        const dropH = el.offsetHeight;
+                        const spaceBelow = window.innerHeight - btnRect.bottom;
+                        if (spaceBelow < dropH + 8) {
+                          el.style.top = (btnRect.top - dropH - 4) + "px";
+                        } else {
+                          el.style.top = (btnRect.bottom + 4) + "px";
+                        }
+                        el.style.right = (window.innerWidth - btnRect.right) + "px";
+                      }
+                    }
+                  }}
                                   onClick={(e) => e.stopPropagation()}
                                 >
                                   <div className="admin-doc-dropdown-label">Переместить в:</div>
