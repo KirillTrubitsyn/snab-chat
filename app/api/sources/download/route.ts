@@ -22,17 +22,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Source not found" }, { status: 404 });
   }
 
-  // For download action, serve original file from storage if available
-  if (action === "download" && source.storage_path) {
+  // Serve original file from storage if available (both download and view)
+  if (source.storage_path) {
     const { data: fileData, error: downloadError } = await supabase.storage
       .from("documents")
       .download(source.storage_path);
 
     if (!downloadError && fileData) {
+      const disposition =
+        action === "view"
+          ? `inline; filename="${encodeURIComponent(source.filename)}"`
+          : `attachment; filename="${encodeURIComponent(source.filename)}"`;
       return new NextResponse(fileData, {
         headers: {
           "Content-Type": source.mime_type || "application/octet-stream",
-          "Content-Disposition": `attachment; filename="${encodeURIComponent(source.filename)}"`,
+          "Content-Disposition": disposition,
         },
       });
     }
