@@ -180,8 +180,15 @@ function detectCategoryClient(tags: string[], filename?: string): string {
   return "standards";
 }
 
+const VALID_CATEGORY_KEYS = new Set(DOC_CATEGORIES.map((c) => c.key));
+
+function normalizeFolderPath(fp: string | null | undefined): string {
+  return fp && VALID_CATEGORY_KEYS.has(fp) ? fp : "standards";
+}
+
 function getCategoryLabel(key: string | null): string {
-  return DOC_CATEGORIES.find((c) => c.key === key)?.label || "Стандарты и Положения";
+  const normalized = normalizeFolderPath(key);
+  return DOC_CATEGORIES.find((c) => c.key === normalized)?.label || "Стандарты и Положения";
 }
 
 function formatDate(dateStr: string): string {
@@ -758,7 +765,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
       formData.append("mimeType", pf.mimeType);
       formData.append("markdown", pf.markdown);
       formData.append("tags", JSON.stringify(pf.tags));
-      formData.append("folderPath", parsedFileCategories[i] || "other");
+      formData.append("folderPath", parsedFileCategories[i] || "standards");
 
       try {
         await fetch("/api/ingest", {
@@ -796,11 +803,11 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
   // Filter sources by category
   const filteredSources = docCategoryFilter === "all"
     ? sources
-    : sources.filter((s) => (s.folder_path || "standards") === docCategoryFilter);
+    : sources.filter((s) => normalizeFolderPath(s.folder_path) === docCategoryFilter);
 
   // Count per category
   const categoryCounts = DOC_CATEGORIES.reduce((acc, cat) => {
-    acc[cat.key] = sources.filter((s) => (s.folder_path || "standards") === cat.key).length;
+    acc[cat.key] = sources.filter((s) => normalizeFolderPath(s.folder_path) === cat.key).length;
     return acc;
   }, {} as Record<string, number>);
 
