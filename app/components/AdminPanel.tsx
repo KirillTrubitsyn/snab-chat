@@ -1333,7 +1333,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                       <p style={{ fontSize: 12, marginTop: 4 }}>Нажмите «Загрузить документ» чтобы добавить</p>
                     )}
                   </div>
-                ) : (
+                ) : (<>
                   <KBSearchBar
                     inviteCode={adminCode}
                     mode="admin"
@@ -1541,6 +1541,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                       );
                     })}
                   </div>
+                  </>
                 )}
 
                 {/* Upload Modal */}
