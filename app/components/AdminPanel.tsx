@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import DocumentViewer, { DocumentSource } from "./DocumentViewer";
+import KBSearchBar from "./KBSearchBar";
 
 /* ── Types ── */
 
@@ -1333,6 +1334,17 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                     )}
                   </div>
                 ) : (
+                  <KBSearchBar
+                    inviteCode={adminCode}
+                    mode="admin"
+                    onOpenDocument={(sourceId, filename) => {
+                      const src = sources.find(s => String(s.id) === sourceId);
+                      if (src) setViewingSource(src);
+                    }}
+                    onDownload={(sourceId, filename) => {
+                      window.open("/api/sources/download?id=" + sourceId + "&action=download", "_blank");
+                    }}
+                  />
                   <div className="admin-doc-list-view">
                     {filteredSources.map((doc) => {
                       const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : "docx";
