@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { getAdminByChatId, notifySupportReply, answerCallbackQuery, sendTelegramMessage } from "@/app/lib/telegram";
+import { timingSafeEqual } from "crypto";
 
 export const runtime = "nodejs";
 
@@ -78,12 +79,21 @@ async function saveAdminReply(supportMessageId: string, replyText: string, admin
  * 3. Обычное сообщение от админа с pending → сохраняет ответ
  */
 export async function POST(req: NextRequest) {
-  // Проверка секрета
-  if (WEBHOOK_SECRET) {
-    const secret = req.headers.get("x-telegram-bot-api-secret-token");
-    if (secret !== WEBHOOK_SECRET) {
+  // Проверка секрета (обязательна)
+  if (!WEBHOOK_SECRET) {
+    console.error("[Telegram Webhook] TELEGRAM_WEBHOOK_SECRET is not configured");
+    return NextResponse.json({ ok: false }, { status: 500 });
+  }
+
+  const secret = req.headers.get("x-telegram-bot-api-secret-token") ?? "";
+  try {
+    const a = Buffer.from(secret, "utf8");
+    const b = Buffer.from(WEBHOOK_SECRET, "utf8");
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
       return NextResponse.json({ ok: false }, { status: 401 });
     }
+  } catch {
+    return NextResponse.json({ ok: false }, { status: 401 });
   }
 
   let update;

@@ -18,6 +18,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
+    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json({ error: "Файл слишком большой (макс. 50 МБ)" }, { status: 400 });
+    }
+
     const buffer = Buffer.from(await file.arrayBuffer());
     const markdown = await parseToMarkdown(buffer, file.type, file.name);
     const tags = await autoTag(markdown, file.name, folderPath);

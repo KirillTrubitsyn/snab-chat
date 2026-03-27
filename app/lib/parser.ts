@@ -156,7 +156,16 @@ async function parseImageToMarkdown(
   return text || "(не удалось распознать текст)";
 }
 
+const XLSX_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]); // ZIP (PK\x03\x04)
+const XLS_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0]);  // OLE2
+
 function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
+  // Validate magic bytes to prevent zip-bomb / malicious files
+  const head = buffer.subarray(0, 4);
+  if (!head.equals(XLSX_MAGIC) && !head.equals(XLS_MAGIC)) {
+    throw new Error("Файл не является валидным Excel-документом");
+  }
+
   const workbook = XLSX.read(buffer, { type: "buffer", cellStyles: true });
   const parts: string[] = [];
 

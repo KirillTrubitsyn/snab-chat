@@ -47,6 +47,10 @@ export async function POST(req: NextRequest) {
     // Upload original file to Supabase Storage if provided
     let storagePath: string | null = null;
     if (file) {
+      const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+      if (file.size > MAX_FILE_SIZE) {
+        return NextResponse.json({ error: "Файл слишком большой (макс. 50 МБ)" }, { status: 400 });
+      }
       const buffer = Buffer.from(await file.arrayBuffer());
       const safeName = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
       storagePath = safeName;

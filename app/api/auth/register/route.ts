@@ -6,9 +6,9 @@ export async function POST(req: NextRequest) {
   try {
     const { password, name, organization, device_id } = await req.json();
 
-    if (!password || typeof password !== "string" || password.trim().length < 4) {
+    if (!password || typeof password !== "string" || password.trim().length < 8) {
       return NextResponse.json(
-        { error: "Пароль должен быть не менее 4 символов" },
+        { error: "Пароль должен быть не менее 8 символов" },
         { status: 400 }
       );
     }
