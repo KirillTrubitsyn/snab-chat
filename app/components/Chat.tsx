@@ -891,6 +891,18 @@ export default function Chat() {
                     <HistoryIcon />
                     История диалогов
                   </button>
+                  {isAdmin && (
+                    <a
+                      className="mobile-hamburger-item"
+                      href="/admin"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                      </svg>
+                      Админ-панель
+                    </a>
+                  )}
                 </div>
               )}
             </div>
@@ -970,6 +982,18 @@ export default function Chat() {
               </svg>
               <span className="btn-label">База знаний</span>
             </button>
+            {isAdmin && (
+              <a
+                className="header-labeled-btn accent desktop-only"
+                href="/admin"
+                title="Админ-панель"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+                <span className="btn-label">Админ-панель</span>
+              </a>
+            )}
             <button
               className="header-labeled-btn primary desktop-only"
               onClick={() => {
