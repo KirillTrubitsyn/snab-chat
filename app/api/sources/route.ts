@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+himport { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { requireAdmin } from "@/app/lib/auth";
 
@@ -10,7 +10,7 @@ export async function GET() {
       .from("sources")
       .select("id, filename, mime_type, tags, storage_path, folder_path, created_at")
       .order("created_at", { ascending: false })
-      .limit(200);
+      .limit(2000);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
