@@ -17,7 +17,7 @@ export async function GET() {
         .range(from, from + PAGE - 1);
 
       if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
       }
 
       allSources = allSources.concat(data);
@@ -66,7 +66,7 @@ export async function PATCH(req: NextRequest) {
       .single();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
     }
 
     return NextResponse.json({ source: data });
@@ -123,7 +123,7 @@ export async function DELETE(req: NextRequest) {
     const { error } = await supabase.from("sources").delete().in("id", ids);
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
     }
 
     return NextResponse.json({ ok: true, deleted: ids.length });

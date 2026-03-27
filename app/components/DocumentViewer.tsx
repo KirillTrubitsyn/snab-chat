@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { sanitizeHtml } from "@/app/lib/sanitize";
 
 export interface DocumentSource {
   id: number;
@@ -254,7 +255,7 @@ export default function DocumentViewer({
           ) : docxHtml ? (
             <div
               className="document-viewer-content docx-preview"
-              dangerouslySetInnerHTML={{ __html: docxHtml }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(docxHtml) }}
             />
           ) : (
             <div className="document-viewer-content">

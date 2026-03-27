@@ -93,7 +93,10 @@ export async function GET(req: NextRequest) {
       .order("created_at", { ascending: false })
       .limit(500);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error("DB error:", error.message);
+      return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+    }
 
     // Filter for lowConfidence in JS (jsonb filtering can be tricky across Supabase versions)
     const lowConfMsgs = (nontargetMsgs || []).filter(
@@ -241,7 +244,10 @@ export async function DELETE(req: NextRequest) {
     if (ids.length === 0) return NextResponse.json({ deleted: 0 });
 
     const { error } = await supabase.from("messages").delete().in("id", ids);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error("DB error:", error.message);
+      return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+    }
     return NextResponse.json({ deleted: ids.length });
   }
 
@@ -272,7 +278,7 @@ export async function DELETE(req: NextRequest) {
   const { error } = await supabase.from("conversations").delete().in("id", orphanedIds);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
   }
 
   return NextResponse.json({ deleted: orphanedIds.length });

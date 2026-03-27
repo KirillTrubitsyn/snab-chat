@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import * as XLSX from "xlsx";
 import { parseMarkdownTables } from "@/app/lib/markdown-tables";
+import { getInviteCodeFromHeader } from "@/app/lib/auth";
+import { unauthorizedResponse } from "@/app/lib/api-helpers";
 
 export interface ExcelSheet {
   name: string;
@@ -11,6 +13,9 @@ export interface ExcelSheet {
 }
 
 export async function GET(req: NextRequest) {
+  const invite = await getInviteCodeFromHeader(req);
+  if (!invite) return unauthorizedResponse();
+
   const id = req.nextUrl.searchParams.get("id");
   if (!id) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });

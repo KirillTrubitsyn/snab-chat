@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { formatDateMedium } from "@/app/lib/date-utils";
+import { highlightText } from "@/app/lib/sanitize";
 
 /* ── Типы ── */
 
@@ -52,17 +53,7 @@ const ICON = {
 /* ── Вспомогательные функции ── */
 
 /** Подсветка совпавших слов в тексте */
-function highlightMatches(text: string, query: string): string {
-  if (!query.trim()) return text;
-  const words = query
-    .trim()
-    .split(/\s+/)
-    .filter((w) => w.length >= 2)
-    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  if (words.length === 0) return text;
-  const regex = new RegExp(`(${words.join("|")})`, "gi");
-  return text.replace(regex, "<mark>$1</mark>");
-}
+const highlightMatches = highlightText;
 
 /** Форматирование даты */
 const formatDate = formatDateMedium;

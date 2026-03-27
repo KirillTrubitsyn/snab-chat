@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
+import { getInviteCodeFromHeader } from "@/app/lib/auth";
+import { unauthorizedResponse } from "@/app/lib/api-helpers";
 
 /**
  * Resolves a denormalized source to its original (with storage_path).
@@ -8,6 +10,9 @@ import { createServiceClient } from "@/app/lib/supabase";
  * GET /api/sources/resolve?id=123
  */
 export async function GET(req: NextRequest) {
+  const invite = await getInviteCodeFromHeader(req);
+  if (!invite) return unauthorizedResponse();
+
   const id = req.nextUrl.searchParams.get("id");
 
   if (!id) {

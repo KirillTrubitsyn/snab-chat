@@ -9,6 +9,7 @@ import InviteGate from "./InviteGate";
 import { containsMarkdownTable } from "@/app/lib/markdown-tables";
 import KBSearchBar from "@/app/components/KBSearchBar";
 import { formatDateRelative } from "@/app/lib/date-utils";
+import { sanitizeHtml } from "@/app/lib/sanitize";
 
 /* ── Types ── */
 
@@ -650,7 +651,7 @@ function DocumentViewer({
           ) : docxHtml ? (
             <div
               className="document-viewer-content docx-preview"
-              dangerouslySetInnerHTML={{ __html: docxHtml }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(docxHtml) }}
             />
           ) : (
             <div className="document-viewer-content">

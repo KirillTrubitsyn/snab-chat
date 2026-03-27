@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
 
   if (messagesResult.error) {
     return NextResponse.json(
-      { error: messagesResult.error.message },
+      { error: "Внутренняя ошибка сервера" },
       { status: 500 }
     );
   }

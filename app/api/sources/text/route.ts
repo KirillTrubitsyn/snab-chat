@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
+import { getInviteCodeFromHeader } from "@/app/lib/auth";
+import { unauthorizedResponse } from "@/app/lib/api-helpers";
 
 export async function GET(req: NextRequest) {
   try {
+    const invite = await getInviteCodeFromHeader(req);
+    if (!invite) return unauthorizedResponse();
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -29,7 +34,8 @@ export async function GET(req: NextRequest) {
       .order("chunk_index", { ascending: true });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("DB error:", error.message);
+      return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
     }
 
     const fullText = (chunks || []).map((c) => c.content).join("\n\n");
@@ -40,7 +46,7 @@ export async function GET(req: NextRequest) {
       text: fullText,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("Sources text error:", err);
+    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
   }
 }

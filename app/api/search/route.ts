@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hybridSearch } from "@/app/lib/retrieval";
+import { getInviteCodeFromHeader } from "@/app/lib/auth";
+import { unauthorizedResponse } from "@/app/lib/api-helpers";
 
 export async function POST(req: NextRequest) {
   try {
+    const invite = await getInviteCodeFromHeader(req);
+    if (!invite) return unauthorizedResponse();
+
     const { query, topK = 20, tags = null } = await req.json();
 
     if (!query) {
