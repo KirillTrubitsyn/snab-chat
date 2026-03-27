@@ -29,11 +29,13 @@ export async function parseToMarkdown(
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
     filename.endsWith(".docx")
   ) {
+    validateMagicBytes(buffer, [ZIP_MAGIC], "DOCX");
     const result = await mammoth.convertToMarkdown({ buffer });
     return result.value;
   }
 
   if (mimeType === "application/pdf" || filename.endsWith(".pdf")) {
+    validateMagicBytes(buffer, [PDF_MAGIC], "PDF");
     const pdfParse = (await import("pdf-parse")).default;
     const data = await pdfParse(buffer);
     let text = data.text;
@@ -156,15 +158,19 @@ async function parseImageToMarkdown(
   return text || "(не удалось распознать текст)";
 }
 
-const XLSX_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]); // ZIP (PK\x03\x04)
-const XLS_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0]);  // OLE2
+const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);   // ZIP (PK\x03\x04) — used by DOCX, XLSX
+const OLE2_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0]);  // OLE2 — used by DOC, XLS
+const PDF_MAGIC = Buffer.from([0x25, 0x50, 0x44, 0x46]);    // %PDF
+
+function validateMagicBytes(buffer: Buffer, expected: Buffer[], label: string): void {
+  const head = buffer.subarray(0, 4);
+  if (!expected.some((magic) => head.equals(magic))) {
+    throw new Error(`Файл не является валидным ${label}-документом`);
+  }
+}
 
 function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
-  // Validate magic bytes to prevent zip-bomb / malicious files
-  const head = buffer.subarray(0, 4);
-  if (!head.equals(XLSX_MAGIC) && !head.equals(XLS_MAGIC)) {
-    throw new Error("Файл не является валидным Excel-документом");
-  }
+  validateMagicBytes(buffer, [ZIP_MAGIC, OLE2_MAGIC], "Excel");
 
   const workbook = XLSX.read(buffer, { type: "buffer", cellStyles: true });
   const parts: string[] = [];

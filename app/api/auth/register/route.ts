@@ -1,31 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { checkAndRegisterDevice } from "@/app/lib/auth";
+import { registerSchema, parseBody } from "@/app/lib/validation";
 
 export async function POST(req: NextRequest) {
   try {
-    const { password, name, organization, device_id } = await req.json();
+    const raw = await req.json();
+    const { data: body, error: valError } = parseBody(raw, registerSchema);
+    if (valError) return valError;
 
-    if (!password || typeof password !== "string" || password.trim().length < 8) {
-      return NextResponse.json(
-        { error: "Пароль должен быть не менее 8 символов" },
-        { status: 400 }
-      );
-    }
-    if (!name || typeof name !== "string" || !name.trim()) {
-      return NextResponse.json(
-        { error: "Введите ФИО" },
-        { status: 400 }
-      );
-    }
-    if (!organization || typeof organization !== "string" || !organization.trim()) {
-      return NextResponse.json(
-        { error: "Введите организацию" },
-        { status: 400 }
-      );
-    }
-
-    const code = password.trim().toUpperCase();
+    const code = body.password.toUpperCase();
+    const { name, organization, device_id } = body;
     const supabase = createServiceClient();
 
     // Check if this code already exists
@@ -64,8 +49,8 @@ export async function POST(req: NextRequest) {
       .from("invite_codes")
       .insert({
         code,
-        name: name.trim(),
-        organization: organization.trim(),
+        name,
+        organization,
         uses_remaining: null,
         device_limit: 2,
         is_active: true,
