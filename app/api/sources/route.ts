@@ -5,18 +5,27 @@ import { requireAdmin } from "@/app/lib/auth";
 export async function GET() {
   try {
     const supabase = createServiceClient();
+    const PAGE = 1000;
+    let allSources: any[] = [];
+    let from = 0;
 
-    const { data, error } = await supabase
-      .from("sources")
-      .select("id, filename, mime_type, tags, storage_path, folder_path, created_at")
-      .order("created_at", { ascending: false })
-      .limit(2000);
+    while (true) {
+      const { data, error } = await supabase
+        .from("sources")
+        .select("id, filename, mime_type, tags, storage_path, folder_path, created_at")
+        .order("created_at", { ascending: false })
+        .range(from, from + PAGE - 1);
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+
+      allSources = allSources.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
     }
 
-    return NextResponse.json({ sources: data });
+    return NextResponse.json({ sources: allSources });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });
