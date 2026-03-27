@@ -2142,7 +2142,7 @@ export default function Chat() {
                   folder={kbCategoryFilter === "all" ? undefined : kbCategoryFilter}
                   mode="chat"
                   onOpenDocument={(sourceId, filename) => {
-                    const src = sources.find(s => String(s.id) === sourceId);
+                    const src = sources.find(s => String(s.id) === String(sourceId));
                     if (src) setViewingSource(src);
                   }}
                   onDownload={(sourceId, filename) => {
