@@ -136,6 +136,7 @@ const DOC_CATEGORIES = [
   { key: "instructions", label: "Инструкции и Методики", icon: "menu_book" },
   { key: "pricing", label: "Ценообразование", icon: "payments" },
   { key: "references", label: "Справочники и Реестры", icon: "list_alt" },
+  { key: "contractor-cards", label: "Карточки контрагентов", icon: "badge" },
   { key: "contracts", label: "Договоры", icon: "handshake" },
 ];
 
@@ -146,6 +147,9 @@ const CATEGORY_KEYWORDS: Record<string, string> = {
   "сметная стоимость": "pricing", "базовые цены": "pricing",
   "индексы": "pricing", "индекс": "pricing",
   "коэффициент": "pricing", "тариф": "pricing", "нмцд": "pricing", "фер": "pricing",
+  "карточка контрагента": "contractor-cards", "карточка поставщика": "contractor-cards",
+  "история закупок": "contractor-cards", "сведения о контрагенте": "contractor-cards",
+  "сведения о поставщике": "contractor-cards", "досье поставщика": "contractor-cards",
   "справочник": "references", "реестр": "references",
   "перечень": "references", "лимит": "references",
   "классификатор": "references", "нормативные сроки": "references",
@@ -184,8 +188,14 @@ function detectCategoryClient(tags: string[], filename?: string): string {
 
 const VALID_CATEGORY_KEYS = new Set(DOC_CATEGORIES.map((c) => c.key));
 
+const FOLDER_PATH_ALIASES: Record<string, string> = {
+  registries: "contractor-cards",
+};
+
 function normalizeFolderPath(fp: string | null | undefined): string {
-  return fp && VALID_CATEGORY_KEYS.has(fp) ? fp : "standards";
+  if (!fp) return "standards";
+  if (VALID_CATEGORY_KEYS.has(fp)) return fp;
+  return FOLDER_PATH_ALIASES[fp] || "standards";
 }
 
 function getCategoryLabel(key: string | null): string {
