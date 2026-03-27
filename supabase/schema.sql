@@ -235,7 +235,21 @@ create table if not exists error_logs (
 create index if not exists idx_errors_created on error_logs(created_at desc);
 create index if not exists idx_errors_type on error_logs(error_type);
 
--- 12. RLS (Row Level Security) — отключено для service role
+-- 12. Аудит-лог админских действий
+create table if not exists audit_log (
+  id uuid primary key default gen_random_uuid(),
+  action text not null,
+  admin_name text not null,
+  target_id text,
+  details jsonb,
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_audit_created on audit_log(created_at desc);
+create index if not exists idx_audit_admin on audit_log(admin_name);
+create index if not exists idx_audit_action on audit_log(action);
+
+-- 13. RLS (Row Level Security) — отключено для service role
 -- При необходимости включите RLS и настройте политики:
 -- alter table sources enable row level security;
 -- alter table chunks enable row level security;

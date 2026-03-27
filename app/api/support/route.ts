@@ -3,6 +3,7 @@ import { createServiceClient } from "@/app/lib/supabase";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
 import { notifySupportMessage } from "@/app/lib/telegram";
 import { unauthorizedResponse } from "@/app/lib/api-helpers";
+import { supportMessageSchema, parseBody } from "@/app/lib/validation";
 
 export async function GET(req: NextRequest) {
   const invite = await getInviteCodeFromHeader(req);
@@ -36,10 +37,10 @@ export async function POST(req: NextRequest) {
   const invite = await getInviteCodeFromHeader(req);
   if (!invite) return unauthorizedResponse();
 
-  const { message } = await req.json();
-  if (!message || typeof message !== "string" || message.trim().length < 3) {
-    return NextResponse.json({ error: "Сообщение слишком короткое" }, { status: 400 });
-  }
+  const raw = await req.json();
+  const { data, error: valError } = parseBody(raw, supportMessageSchema);
+  if (valError) return valError;
+  const message = data.message;
 
   const supabase = createServiceClient();
   const inviteCodeId = invite.id.startsWith("admin-") ? null : invite.id;
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
     invite_code_id: inviteCodeId,
     user_name: invite.name,
     organization: invite.organization ?? null,
-    message: message.trim().slice(0, 5000),
+    message,
   }).select("id").single();
 
   if (error) {

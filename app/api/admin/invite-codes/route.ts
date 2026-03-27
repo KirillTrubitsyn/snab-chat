@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { requireAdmin } from "@/app/lib/auth";
+import { logAuditEvent } from "@/app/lib/audit-log";
 
 export async function GET(req: NextRequest) {
   const adminCheck = requireAdmin(req);
@@ -98,6 +99,7 @@ export async function POST(req: NextRequest) {
     console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
   }
 
+  logAuditEvent({ action: "invite_code.create", adminName: adminCheck.adminName, targetId: data?.id, details: { code: code.toUpperCase(), name } });
   return NextResponse.json({ code: data });
 }
 
@@ -123,6 +125,7 @@ export async function DELETE(req: NextRequest) {
     console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
   }
 
+  logAuditEvent({ action: "invite_code.delete", adminName: adminCheck.adminName, targetId: id });
   return NextResponse.json({ ok: true });
 }
 
@@ -164,5 +167,6 @@ export async function PATCH(req: NextRequest) {
     console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
   }
 
+  logAuditEvent({ action: "invite_code.update", adminName: adminCheck.adminName, targetId: id, details: updates });
   return NextResponse.json({ code: data });
 }

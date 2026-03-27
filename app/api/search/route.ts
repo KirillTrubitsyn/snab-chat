@@ -2,22 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { hybridSearch } from "@/app/lib/retrieval";
 import { getInviteCodeFromHeader } from "@/app/lib/auth";
 import { unauthorizedResponse } from "@/app/lib/api-helpers";
+import { searchSchema, parseBody } from "@/app/lib/validation";
 
 export async function POST(req: NextRequest) {
   try {
     const invite = await getInviteCodeFromHeader(req);
     if (!invite) return unauthorizedResponse();
 
-    const { query, topK = 20, tags = null } = await req.json();
+    const raw = await req.json();
+    const { data, error: valError } = parseBody(raw, searchSchema);
+    if (valError) return valError;
 
-    if (!query) {
-      return NextResponse.json(
-        { error: "Query is required" },
-        { status: 400 }
-      );
-    }
-
-    const results = await hybridSearch(query, topK, tags);
+    const results = await hybridSearch(data.query, data.topK ?? 20, data.tags ?? null);
     return NextResponse.json({ results });
   } catch (err) {
     console.error("Search error:", err);

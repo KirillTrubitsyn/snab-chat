@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { requireAdmin, getAdminNumber } from "@/app/lib/auth";
 import { notifySupportReply } from "@/app/lib/telegram";
+import { supportReplySchema, parseBody } from "@/app/lib/validation";
+import { logAuditEvent } from "@/app/lib/audit-log";
 
 export async function GET(req: NextRequest) {
   const adminCheck = requireAdmin(req);
@@ -43,8 +45,10 @@ export async function PATCH(req: NextRequest) {
   const adminNumber = getAdminNumber(rawCode);
   const { adminName } = adminCheck;
 
-  const { id, reply, status: newStatus } = await req.json();
-  if (!id) return NextResponse.json({ error: "id обязателен" }, { status: 400 });
+  const raw = await req.json();
+  const { data: body, error: valError } = parseBody(raw, supportReplySchema);
+  if (valError) return valError;
+  const { id, reply, status: newStatus } = body;
 
   const supabase = createServiceClient();
   const update: Record<string, unknown> = {};
@@ -83,6 +87,7 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
+  logAuditEvent({ action: reply ? "support.reply" : "support.status_change", adminName: adminCheck.adminName, targetId: id, details: { newStatus, hasReply: !!reply } });
   return NextResponse.json({ success: true });
 }
 
@@ -100,5 +105,6 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
   }
 
+  logAuditEvent({ action: "support.delete", adminName: adminCheck.adminName, targetId: id });
   return NextResponse.json({ deleted: true });
 }

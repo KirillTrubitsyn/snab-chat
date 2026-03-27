@@ -6,19 +6,16 @@ import {
   consumeInviteCodeFallback,
   checkAndRegisterDevice,
 } from "@/app/lib/auth";
+import { loginSchema, parseBody } from "@/app/lib/validation";
 
 export async function POST(req: NextRequest) {
   try {
-    const { code, device_id } = await req.json();
+    const raw = await req.json();
+    const { data, error } = parseBody(raw, loginSchema);
+    if (error) return error;
 
-    if (!code || typeof code !== "string") {
-      return NextResponse.json(
-        { error: "Введите инвайт-код" },
-        { status: 400 }
-      );
-    }
-
-    const upperCode = code.toUpperCase();
+    const upperCode = data.code.toUpperCase();
+    const device_id = data.device_id;
 
     // 1. Проверка админ-кодов
     if (isAdminCode(upperCode)) {
