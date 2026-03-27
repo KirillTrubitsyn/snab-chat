@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   if (status) query = query.eq("status", status);
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
 
   const items = data ?? [];
   const stats = {
@@ -62,7 +62,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   const { error } = await supabase.from("support_messages").update(update).eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
 
   // Notify other admins about the reply
   if (reply) {
@@ -71,8 +71,9 @@ export async function PATCH(req: NextRequest) {
       .select("user_name")
       .eq("id", id)
       .single();
-    if (msg) {
-      notifySupportReply(adminName, msg.user_name, reply).catch(() => {});
+    const userName = msg?.user_name;
+    if (userName) {
+      notifySupportReply(adminName, userName, reply).catch(() => {});
     }
   }
 
@@ -88,7 +89,7 @@ export async function DELETE(req: NextRequest) {
 
   const supabase = createServiceClient();
   const { error } = await supabase.from("support_messages").delete().eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
 
   return NextResponse.json({ deleted: true });
 }

@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   if (type && type !== "all") query = query.eq("error_type", type);
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
 
   return NextResponse.json({ errors: data ?? [] });
 }
@@ -35,7 +35,7 @@ export async function DELETE(req: NextRequest) {
 
   const supabase = createServiceClient();
   const { error } = await supabase.from("error_logs").delete().eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
 
   return NextResponse.json({ deleted: true });
 }

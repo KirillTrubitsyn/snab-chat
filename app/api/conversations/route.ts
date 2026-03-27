@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   try {
     supabase = createServiceClient();
   } catch (e) {
-    return serverError((e as Error).message);
+    console.error("Supabase init error:", e); return serverError();
   }
 
   let query = supabase
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await query;
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("DB error:", error.message); return serverError();
   }
 
   return NextResponse.json(
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
   try {
     supabase = createServiceClient();
   } catch (e) {
-    return serverError((e as Error).message);
+    console.error("Supabase init error:", e); return serverError();
   }
   const body = await req.json().catch(() => ({}));
   const title = body.title || "Новый диалог";
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("DB error:", error.message); return serverError();
   }
 
   return NextResponse.json(data);
@@ -100,7 +100,7 @@ export async function DELETE(req: NextRequest) {
   try {
     supabase = createServiceClient();
   } catch (e) {
-    return serverError((e as Error).message);
+    console.error("Supabase init error:", e); return serverError();
   }
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
@@ -113,7 +113,7 @@ export async function DELETE(req: NextRequest) {
       await supabase.from("messages").delete().neq("id", "00000000-0000-0000-0000-000000000000");
       const { error } = await supabase.from("conversations").delete().neq("id", "00000000-0000-0000-0000-000000000000");
       if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error("DB error:", error.message); return serverError();
       }
     } else {
       // Обычный пользователь удаляет только свои диалоги
@@ -127,7 +127,7 @@ export async function DELETE(req: NextRequest) {
         await supabase.from("messages").delete().in("conversation_id", ownedIds);
         const { error } = await supabase.from("conversations").delete().in("id", ownedIds);
         if (error) {
-          return NextResponse.json({ error: error.message }, { status: 500 });
+          console.error("DB error:", error.message); return serverError();
         }
       }
     }
@@ -158,7 +158,7 @@ export async function DELETE(req: NextRequest) {
         await supabase.from("messages").delete().in("conversation_id", idsToDelete);
         const { error } = await supabase.from("conversations").delete().in("id", idsToDelete);
         if (error) {
-          return NextResponse.json({ error: error.message }, { status: 500 });
+          console.error("DB error:", error.message); return serverError();
         }
         return ok();
       }
@@ -186,7 +186,7 @@ export async function DELETE(req: NextRequest) {
   const { error } = await supabase.from("conversations").delete().eq("id", id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("DB error:", error.message); return serverError();
   }
 
   return NextResponse.json({ ok: true });
