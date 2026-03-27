@@ -11,8 +11,8 @@ const client = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
 // Fallback chain: if primary model is unavailable (503), try next
 const IMAGE_MODELS = [
   "gemini-3.1-flash-image-preview",
-  "gemini-2.5-flash-preview-image-generation",
-  "gemini-2.0-flash-preview-image-generation",
+  "gemini-3-pro-image-preview",
+  "gemini-2.5-flash-image",
 ];
 
 const INFOGRAPHIC_STYLE_PROMPTS: Record<string, string> = {
