@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 
-/* ââ Ð¢Ð¸Ð¿Ñ ââ */
+/* ── Типы ── */
 
 export interface KBSearchResult {
   source_id: string;
@@ -19,21 +19,21 @@ export interface KBSearchResult {
 }
 
 interface KBSearchBarProps {
-  /** ÐÐ°Ð³Ð¾Ð»Ð¾Ð²Ð¾Ðº Ð¸Ð½Ð²Ð°Ð¹Ñ-ÐºÐ¾Ð´Ð° (Ð´Ð»Ñ Ð°ÑÑÐµÐ½ÑÐ¸ÑÐ¸ÐºÐ°ÑÐ¸Ð¸ Ð·Ð°Ð¿ÑÐ¾ÑÐ¾Ð²) */
+  /** Заголовок инвайт-кода (для аутентификации запросов) */
   inviteCode?: string;
-  /** ÐÐ³ÑÐ°Ð½Ð¸ÑÐµÐ½Ð¸Ðµ Ð¿Ð¾ Ð¿Ð°Ð¿ÐºÐµ (null = Ð²ÑÐµ) */
+  /** Ограничение по папке (null = все) */
   folder?: string | null;
-  /** ÐÑÐ·ÑÐ²Ð°ÐµÑÑÑ Ð¿ÑÐ¸ ÐºÐ»Ð¸ÐºÐµ Ð½Ð° Ð´Ð¾ÐºÑÐ¼ÐµÐ½Ñ â Ð¾ÑÐºÑÑÑÐ¸Ðµ Ð¿ÑÐµÐ²ÑÑ */
+  /** Вызывается при клике на документ — открытие превью */
   onOpenDocument?: (sourceId: string, filename: string) => void;
-  /** ÐÑÐ·ÑÐ²Ð°ÐµÑÑÑ Ð¿ÑÐ¸ ÐºÐ»Ð¸ÐºÐµ Â«Ð¡ÐºÐ°ÑÐ°ÑÑÂ» */
+  /** Вызывается при клике «Скачать» */
   onDownload?: (sourceId: string, filename: string) => void;
-  /** ÐÐ¾Ð¿Ð¾Ð»Ð½Ð¸ÑÐµÐ»ÑÐ½ÑÐ¹ CSS-ÐºÐ»Ð°ÑÑ Ð´Ð»Ñ ÐºÐ¾Ð½ÑÐµÐ¹Ð½ÐµÑÐ° */
+  /** Дополнительный CSS-класс для контейнера */
   className?: string;
-  /** Ð ÐµÐ¶Ð¸Ð¼: admin (ÑÐ°ÑÑÐ¸ÑÐµÐ½Ð½Ð°Ñ Ð¸Ð½ÑÐ¾ÑÐ¼Ð°ÑÐ¸Ñ) Ð¸Ð»Ð¸ chat (ÐºÐ¾Ð¼Ð¿Ð°ÐºÑÐ½ÑÐ¹) */
+  /** Режим: admin (расширенная информация) или chat (компактный) */
   mode?: "admin" | "chat";
 }
 
-/* ââ ÐÐºÐ¾Ð½ÐºÐ¸ (Material Symbols outline, 20px) ââ */
+/* ── Иконки (Material Symbols outline, 20px) ── */
 
 const ICON = {
   search: "search",
@@ -48,9 +48,9 @@ const ICON = {
   join: "join",
 } as const;
 
-/* ââ ÐÑÐ¿Ð¾Ð¼Ð¾Ð³Ð°ÑÐµÐ»ÑÐ½ÑÐµ ÑÑÐ½ÐºÑÐ¸Ð¸ ââ */
+/* ── Вспомогательные функции ── */
 
-/** ÐÐ¾Ð´ÑÐ²ÐµÑÐºÐ° ÑÐ¾Ð²Ð¿Ð°Ð²ÑÐ¸Ñ ÑÐ»Ð¾Ð² Ð² ÑÐµÐºÑÑÐµ */
+/** Подсветка совпавших слов в тексте */
 function highlightMatches(text: string, query: string): string {
   if (!query.trim()) return text;
   const words = query
@@ -63,7 +63,7 @@ function highlightMatches(text: string, query: string): string {
   return text.replace(regex, "<mark>$1</mark>");
 }
 
-/** Ð¤Ð¾ÑÐ¼Ð°ÑÐ¸ÑÐ¾Ð²Ð°Ð½Ð¸Ðµ Ð´Ð°ÑÑ */
+/** Форматирование даты */
 function formatDate(dateStr: string): string {
   try {
     const d = new Date(dateStr);
@@ -77,7 +77,7 @@ function formatDate(dateStr: string): string {
   }
 }
 
-/** ÐÐºÐ¾Ð½ÐºÐ° ÑÐ¸Ð¿Ð° ÑÐ¾Ð²Ð¿Ð°Ð´ÐµÐ½Ð¸Ñ */
+/** Иконка типа совпадения */
 function matchTypeLabel(type: "fts" | "semantic" | "both"): {
   icon: string;
   label: string;
@@ -85,21 +85,21 @@ function matchTypeLabel(type: "fts" | "semantic" | "both"): {
 } {
   switch (type) {
     case "both":
-      return { icon: ICON.join, label: "ÐÐ¾Ð»Ð½Ð¾Ðµ ÑÐ¾Ð²Ð¿Ð°Ð´ÐµÐ½Ð¸Ðµ", color: "#4caf50" };
+      return { icon: ICON.join, label: "Полное совпадение", color: "#4caf50" };
     case "semantic":
-      return { icon: ICON.bolt, label: "ÐÐ¾ ÑÐ¼ÑÑÐ»Ñ", color: "#2196f3" };
+      return { icon: ICON.bolt, label: "По смыслу", color: "#2196f3" };
     case "fts":
-      return { icon: ICON.text, label: "ÐÐ¾ ÑÐµÐºÑÑÑ", color: "#ff9800" };
+      return { icon: ICON.text, label: "По тексту", color: "#ff9800" };
   }
 }
 
-/** ÐÐ±ÑÐµÐ·ÐºÐ° ÑÐµÐºÑÑÐ° */
+/** Обрезка текста */
 function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
-  return text.slice(0, maxLen).trimEnd() + "â¦";
+  return text.slice(0, maxLen).trimEnd() + "…";
 }
 
-/* ââ ÐÐ¾Ð¼Ð¿Ð¾Ð½ÐµÐ½Ñ ââ */
+/* ── Компонент ── */
 
 export default function KBSearchBar({
   inviteCode,
@@ -119,7 +119,7 @@ export default function KBSearchBar({
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  /* ââ ÐÐ¾Ð¸ÑÐº ââ */
+  /* ── Поиск ── */
 
   const doSearch = useCallback(
     async (q: string) => {
@@ -129,7 +129,7 @@ export default function KBSearchBar({
         return;
       }
 
-      // ÐÑÐ¼ÐµÐ½ÑÐµÐ¼ Ð¿ÑÐµÐ´ÑÐ´ÑÑÐ¸Ð¹ Ð·Ð°Ð¿ÑÐ¾Ñ
+      // Отменяем предыдущий запрос
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -142,14 +142,13 @@ export default function KBSearchBar({
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            
           },
           body: JSON.stringify({ query: q.trim(), limit: 20, folder }),
           signal: controller.signal,
         });
 
         if (!res.ok) {
-          throw new Error(`ÐÑÐ¸Ð±ÐºÐ° ${res.status}`);
+          throw new Error(`Ошибка ${res.status}`);
         }
 
         const data = await res.json();
@@ -157,7 +156,7 @@ export default function KBSearchBar({
         setSearched(true);
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") return;
-        setError("ÐÐµ ÑÐ´Ð°Ð»Ð¾ÑÑ Ð²ÑÐ¿Ð¾Ð»Ð½Ð¸ÑÑ Ð¿Ð¾Ð¸ÑÐº");
+        setError("Не удалось выполнить поиск");
         console.error("KB search error:", err);
       } finally {
         setLoading(false);
@@ -166,14 +165,14 @@ export default function KBSearchBar({
     [inviteCode, folder]
   );
 
-  /* Debounce Ð²Ð²Ð¾Ð´Ð°: 400ms */
+  /* Debounce ввода: 400ms */
   const handleInputChange = (value: string) => {
     setQuery(value);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => doSearch(value), 400);
   };
 
-  /* Enter â Ð½ÐµÐ¼ÐµÐ´Ð»ÐµÐ½Ð½ÑÐ¹ Ð¿Ð¾Ð¸ÑÐº */
+  /* Enter — немедленный поиск */
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -200,13 +199,13 @@ export default function KBSearchBar({
     };
   }, []);
 
-  /* ââ Ð ÐµÐ½Ð´ÐµÑ ââ */
+  /* ── Рендер ── */
 
   const isCompact = mode === "chat";
 
   return (
     <div className={`kb-search ${className}`}>
-      {/* ââ Ð¡ÑÑÐ¾ÐºÐ° Ð¿Ð¾Ð¸ÑÐºÐ° ââ */}
+      {/* ── Строка поиска ── */}
       <div className="kb-search__input-wrap">
         <span className="material-symbols-outlined kb-search__icon">
           {ICON.search}
@@ -215,7 +214,7 @@ export default function KBSearchBar({
           ref={inputRef}
           type="text"
           className="kb-search__input"
-          placeholder="ÐÐ¾Ð¸ÑÐº Ð¿Ð¾ Ð±Ð°Ð·Ðµ Ð·Ð½Ð°Ð½Ð¸Ð¹â¦"
+          placeholder="Поиск по базе знаний…"
           value={query}
           onChange={(e) => handleInputChange(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -226,7 +225,7 @@ export default function KBSearchBar({
           <button
             className="kb-search__clear"
             onClick={clearSearch}
-            title="ÐÑÐ¸ÑÑÐ¸ÑÑ"
+            title="Очистить"
             type="button"
           >
             <span className="material-symbols-outlined">{ICON.close}</span>
@@ -235,28 +234,28 @@ export default function KBSearchBar({
         {loading && <div className="kb-search__spinner" />}
       </div>
 
-      {/* ââ Ð ÐµÐ·ÑÐ»ÑÑÐ°ÑÑ ââ */}
+      {/* ── Результаты ── */}
       {searched && (
         <div className="kb-search__results">
           {error && <div className="kb-search__error">{error}</div>}
 
           {!error && results.length === 0 && (
             <div className="kb-search__empty">
-              ÐÐ¸ÑÐµÐ³Ð¾ Ð½Ðµ Ð½Ð°Ð¹Ð´ÐµÐ½Ð¾ Ð¿Ð¾ Ð·Ð°Ð¿ÑÐ¾ÑÑ Â«{query}Â»
+              Ничего не найдено по запросу «{query}»
             </div>
           )}
 
           {results.length > 0 && (
             <>
               <div className="kb-search__count">
-                ÐÐ°Ð¹Ð´ÐµÐ½Ð¾: {results.length} Ð´Ð¾ÐºÑÐ¼ÐµÐ½Ñ
+                Найдено: {results.length} документ
                 {results.length % 10 === 1 && results.length % 100 !== 11
                   ? ""
                   : results.length % 10 >= 2 &&
                       results.length % 10 <= 4 &&
                       (results.length % 100 < 10 || results.length % 100 >= 20)
-                    ? "Ð°"
-                    : "Ð¾Ð²"}
+                    ? "а"
+                    : "ов"}
               </div>
 
               <div className="kb-search__list">
@@ -276,13 +275,13 @@ export default function KBSearchBar({
         </div>
       )}
 
-      {/* ââ Ð¡ÑÐ¸Ð»Ð¸ (inline, ÑÑÐ¾Ð±Ñ ÐºÐ¾Ð¼Ð¿Ð¾Ð½ÐµÐ½Ñ Ð±ÑÐ» self-contained) ââ */}
+      {/* ── Стили (inline, чтобы компонент был self-contained) ── */}
       <style>{styles}</style>
     </div>
   );
 }
 
-/* ââ ÐÐ°ÑÑÐ¾ÑÐºÐ° ÑÐµÐ·ÑÐ»ÑÑÐ°ÑÐ° ââ */
+/* ── Карточка результата ── */
 
 function SearchResultCard({
   result,
@@ -322,7 +321,7 @@ function SearchResultCard({
             </div>
           )}
         </div>
-        {/* ÐÐµÐ¹Ð´Ð¶ ÑÐ¸Ð¿Ð° ÑÐ¾Ð²Ð¿Ð°Ð´ÐµÐ½Ð¸Ñ */}
+        {/* Бейдж типа совпадения */}
         <span className="kb-card__badge" style={{ background: mt.color }}>
           <span
             className="material-symbols-outlined"
@@ -334,7 +333,7 @@ function SearchResultCard({
         </span>
       </div>
 
-      {/* ÐÑÐµÐ²ÑÑ ÑÑÐ°Ð³Ð¼ÐµÐ½ÑÐ° */}
+      {/* Превью фрагмента */}
       {result.best_chunk && (
         <div
           className="kb-card__chunk"
@@ -352,7 +351,7 @@ function SearchResultCard({
         <div className="kb-card__meta">
           {result.chunk_count > 0 && (
             <span className="kb-card__meta-item">
-              Ð¡Ð¾Ð²Ð¿Ð°Ð´ÐµÐ½Ð¸Ð¹: {result.chunk_count}
+              Совпадений: {result.chunk_count}
             </span>
           )}
           <span className="kb-card__meta-item">
@@ -360,7 +359,7 @@ function SearchResultCard({
           </span>
           {result.similarity > 0 && (
             <span className="kb-card__meta-item">
-              Ð ÐµÐ»ÐµÐ²Ð°Ð½ÑÐ½Ð¾ÑÑÑ: {Math.round(result.similarity * 100)}%
+              Релевантность: {Math.round(result.similarity * 100)}%
             </span>
           )}
         </div>
@@ -370,7 +369,7 @@ function SearchResultCard({
       {!compact && result.tags.length > 0 && (
         <div className="kb-card__tags">
           {result.tags
-            .filter((t) => t !== "Ð´ÐµÐ½Ð¾ÑÐ¼Ð°Ð»Ð¸Ð·Ð¾Ð²Ð°Ð½Ð¾")
+            .filter((t) => t !== "денормализовано")
             .slice(0, 5)
             .map((tag) => (
               <span key={tag} className="kb-card__tag">
@@ -380,7 +379,7 @@ function SearchResultCard({
         </div>
       )}
 
-      {/* ÐÐµÐ¹ÑÑÐ²Ð¸Ñ */}
+      {/* Действия */}
       <div className="kb-card__actions">
         {onOpen && (
           <button
@@ -391,7 +390,7 @@ function SearchResultCard({
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
               {ICON.visibility}
             </span>
-            ÐÑÐ¾ÑÐ¼Ð¾ÑÑ
+            Просмотр
           </button>
         )}
         {onDownload && (
@@ -403,7 +402,7 @@ function SearchResultCard({
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
               {ICON.download}
             </span>
-            Ð¡ÐºÐ°ÑÐ°ÑÑ
+            Скачать
           </button>
         )}
       </div>
@@ -411,16 +410,16 @@ function SearchResultCard({
   );
 }
 
-/* ââ CSS ââ */
+/* ── CSS ── */
 
 const styles = `
-/* ââ ÐÐ¾Ð½ÑÐµÐ¹Ð½ÐµÑ ââ */
+/* ── Контейнер ── */
 .kb-search {
   width: 100%;
   position: relative;
 }
 
-/* ââ Ð¡ÑÑÐ¾ÐºÐ° Ð¿Ð¾Ð¸ÑÐºÐ° ââ */
+/* ── Строка поиска ── */
 .kb-search__input-wrap {
   display: flex;
   align-items: center;
@@ -472,7 +471,7 @@ const styles = `
   font-size: 18px;
 }
 
-/* ââ Ð¡Ð¿Ð¸Ð½Ð½ÐµÑ ââ */
+/* ── Спиннер ── */
 .kb-search__spinner {
   width: 18px;
   height: 18px;
@@ -486,7 +485,7 @@ const styles = `
   to { transform: rotate(360deg); }
 }
 
-/* ââ Ð ÐµÐ·ÑÐ»ÑÑÐ°ÑÑ ââ */
+/* ── Результаты ── */
 .kb-search__results {
   margin-top: 12px;
 }
@@ -515,7 +514,7 @@ const styles = `
   gap: 8px;
 }
 
-/* ââ ÐÐ°ÑÑÐ¾ÑÐºÐ° Ð´Ð¾ÐºÑÐ¼ÐµÐ½ÑÐ° ââ */
+/* ── Карточка документа ── */
 .kb-card {
   background: var(--surface, #ffffff);
   border: 1px solid var(--border, #e0e0e0);
@@ -528,7 +527,7 @@ const styles = `
   box-shadow: 0 2px 8px rgba(25, 118, 210, 0.08);
 }
 
-/* ÐÐ°Ð³Ð¾Ð»Ð¾Ð²Ð¾Ðº */
+/* Заголовок */
 .kb-card__header {
   display: flex;
   align-items: flex-start;
@@ -577,7 +576,7 @@ const styles = `
   flex-shrink: 0;
 }
 
-/* Ð¤ÑÐ°Ð³Ð¼ÐµÐ½Ñ */
+/* Фрагмент */
 .kb-card__chunk {
   margin-top: 8px;
   font-size: 13px;
@@ -595,7 +594,7 @@ const styles = `
   padding: 0 1px;
 }
 
-/* ÐÐµÑÐ° */
+/* Мета */
 .kb-card__meta {
   display: flex;
   flex-wrap: wrap;
@@ -608,7 +607,7 @@ const styles = `
   white-space: nowrap;
 }
 
-/* Ð¢ÐµÐ³Ð¸ */
+/* Теги */
 .kb-card__tags {
   display: flex;
   flex-wrap: wrap;
@@ -624,7 +623,7 @@ const styles = `
   white-space: nowrap;
 }
 
-/* ÐÐµÐ¹ÑÑÐ²Ð¸Ñ */
+/* Действия */
 .kb-card__actions {
   display: flex;
   gap: 8px;
@@ -658,7 +657,7 @@ const styles = `
   background: rgba(76, 175, 80, 0.16);
 }
 
-/* ââ ÐÐ´Ð°Ð¿ÑÐ¸Ð² ââ */
+/* ── Адаптив ── */
 @media (max-width: 480px) {
   .kb-card__actions {
     flex-direction: column;
