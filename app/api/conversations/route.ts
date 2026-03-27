@@ -1,21 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
+import { unauthorizedResponse, serverError, notFound, ok } from "@/app/lib/api-helpers";
 
 export async function GET(req: NextRequest) {
   const invite = await getInviteCodeFromHeader(req);
   if (!invite) {
-    return NextResponse.json({ error: "Требуется инвайт-код" }, { status: 401 });
+    return unauthorizedResponse();
   }
 
   let supabase;
   try {
     supabase = createServiceClient();
   } catch (e) {
-    return NextResponse.json(
-      { error: (e as Error).message },
-      { status: 500 }
-    );
+    return serverError((e as Error).message);
   }
 
   let query = supabase
@@ -49,17 +47,14 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const invite = await getInviteCodeFromHeader(req);
   if (!invite) {
-    return NextResponse.json({ error: "Требуется инвайт-код" }, { status: 401 });
+    return unauthorizedResponse();
   }
 
   let supabase;
   try {
     supabase = createServiceClient();
   } catch (e) {
-    return NextResponse.json(
-      { error: (e as Error).message },
-      { status: 500 }
-    );
+    return serverError((e as Error).message);
   }
   const body = await req.json().catch(() => ({}));
   const title = body.title || "Новый диалог";
@@ -98,17 +93,14 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const invite = await getInviteCodeFromHeader(req);
   if (!invite) {
-    return NextResponse.json({ error: "Требуется инвайт-код" }, { status: 401 });
+    return unauthorizedResponse();
   }
 
   let supabase;
   try {
     supabase = createServiceClient();
   } catch (e) {
-    return NextResponse.json(
-      { error: (e as Error).message },
-      { status: 500 }
-    );
+    return serverError((e as Error).message);
   }
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
@@ -139,7 +131,7 @@ export async function DELETE(req: NextRequest) {
         }
       }
     }
-    return NextResponse.json({ ok: true });
+    return ok();
   }
 
   // Bulk delete by ids in body
@@ -159,7 +151,7 @@ export async function DELETE(req: NextRequest) {
 
           idsToDelete = (ownedConvs || []).map((c: { id: string }) => c.id);
           if (idsToDelete.length === 0) {
-            return NextResponse.json({ error: "Диалоги не найдены" }, { status: 404 });
+            return notFound("Диалоги не найдены");
           }
         }
 
@@ -168,7 +160,7 @@ export async function DELETE(req: NextRequest) {
         if (error) {
           return NextResponse.json({ error: error.message }, { status: 500 });
         }
-        return NextResponse.json({ ok: true });
+        return ok();
       }
     } catch {
       // no body
@@ -185,7 +177,7 @@ export async function DELETE(req: NextRequest) {
       .single();
 
     if (!conv || conv.invite_code_id !== invite.id) {
-      return NextResponse.json({ error: "Диалог не найден" }, { status: 404 });
+      return notFound("Диалог не найден");
     }
   }
 

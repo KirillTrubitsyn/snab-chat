@@ -1,6 +1,6 @@
 import { google, withGoogleApiLimit } from "@/app/lib/google-ai";
 import { generateText } from "ai";
-/* ── Document Categories (8 types) ── */
+/* ── Document Categories (9 types) ── */
 export const DOCUMENT_CATEGORIES = [
   { key: "npa", label: "НПА", icon: "gavel" },
   { key: "standards", label: "Стандарты и Положения", icon: "verified" },
@@ -9,10 +9,25 @@ export const DOCUMENT_CATEGORIES = [
   { key: "instructions", label: "Инструкции и Методики", icon: "menu_book" },
   { key: "pricing", label: "Ценообразование", icon: "payments" },
   { key: "references", label: "Справочники и Реестры", icon: "list_alt" },
+  { key: "contractor-cards", label: "Карточки контрагентов", icon: "badge" },
   { key: "contracts", label: "Договоры", icon: "handshake" },
 ] as const;
+
+const VALID_CATEGORY_KEYS = new Set<string>(DOCUMENT_CATEGORIES.map((c) => c.key));
+
+const FOLDER_PATH_ALIASES: Record<string, string> = {
+  registries: "contractor-cards",
+};
+
+/** Нормализация folder_path в валидный ключ категории */
+export function normalizeFolderPath(fp: string | null | undefined): string {
+  if (!fp) return "standards";
+  if (VALID_CATEGORY_KEYS.has(fp)) return fp;
+  return FOLDER_PATH_ALIASES[fp] || "standards";
+}
+
 /* ── Keyword → Category mapping ── */
-const CATEGORY_KEYWORDS: Record<string, string> = {
+export const CATEGORY_KEYWORDS: Record<string, string> = {
   "федеральный закон": "npa",
   "постановление правительства": "npa",
   "223-фз": "npa",
@@ -35,6 +50,12 @@ const CATEGORY_KEYWORDS: Record<string, string> = {
   "нормативные сроки": "references",
   "зоны ответственности": "references",
   "список ответственных": "references",
+  "карточка контрагента": "contractor-cards",
+  "карточка поставщика": "contractor-cards",
+  "история закупок": "contractor-cards",
+  "сведения о контрагенте": "contractor-cards",
+  "сведения о поставщике": "contractor-cards",
+  "досье поставщика": "contractor-cards",
   "договор": "contracts",
   "контракт": "contracts",
   "дополнительное соглашение": "contracts",
@@ -85,8 +106,9 @@ export function detectCategory(tags: string[], filename?: string): string {
   }
   return "standards";
 }
-export function getCategoryLabel(key: string): string {
-  return DOCUMENT_CATEGORIES.find((c) => c.key === key)?.label || "Стандарты и Положения";
+export function getCategoryLabel(key: string | null | undefined): string {
+  const normalized = normalizeFolderPath(key);
+  return DOCUMENT_CATEGORIES.find((c) => c.key === normalized)?.label || "Стандарты и Положения";
 }
 export async function autoTag(markdown: string, filename?: string, folderPath?: string | null): Promise<string[]> {
   const preview = markdown.slice(0, 5000);

@@ -3,6 +3,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import DocumentViewer, { DocumentSource } from "./DocumentViewer";
 import KBSearchBar from "./KBSearchBar";
+import {
+  DOCUMENT_CATEGORIES,
+  CATEGORY_KEYWORDS,
+  detectCategory,
+  getCategoryLabel,
+  normalizeFolderPath,
+} from "@/app/lib/tagging";
+import { formatDateShort, formatDateTime } from "@/app/lib/date-utils";
 
 /* ── Types ── */
 
@@ -126,101 +134,11 @@ interface AdminPanelProps {
 
 /* ── Helpers ── */
 
-/* ── Document Categories (client-side) ── */
-
-const DOC_CATEGORIES = [
-  { key: "npa", label: "НПА", icon: "gavel" },
-  { key: "standards", label: "Стандарты и Положения", icon: "verified" },
-  { key: "forms", label: "Формы и Шаблоны", icon: "article" },
-  { key: "schemas", label: "Схемы процессов", icon: "schema" },
-  { key: "instructions", label: "Инструкции и Методики", icon: "menu_book" },
-  { key: "pricing", label: "Ценообразование", icon: "payments" },
-  { key: "references", label: "Справочники и Реестры", icon: "list_alt" },
-  { key: "contractor-cards", label: "Карточки контрагентов", icon: "badge" },
-  { key: "contracts", label: "Договоры", icon: "handshake" },
-];
-
-const CATEGORY_KEYWORDS: Record<string, string> = {
-  "федеральный закон": "npa", "постановление правительства": "npa",
-  "223-фз": "npa", "кодекс": "npa",
-  "ценообразование": "pricing", "стоимость чел-час": "pricing",
-  "сметная стоимость": "pricing", "базовые цены": "pricing",
-  "индексы": "pricing", "индекс": "pricing",
-  "коэффициент": "pricing", "тариф": "pricing", "нмцд": "pricing", "фер": "pricing",
-  "карточка контрагента": "contractor-cards", "карточка поставщика": "contractor-cards",
-  "история закупок": "contractor-cards", "сведения о контрагенте": "contractor-cards",
-  "сведения о поставщике": "contractor-cards", "досье поставщика": "contractor-cards",
-  "справочник": "references", "реестр": "references",
-  "перечень": "references", "лимит": "references",
-  "классификатор": "references", "нормативные сроки": "references",
-  "зоны ответственности": "references", "список ответственных": "references",
-  "договор": "contracts", "контракт": "contracts",
-  "дополнительное соглашение": "contracts", "агентский": "contracts",
-  "инструкция": "instructions", "методика": "instructions",
-  "руководство": "instructions", "памятка": "instructions",
-  "onboarding": "instructions", "обучение": "instructions",
-  "форма": "forms", "шаблон": "forms", "бланк": "forms", "образец": "forms",
-  "инициация": "forms", "служебная записка": "forms",
-  "спецификация": "forms", "техническое задание": "forms",
-  "протокол": "forms", "бюллетень": "forms",
-  "блок-схема": "schemas", "схема": "schemas",
-  "алгоритм": "schemas", "диаграмма": "schemas",
-  "стандарт": "standards", "положение": "standards",
-  "регламент": "standards", "приказ": "standards", "правила": "standards",
-  "закон": "npa", "постановление": "npa", "указ": "npa", "распоряжение": "npa",
-};
-
-function detectCategoryClient(tags: string[], filename?: string): string {
-  for (const tag of tags) {
-    const lower = tag.toLowerCase();
-    for (const [keyword, category] of Object.entries(CATEGORY_KEYWORDS)) {
-      if (lower.includes(keyword)) return category;
-    }
-  }
-  if (filename) {
-    const lower = filename.toLowerCase();
-    for (const [keyword, category] of Object.entries(CATEGORY_KEYWORDS)) {
-      if (lower.includes(keyword)) return category;
-    }
-  }
-  return "standards";
-}
-
-const VALID_CATEGORY_KEYS = new Set(DOC_CATEGORIES.map((c) => c.key));
-
-const FOLDER_PATH_ALIASES: Record<string, string> = {
-  registries: "contractor-cards",
-};
-
-function normalizeFolderPath(fp: string | null | undefined): string {
-  if (!fp) return "standards";
-  if (VALID_CATEGORY_KEYS.has(fp)) return fp;
-  return FOLDER_PATH_ALIASES[fp] || "standards";
-}
-
-function getCategoryLabel(key: string | null): string {
-  const normalized = normalizeFolderPath(key);
-  return DOC_CATEGORIES.find((c) => c.key === normalized)?.label || "Стандарты и Положения";
-}
+/* ── Document Categories — imported from @/app/lib/tagging ── */
+const DOC_CATEGORIES = DOCUMENT_CATEGORIES;
 
 function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
-
-function formatDateTime(dateStr: string): string {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("ru-RU", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateShort(dateStr);
 }
 
 function getInitials(name: string): string {
@@ -727,7 +645,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
     let updated = 0;
     const updates: { id: number; folderPath: string }[] = [];
     for (const s of sources) {
-      const detected = detectCategoryClient(s.tags || [], s.filename);
+      const detected = detectCategory(s.tags || [], s.filename);
       if (detected !== normalizeFolderPath(s.folder_path)) {
         updates.push({ id: s.id, folderPath: detected });
       }
@@ -800,7 +718,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
 
     setParsedFiles(parsed);
     // Auto-detect categories from tags
-    setParsedFileCategories(parsed.map((pf) => detectCategoryClient(pf.tags, pf.filename)));
+    setParsedFileCategories(parsed.map((pf) => detectCategory(pf.tags, pf.filename)));
     setUploadStage(parsed.length > 0 ? "review" : "idle");
   };
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "./supabase";
+import { adminRequiredResponse, unauthorizedResponse } from "./api-helpers";
 
 // ============================================================
 // Захардкоженные админ-коды
@@ -195,10 +196,7 @@ export function requireAdmin(
   const code = decodeURIComponent(rawCode);
   const name = getAdminName(code);
   if (!name) {
-    return NextResponse.json(
-      { error: "Требуются права администратора" },
-      { status: 401 }
-    );
+    return adminRequiredResponse();
   }
   return { adminName: name };
 }
@@ -260,10 +258,7 @@ export async function requireAuth(
 
   const invite = await getInviteCodeFromHeader(req);
   if (!invite) {
-    return NextResponse.json(
-      { error: "Требуется инвайт-код" },
-      { status: 401 }
-    );
+    return unauthorizedResponse();
   }
 
   return { inviteCodeId: invite.id, isAdmin: false };

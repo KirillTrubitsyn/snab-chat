@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { formatDateMedium } from "@/app/lib/date-utils";
 
 /* ── Типы ── */
 
@@ -64,18 +65,7 @@ function highlightMatches(text: string, query: string): string {
 }
 
 /** Форматирование даты */
-function formatDate(dateStr: string): string {
-  try {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString("ru-RU", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return dateStr;
-  }
-}
+const formatDate = formatDateMedium;
 
 /** Иконка типа совпадения */
 function matchTypeLabel(type: "fts" | "semantic" | "both"): {

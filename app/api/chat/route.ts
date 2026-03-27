@@ -6,6 +6,7 @@ import { classifyIntent } from "@/app/lib/intent-classifier";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
 import { createServiceClient } from "@/app/lib/supabase";
+import { unauthorizedResponse, notFound } from "@/app/lib/api-helpers";
 import { classifyOffTopic, CATEGORY_LABELS, type OffTopicCategory } from "@/app/lib/off-topic-classifier";
 import { notifyOffTopic } from "@/app/lib/telegram";
 import { logError } from "@/app/lib/error-logger";
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
   // Проверка авторизации
   const invite = await getInviteCodeFromHeader(req);
   if (!invite) {
-    return NextResponse.json({ error: "Требуется инвайт-код" }, { status: 401 });
+    return unauthorizedResponse();
   }
 
   const { messages, conversationId, attachedDocuments } = await req.json();
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (!conv || conv.invite_code_id !== invite.id) {
-      return NextResponse.json({ error: "Диалог не найден" }, { status: 404 });
+      return notFound("Диалог не найден");
     }
   }
 
