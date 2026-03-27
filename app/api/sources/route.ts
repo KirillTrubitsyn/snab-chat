@@ -1,4 +1,4 @@
-himport { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { requireAdmin } from "@/app/lib/auth";
 
