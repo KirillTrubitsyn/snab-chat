@@ -8,7 +8,12 @@ export const maxDuration = 120;
 
 const client = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
 
-const MODEL = "gemini-3.1-flash-image-preview";
+// Fallback chain: if primary model is unavailable (503), try next
+const IMAGE_MODELS = [
+  "gemini-3.1-flash-image-preview",
+  "gemini-2.5-flash-preview-image-generation",
+  "gemini-2.0-flash-preview-image-generation",
+];
 
 const INFOGRAPHIC_STYLE_PROMPTS: Record<string, string> = {
   business_infographic:
@@ -73,117 +78,123 @@ export async function POST(req: NextRequest) {
     const styleInstruction =
       INFOGRAPHIC_STYLE_PROMPTS[style] || style || "";
 
-    const maxRetries = 3;
     let lastError: string | null = null;
 
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      // Progressive simplification: reduce document context on retries
-      const docLimit = attempt === 0 ? 30000 : attempt === 1 ? 10000 : 0;
+    // Build user prompt once (document context may be trimmed per attempt)
+    const basePrompt = topicText
+      ? `Создай инфографику на тему: ${topicText}\n\nВАЖНО: Если ты размещаешь текст на изображении, пиши каждое русское слово аккуратно, буква за буквой. Используй минимум слов — заменяй текст иконками, числами и графиками где возможно.`
+      : "Создай инфографику по следующему документу. Определи тему и ключевые данные самостоятельно.\n\nВАЖНО: Если ты размещаешь текст на изображении, пиши каждое русское слово аккуратно, буква за буквой. Используй минимум слов — заменяй текст иконками, числами и графиками где возможно.";
 
-      let userPrompt = topicText
-        ? `Создай инфографику на тему: ${topicText}\n\nВАЖНО: Если ты размещаешь текст на изображении, пиши каждое русское слово аккуратно, буква за буквой. Используй минимум слов — заменяй текст иконками, числами и графиками где возможно.`
-        : "Создай инфографику по следующему документу. Определи тему и ключевые данные самостоятельно.\n\nВАЖНО: Если ты размещаешь текст на изображении, пиши каждое русское слово аккуратно, буква за буквой. Используй минимум слов — заменяй текст иконками, числами и графиками где возможно.";
-      if (styleInstruction) {
-        userPrompt += `\n\nСтиль и формат: ${styleInstruction}`;
-      }
-      if (documentText && typeof documentText === "string" && docLimit > 0) {
-        const excerpt = documentText.slice(0, docLimit);
-        userPrompt += `\n\nИспользуй следующие данные как основу для инфографики:\n${excerpt}`;
-      }
+    const arHints: Record<string, string> = {
+      "16:9": "Горизонтальная ориентация (16:9, широкоформатная)",
+      "1:1": "Квадратный формат (1:1)",
+      "9:16": "Вертикальная ориентация (9:16, для мобильных устройств)",
+    };
 
-      // Aspect ratio hint
-      const arHints: Record<string, string> = {
-        "16:9": "Горизонтальная ориентация (16:9, широкоформатная)",
-        "1:1": "Квадратный формат (1:1)",
-        "9:16": "Вертикальная ориентация (9:16, для мобильных устройств)",
-      };
-      if (aspectRatio && arHints[aspectRatio]) {
-        userPrompt += `\n\nФормат изображения: ${arHints[aspectRatio]}`;
-      }
+    for (const modelId of IMAGE_MODELS) {
+      // Up to 2 attempts per model (with reduced context on retry)
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const docLimit = attempt === 0 ? 30000 : 10000;
 
-      try {
-        const result = await withGoogleApiLimit(async () => {
-          const response = await client.models.generateContent({
-            model: MODEL,
-            contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-            config: {
-              systemInstruction: SYSTEM_PROMPT,
-              responseModalities: ["TEXT", "IMAGE"],
-            },
-          });
-          return response;
-        });
-
-        // Extract image and text from response
-        const parts = result.candidates?.[0]?.content?.parts ?? [];
-        let imageBase64 = "";
-        let description = "";
-
-        for (const part of parts) {
-          if (part.inlineData?.data) {
-            const mimeType = part.inlineData.mimeType || "image/png";
-            imageBase64 = `data:${mimeType};base64,${part.inlineData.data}`;
-          }
-          if (part.text) {
-            description += part.text;
-          }
+        let userPrompt = basePrompt;
+        if (styleInstruction) {
+          userPrompt += `\n\nСтиль и формат: ${styleInstruction}`;
+        }
+        if (documentText && typeof documentText === "string" && docLimit > 0) {
+          const excerpt = documentText.slice(0, docLimit);
+          userPrompt += `\n\nИспользуй следующие данные как основу для инфографики:\n${excerpt}`;
+        }
+        if (aspectRatio && arHints[aspectRatio]) {
+          userPrompt += `\n\nФормат изображения: ${arHints[aspectRatio]}`;
         }
 
-        if (!imageBase64) {
-          lastError = "Модель не вернула изображение";
-          console.warn(
-            `No image in response (attempt ${attempt + 1}/${maxRetries})`
-          );
-          if (attempt < maxRetries - 1) {
+        try {
+          const result = await withGoogleApiLimit(async () => {
+            const response = await client.models.generateContent({
+              model: modelId,
+              contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+              config: {
+                systemInstruction: SYSTEM_PROMPT,
+                responseModalities: ["TEXT", "IMAGE"],
+              },
+            });
+            return response;
+          });
+
+          // Extract image and text from response
+          const parts = result.candidates?.[0]?.content?.parts ?? [];
+          let imageBase64 = "";
+          let description = "";
+
+          for (const part of parts) {
+            if (part.inlineData?.data) {
+              const mimeType = part.inlineData.mimeType || "image/png";
+              imageBase64 = `data:${mimeType};base64,${part.inlineData.data}`;
+            }
+            if (part.text) {
+              description += part.text;
+            }
+          }
+
+          if (!imageBase64) {
+            lastError = "Модель не вернула изображение";
+            console.warn(
+              `No image from ${modelId} (attempt ${attempt + 1}/2)`
+            );
             await new Promise((r) => setTimeout(r, 2 ** attempt * 1000));
             continue;
           }
-          break;
-        }
 
-        const descText = fixCyrillicLookalikes(description.trim());
+          const descText = fixCyrillicLookalikes(description.trim());
 
-        // Save infographic as a message in conversation history
-        if (conversationId && typeof conversationId === "string") {
-          try {
-            await saveMessage(
-              conversationId,
-              "assistant",
-              descText || `Инфографика: ${topicText || "По документу"}`,
-              {
-                type: "infographic",
-                image_base64: imageBase64,
-                topic: topicText || "По документу",
-                style: style || "business_infographic",
-              }
-            );
-          } catch (saveErr) {
-            console.error("Failed to save infographic to history:", saveErr);
+          // Save infographic as a message in conversation history
+          if (conversationId && typeof conversationId === "string") {
+            try {
+              await saveMessage(
+                conversationId,
+                "assistant",
+                descText || `Инфографика: ${topicText || "По документу"}`,
+                {
+                  type: "infographic",
+                  image_base64: imageBase64,
+                  topic: topicText || "По документу",
+                  style: style || "business_infographic",
+                }
+              );
+            } catch (saveErr) {
+              console.error("Failed to save infographic to history:", saveErr);
+            }
           }
-        }
 
-        return NextResponse.json({
-          image_base64: imageBase64,
-          description: descText,
-          conversationId: conversationId || null,
-        });
-      } catch (err) {
-        lastError =
-          err instanceof Error ? err.message : "Ошибка генерации";
-        console.error(
-          `Infographic generation error (attempt ${attempt + 1}/${maxRetries}):`,
-          err
-        );
-        if (attempt < maxRetries - 1) {
+          console.log(`Infographic generated successfully with model: ${modelId}`);
+          return NextResponse.json({
+            image_base64: imageBase64,
+            description: descText,
+            conversationId: conversationId || null,
+          });
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : "Ошибка генерации";
+          const isUnavailable = errMsg.includes("503") || errMsg.includes("UNAVAILABLE") || errMsg.includes("overloaded");
+          lastError = errMsg;
+          console.error(
+            `Infographic error with ${modelId} (attempt ${attempt + 1}/2):`,
+            errMsg
+          );
+
+          // If model is unavailable, skip to next model immediately
+          if (isUnavailable) {
+            console.warn(`Model ${modelId} unavailable, trying next fallback...`);
+            break;
+          }
+
           await new Promise((r) => setTimeout(r, 2 ** attempt * 1000));
-          continue;
         }
       }
     }
 
     return NextResponse.json(
       {
-        error: `Не удалось сгенерировать инфографику после ${maxRetries} попыток: ${lastError}`,
+        error: `Не удалось сгенерировать инфографику (все модели недоступны): ${lastError}`,
       },
       { status: 502 }
     );
