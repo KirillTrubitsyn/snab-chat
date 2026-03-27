@@ -79,115 +79,101 @@ export async function POST(req: NextRequest) {
 
     let lastError: string | null = null;
 
-    // Build user prompt once (document context may be trimmed per attempt)
+    // Build user prompt (document context trimmed to 20k to stay within limits)
     const basePrompt = topicText
       ? `Создай инфографику на тему: ${topicText}\n\nВАЖНО: Если ты размещаешь текст на изображении, пиши каждое русское слово аккуратно, буква за буквой. Используй минимум слов — заменяй текст иконками, числами и графиками где возможно.`
       : "Создай инфографику по следующему документу. Определи тему и ключевые данные самостоятельно.\n\nВАЖНО: Если ты размещаешь текст на изображении, пиши каждое русское слово аккуратно, буква за буквой. Используй минимум слов — заменяй текст иконками, числами и графиками где возможно.";
+
+    let userPrompt = basePrompt;
+    if (styleInstruction) {
+      userPrompt += `\n\nСтиль и формат: ${styleInstruction}`;
+    }
+    if (documentText && typeof documentText === "string") {
+      const excerpt = documentText.slice(0, 20000);
+      userPrompt += `\n\nИспользуй следующие данные как основу для инфографики:\n${excerpt}`;
+    }
 
     const arHints: Record<string, string> = {
       "16:9": "Горизонтальная ориентация (16:9, широкоформатная)",
       "1:1": "Квадратный формат (1:1)",
       "9:16": "Вертикальная ориентация (9:16, для мобильных устройств)",
     };
+    if (aspectRatio && arHints[aspectRatio]) {
+      userPrompt += `\n\nФормат изображения: ${arHints[aspectRatio]}`;
+    }
 
+    // Try each model once with a 50s timeout — no retries, no delays
     for (const modelId of IMAGE_MODELS) {
-      // Up to 2 attempts per model (with reduced context on retry)
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const docLimit = attempt === 0 ? 30000 : 10000;
-
-        let userPrompt = basePrompt;
-        if (styleInstruction) {
-          userPrompt += `\n\nСтиль и формат: ${styleInstruction}`;
-        }
-        if (documentText && typeof documentText === "string" && docLimit > 0) {
-          const excerpt = documentText.slice(0, docLimit);
-          userPrompt += `\n\nИспользуй следующие данные как основу для инфографики:\n${excerpt}`;
-        }
-        if (aspectRatio && arHints[aspectRatio]) {
-          userPrompt += `\n\nФормат изображения: ${arHints[aspectRatio]}`;
-        }
-
-        try {
-          const result = await withGoogleApiLimit(async () => {
-            const response = await client.models.generateContent({
+      try {
+        const result = await withGoogleApiLimit(() =>
+          Promise.race([
+            client.models.generateContent({
               model: modelId,
               contents: [{ role: "user", parts: [{ text: userPrompt }] }],
               config: {
                 systemInstruction: SYSTEM_PROMPT,
                 responseModalities: ["TEXT", "IMAGE"],
               },
-            });
-            return response;
-          });
+            }),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("Timeout: 50s")), 50_000)
+            ),
+          ])
+        );
 
-          // Extract image and text from response
-          const parts = result.candidates?.[0]?.content?.parts ?? [];
-          let imageBase64 = "";
-          let description = "";
+        // Extract image and text from response
+        const parts = result.candidates?.[0]?.content?.parts ?? [];
+        let imageBase64 = "";
+        let description = "";
 
-          for (const part of parts) {
-            if (part.inlineData?.data) {
-              const mimeType = part.inlineData.mimeType || "image/png";
-              imageBase64 = `data:${mimeType};base64,${part.inlineData.data}`;
-            }
-            if (part.text) {
-              description += part.text;
-            }
+        for (const part of parts) {
+          if (part.inlineData?.data) {
+            const mimeType = part.inlineData.mimeType || "image/png";
+            imageBase64 = `data:${mimeType};base64,${part.inlineData.data}`;
           }
-
-          if (!imageBase64) {
-            lastError = "Модель не вернула изображение";
-            console.warn(
-              `No image from ${modelId} (attempt ${attempt + 1}/2)`
-            );
-            await new Promise((r) => setTimeout(r, 2 ** attempt * 1000));
-            continue;
+          if (part.text) {
+            description += part.text;
           }
-
-          const descText = fixCyrillicLookalikes(description.trim());
-
-          // Save infographic as a message in conversation history
-          if (conversationId && typeof conversationId === "string") {
-            try {
-              await saveMessage(
-                conversationId,
-                "assistant",
-                descText || `Инфографика: ${topicText || "По документу"}`,
-                {
-                  type: "infographic",
-                  image_base64: imageBase64,
-                  topic: topicText || "По документу",
-                  style: style || "business_infographic",
-                }
-              );
-            } catch (saveErr) {
-              console.error("Failed to save infographic to history:", saveErr);
-            }
-          }
-
-          console.log(`Infographic generated successfully with model: ${modelId}`);
-          return NextResponse.json({
-            image_base64: imageBase64,
-            description: descText,
-            conversationId: conversationId || null,
-          });
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : "Ошибка генерации";
-          const isUnavailable = errMsg.includes("503") || errMsg.includes("UNAVAILABLE") || errMsg.includes("overloaded");
-          lastError = errMsg;
-          console.error(
-            `Infographic error with ${modelId} (attempt ${attempt + 1}/2):`,
-            errMsg
-          );
-
-          // If model is unavailable, skip to next model immediately
-          if (isUnavailable) {
-            console.warn(`Model ${modelId} unavailable, trying next fallback...`);
-            break;
-          }
-
-          await new Promise((r) => setTimeout(r, 2 ** attempt * 1000));
         }
+
+        if (!imageBase64) {
+          lastError = "Модель не вернула изображение";
+          console.warn(`No image from ${modelId}, trying next...`);
+          continue;
+        }
+
+        const descText = fixCyrillicLookalikes(description.trim());
+
+        // Save infographic as a message in conversation history
+        if (conversationId && typeof conversationId === "string") {
+          try {
+            await saveMessage(
+              conversationId,
+              "assistant",
+              descText || `Инфографика: ${topicText || "По документу"}`,
+              {
+                type: "infographic",
+                image_base64: imageBase64,
+                topic: topicText || "По документу",
+                style: style || "business_infographic",
+              }
+            );
+          } catch (saveErr) {
+            console.error("Failed to save infographic to history:", saveErr);
+          }
+        }
+
+        console.log(`Infographic generated successfully with model: ${modelId}`);
+        return NextResponse.json({
+          image_base64: imageBase64,
+          description: descText,
+          conversationId: conversationId || null,
+        });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : "Ошибка генерации";
+        lastError = errMsg;
+        console.error(`Infographic error with ${modelId}:`, errMsg);
+        // Continue to next model immediately — no delays
       }
     }
 
