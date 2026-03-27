@@ -2112,6 +2112,7 @@ export default function Chat() {
                     { key: "instructions", label: "Инструкции и Методики" },
                     { key: "pricing", label: "Ценообразование" },
                     { key: "references", label: "Справочники и Реестры" },
+                    { key: "contractor-cards", label: "Карточки контрагентов" },
                     { key: "contracts", label: "Договоры" },
                   ].map((cat) => {
                     const count = sources.filter((s) => (s.folder_path || "standards") === cat.key).length;
@@ -2161,6 +2162,7 @@ export default function Chat() {
                           { key: "instructions", label: "Инструкции и Методики" },
                           { key: "pricing", label: "Ценообразование" },
                           { key: "references", label: "Справочники и Реестры" },
+                          { key: "contractor-cards", label: "Карточки контрагентов" },
                           { key: "contracts", label: "Договоры" },
                         ].find((c) => c.key === (doc.folder_path || "standards"))?.label || "Стандарты и Положения";
                         return (
