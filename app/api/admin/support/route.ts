@@ -19,7 +19,10 @@ export async function GET(req: NextRequest) {
   if (status) query = query.eq("status", status);
 
   const { data, error } = await query;
-  if (error) console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  if (error) {
+    console.error("DB error:", error.message);
+    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  }
 
   const items = data ?? [];
   const stats = {
@@ -62,7 +65,10 @@ export async function PATCH(req: NextRequest) {
   }
 
   const { error } = await supabase.from("support_messages").update(update).eq("id", id);
-  if (error) console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  if (error) {
+    console.error("DB error:", error.message);
+    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  }
 
   // Notify other admins about the reply
   if (reply) {
@@ -89,7 +95,10 @@ export async function DELETE(req: NextRequest) {
 
   const supabase = createServiceClient();
   const { error } = await supabase.from("support_messages").delete().eq("id", id);
-  if (error) console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  if (error) {
+    console.error("DB error:", error.message);
+    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  }
 
   return NextResponse.json({ deleted: true });
 }

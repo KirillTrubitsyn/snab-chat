@@ -17,7 +17,10 @@ export async function GET(req: NextRequest) {
     .order("created_at", { ascending: false })
     .limit(500);
 
-  if (error) console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  if (error) {
+    console.error("DB error:", error.message);
+    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  }
 
   const items = queries ?? [];
 
@@ -47,7 +50,10 @@ export async function DELETE(req: NextRequest) {
 
   const supabase = createServiceClient();
   const { error } = await supabase.from("off_topic_queries").delete().eq("id", id);
-  if (error) console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  if (error) {
+    console.error("DB error:", error.message);
+    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  }
 
   return NextResponse.json({ deleted: true });
 }

@@ -25,7 +25,10 @@ export async function GET(req: NextRequest) {
   }
 
   const { data, error } = await query;
-  if (error) console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  if (error) {
+    console.error("DB error:", error.message);
+    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  }
   return NextResponse.json({ messages: data ?? [] });
 }
 
@@ -48,7 +51,10 @@ export async function POST(req: NextRequest) {
     message: message.trim().slice(0, 5000),
   }).select("id").single();
 
-  if (error) console.error("DB error:", error.message); return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  if (error) {
+    console.error("DB error:", error.message);
+    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
+  }
 
   // Telegram notification с REF:id для ответа через ТГ (fire-and-forget)
   notifySupportMessage(invite!.name, message.trim(), invite!.organization, inserted?.id).catch(() => {});
