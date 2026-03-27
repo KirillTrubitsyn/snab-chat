@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 import InviteGate from "./InviteGate";
 import { containsMarkdownTable } from "@/app/lib/markdown-tables";
 import KBSearchBar from "@/app/components/KBSearchBar";
+import { formatDateRelative } from "@/app/lib/date-utils";
 
 /* ── Types ── */
 
@@ -75,29 +76,7 @@ declare global {
 
 /* ── Helpers ── */
 
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  const now = new Date();
-  const isToday =
-    d.getDate() === now.getDate() &&
-    d.getMonth() === now.getMonth() &&
-    d.getFullYear() === now.getFullYear();
-  if (isToday) return "сегодня";
-
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const isYesterday =
-    d.getDate() === yesterday.getDate() &&
-    d.getMonth() === yesterday.getMonth() &&
-    d.getFullYear() === yesterday.getFullYear();
-  if (isYesterday) return "вчера";
-
-  const months = [
-    "янв", "фев", "мар", "апр", "май", "июн",
-    "июл", "авг", "сен", "окт", "ноя", "дек",
-  ];
-  return `${d.getDate()} ${months[d.getMonth()]}`;
-}
+const formatDate = formatDateRelative;
 
 /* ── Inline SVG icons ── */
 

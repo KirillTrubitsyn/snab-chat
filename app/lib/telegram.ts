@@ -4,6 +4,7 @@
  */
 
 import { ADMIN_NAMES_BY_NUMBER } from "./auth";
+import { getMoscowTime } from "./date-utils";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
 
@@ -31,10 +32,6 @@ const ADMIN_BY_CHAT_ID: Record<string, { number: number; name: string }> = {};
 /** Получить админа по Telegram chat_id */
 export function getAdminByChatId(chatId: string): { number: number; name: string } | null {
   return ADMIN_BY_CHAT_ID[chatId] ?? null;
-}
-
-function getMoscowTime(): string {
-  return new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" });
 }
 
 /** Отправить сообщение одному получателю */

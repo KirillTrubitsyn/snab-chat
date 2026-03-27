@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getInviteCodeFromHeader } from "@/app/lib/auth";
 import { logError } from "@/app/lib/error-logger";
+import { unauthorizedResponse } from "@/app/lib/api-helpers";
 
 export async function POST(req: NextRequest) {
   const invite = await getInviteCodeFromHeader(req);
-  if (!invite) return NextResponse.json({ error: "Требуется инвайт-код" }, { status: 401 });
+  if (!invite) return unauthorizedResponse();
 
   const { error_message, error_type, endpoint } = await req.json();
   if (!error_message || typeof error_message !== "string") {

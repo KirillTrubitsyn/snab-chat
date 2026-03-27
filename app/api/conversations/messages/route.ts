@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
+import { unauthorizedResponse, notFound } from "@/app/lib/api-helpers";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -12,7 +13,7 @@ export async function GET(req: NextRequest) {
 
   const invite = await getInviteCodeFromHeader(req);
   if (!invite) {
-    return NextResponse.json({ error: "Требуется инвайт-код" }, { status: 401 });
+    return unauthorizedResponse();
   }
 
   const supabase = createServiceClient();
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
       .single();
 
     if (!conv || conv.invite_code_id !== invite.id) {
-      return NextResponse.json({ error: "Диалог не найден" }, { status: 404 });
+      return notFound("Диалог не найден");
     }
   }
 

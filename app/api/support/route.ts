@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
 import { notifySupportMessage } from "@/app/lib/telegram";
+import { unauthorizedResponse } from "@/app/lib/api-helpers";
 
 export async function GET(req: NextRequest) {
   const invite = await getInviteCodeFromHeader(req);
-  if (!invite) return NextResponse.json({ error: "Требуется инвайт-код" }, { status: 401 });
+  if (!invite) return unauthorizedResponse();
 
   const supabase = createServiceClient();
 
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const invite = await getInviteCodeFromHeader(req);
-  if (!invite) return NextResponse.json({ error: "Требуется инвайт-код" }, { status: 401 });
+  if (!invite) return unauthorizedResponse();
 
   const { message } = await req.json();
   if (!message || typeof message !== "string" || message.trim().length < 3) {
