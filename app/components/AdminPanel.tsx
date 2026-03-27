@@ -1348,7 +1348,7 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
                     inviteCode={adminCode}
                     mode="admin"
                     onOpenDocument={(sourceId, filename) => {
-                      const src = sources.find(s => String(s.id) === sourceId);
+                      const src = sources.find(s => String(s.id) === String(sourceId));
                       if (src) setViewingSource(src);
                     }}
                     onDownload={(sourceId, filename) => {
