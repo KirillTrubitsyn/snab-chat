@@ -1,4 +1,4 @@
-"use client";
+h"use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
 
@@ -142,7 +142,7 @@ export default function KBSearchBar({
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...(inviteCode ? { "x-invite-code": inviteCode } : {}),
+            
           },
           body: JSON.stringify({ query: q.trim(), limit: 20, folder }),
           signal: controller.signal,
