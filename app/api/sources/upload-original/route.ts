@@ -69,6 +69,11 @@ export async function POST(req: NextRequest) {
     };
     const newMimeType = mimeMap[ext || ""] || file.type || "application/octet-stream";
 
+    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json({ error: "Файл слишком большой (макс. 50 МБ)" }, { status: 400 });
+    }
+
     // Upload to Supabase Storage (use source ID + extension to avoid Cyrillic path issues)
     const storagePath = `originals/${source.id}_${Date.now()}.${ext}`;
     const buffer = Buffer.from(await file.arrayBuffer());

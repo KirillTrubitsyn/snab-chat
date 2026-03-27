@@ -109,8 +109,8 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       setError("Введите организацию");
       return;
     }
-    if (trimmedPassword.length < 4) {
-      setError("Пароль должен быть не менее 4 символов");
+    if (trimmedPassword.length < 8) {
+      setError("Пароль должен быть не менее 8 символов");
       return;
     }
     if (trimmedPassword !== passwordConfirm.trim()) {
@@ -253,7 +253,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
             </div>
 
             <div className="invite-gate-field">
-              <label className="invite-gate-label">Пароль (не менее 4 символов)</label>
+              <label className="invite-gate-label">Пароль (не менее 8 символов)</label>
               <div className="invite-gate-input-wrapper">
                 <input
                   type={showPassword ? "text" : "password"}
