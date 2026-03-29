@@ -163,7 +163,22 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
     for (const file of fileArray) {
       try {
         const formData = new FormData();
-        formData.append("file", file);
+
+        // For large files, upload to Storage first to bypass Vercel 4.5MB body limit
+        if (file.size > LARGE_FILE_THRESHOLD) {
+          const storagePath = await uploadLargeFile(file);
+          if (storagePath) {
+            formData.append("storagePath", storagePath);
+            formData.append("filename", file.name);
+            formData.append("mimeType", file.type);
+          } else {
+            // Fallback: try direct upload anyway
+            formData.append("file", file);
+          }
+        } else {
+          formData.append("file", file);
+        }
+
         const res = await fetch("/api/parse", {
           method: "POST",
           headers: { "x-admin-code": encodeURIComponent(adminCode) },
@@ -213,8 +228,10 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
       const file = uploadFiles.find((f) => f.name === pf.filename);
       const formData = new FormData();
 
-      // For large files, upload via presigned URL to bypass Vercel 4.5MB limit
-      if (file && file.size > LARGE_FILE_THRESHOLD) {
+      // Reuse storagePath from parse step if available, otherwise upload
+      if (pf.storagePath) {
+        formData.append("storagePath", pf.storagePath);
+      } else if (file && file.size > LARGE_FILE_THRESHOLD) {
         const storagePath = await uploadLargeFile(file);
         if (storagePath) {
           formData.append("storagePath", storagePath);
