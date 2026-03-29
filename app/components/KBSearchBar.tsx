@@ -123,6 +123,7 @@ export default function KBSearchBar({
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            ...(inviteCode ? { "x-invite-code": encodeURIComponent(inviteCode) } : {}),
           },
           body: JSON.stringify({ query: q.trim(), limit: 20, folder }),
           signal: controller.signal,
