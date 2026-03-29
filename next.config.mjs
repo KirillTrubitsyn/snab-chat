@@ -32,6 +32,17 @@ const nextConfig = {
           },
         ],
       },
+      // Allow same-origin iframe embedding for PDF/document preview
+      {
+        source: "/api/sources/download",
+        headers: [
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          {
+            key: "Content-Security-Policy",
+            value: "frame-ancestors 'self'",
+          },
+        ],
+      },
     ];
   },
 };
