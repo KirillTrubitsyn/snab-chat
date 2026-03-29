@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Notify admins about new registration (fire-and-forget)
-    notifyNewUser(name, organization, newCode.code).catch(() => {});
+    notifyNewUser(name, organization).catch(() => {});
 
     return NextResponse.json({
       type: "user",

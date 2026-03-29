@@ -157,14 +157,12 @@ export async function notifySupportMessage(
 /** Уведомление о регистрации нового пользователя */
 export async function notifyNewUser(
   userName: string,
-  organization?: string | null,
-  code?: string | null
+  organization?: string | null
 ): Promise<void> {
   const orgLine = organization ? `\n🏢 <b>Организация:</b> ${escapeHtml(organization)}` : "";
-  const codeLine = code ? `\n🔑 <b>Код:</b> <code>${escapeHtml(code)}</code>` : "";
   const text =
     `🆕 <b>Новый пользователь</b>\n\n` +
-    `👤 <b>Имя:</b> ${escapeHtml(userName)}${orgLine}${codeLine}\n\n` +
+    `👤 <b>Имя:</b> ${escapeHtml(userName)}${orgLine}\n\n` +
     `🕐 ${getMoscowTime()}`;
   await notifyAllAdmins(text);
 }
