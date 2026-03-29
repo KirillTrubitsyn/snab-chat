@@ -106,7 +106,7 @@ export default function ChatDocumentViewer({
               style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13 }}
               onClick={() =>
                 window.open(
-                  `/api/sources/download?id=${source.id}&action=download`,
+                  `/api/sources/download?id=${source.id}&action=download${inviteCode ? `&token=${encodeURIComponent(inviteCode)}` : ""}`,
                   "_blank"
                 )
               }
@@ -128,7 +128,7 @@ export default function ChatDocumentViewer({
             <div className="document-viewer-loading">Загрузка...</div>
           ) : isPdf && hasOriginal ? (
             <iframe
-              src={`/api/sources/download?id=${source.id}&action=view`}
+              src={`/api/sources/download?id=${source.id}&action=view${inviteCode ? `&token=${encodeURIComponent(inviteCode)}` : ""}`}
               className="document-viewer-iframe"
               title={source.filename}
             />

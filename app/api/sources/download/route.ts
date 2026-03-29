@@ -1,10 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
-import { getInviteCodeFromHeader } from "@/app/lib/auth";
+import { getInviteCodeFromHeader, validateInviteCode, isAdminCode, getAdminName, type InviteCode } from "@/app/lib/auth";
 import { unauthorizedResponse } from "@/app/lib/api-helpers";
 
 export async function GET(req: NextRequest) {
-  const invite = await getInviteCodeFromHeader(req);
+  // Support invite code from query param (for window.open / iframe which can't send headers)
+  let invite = await getInviteCodeFromHeader(req);
+  if (!invite) {
+    const tokenParam = req.nextUrl.searchParams.get("token");
+    if (tokenParam) {
+      const code = decodeURIComponent(tokenParam);
+      if (isAdminCode(code)) {
+        invite = {
+          id: `admin-${code.toUpperCase()}`,
+          code: code.toUpperCase(),
+          name: getAdminName(code) ?? "Админ",
+          organization: "Админ",
+          uses_remaining: null,
+          device_limit: null,
+          is_active: true,
+          created_at: new Date().toISOString(),
+        } as InviteCode;
+      } else {
+        invite = await validateInviteCode(code);
+      }
+    }
+  }
   if (!invite) return unauthorizedResponse();
 
   const id = req.nextUrl.searchParams.get("id");
