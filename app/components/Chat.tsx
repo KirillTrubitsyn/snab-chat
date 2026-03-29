@@ -662,9 +662,14 @@ export default function Chat() {
 
           // Parse sources from header
           let sources: string[] = [];
+          let chunkImages: { url: string; source: string; chunk: number }[] = [];
           try {
             const srcHeader = res.headers.get("X-Sources");
             if (srcHeader) sources = JSON.parse(decodeURIComponent(srcHeader));
+          } catch { /* ignore */ }
+          try {
+            const imgHeader = res.headers.get("X-Chunk-Images");
+            if (imgHeader) chunkImages = JSON.parse(decodeURIComponent(imgHeader));
           } catch { /* ignore */ }
 
           const reader = res.body.getReader();
@@ -674,7 +679,7 @@ export default function Chat() {
 
           setMessages((prev) => [
             ...prev,
-            { id: assistantId, role: "assistant", content: "", sources },
+            { id: assistantId, role: "assistant", content: "", sources, ...(chunkImages.length > 0 && { chunkImages }) },
           ]);
 
           while (true) {
@@ -742,11 +747,16 @@ export default function Chat() {
           throw new Error(`Stream failed: ${res.status}`);
         }
 
-        // Parse sources from header
+        // Parse sources and chunk images from headers
         let sources: string[] = [];
+        let chunkImages: { url: string; source: string; chunk: number }[] = [];
         try {
           const srcHeader = res.headers.get("X-Sources");
           if (srcHeader) sources = JSON.parse(decodeURIComponent(srcHeader));
+        } catch { /* ignore */ }
+        try {
+          const imgHeader = res.headers.get("X-Chunk-Images");
+          if (imgHeader) chunkImages = JSON.parse(decodeURIComponent(imgHeader));
         } catch { /* ignore */ }
 
         const reader = res.body.getReader();
@@ -756,7 +766,7 @@ export default function Chat() {
 
         setMessages((prev) => [
           ...prev,
-          { id: assistantId, role: "assistant", content: "", sources },
+          { id: assistantId, role: "assistant", content: "", sources, ...(chunkImages.length > 0 && { chunkImages }) },
         ]);
 
         while (true) {

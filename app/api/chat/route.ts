@@ -413,6 +413,35 @@ ${uploadedDocsContext}`;
 
   const sourceFilenames = [...new Set(relevantChunks.map((r) => r.source_filename))];
 
+  // ── Generate signed URLs for chunk images to pass to frontend ──
+  interface ChunkImageUrl {
+    url: string;
+    source: string;
+    chunk: number;
+  }
+  const chunkImageUrls: ChunkImageUrl[] = [];
+  for (const cw of chunksWithImages) {
+    if (cw.imageBase64.length === 0) continue;
+    // Find original paths from the chunk data
+    const originalChunk = relevantChunks.find(
+      (c) => c.source_filename === cw.source_filename && c.chunk_index === cw.chunk_index
+    );
+    if (!originalChunk?.image_paths) continue;
+    const pathsToSign = originalChunk.image_paths.slice(0, MAX_CHUNK_IMAGES);
+    for (const path of pathsToSign) {
+      const { data: signedData } = await supabase.storage
+        .from("chunk-images")
+        .createSignedUrl(path, 3600); // 1 hour
+      if (signedData?.signedUrl) {
+        chunkImageUrls.push({
+          url: signedData.signedUrl,
+          source: cw.source_filename,
+          chunk: cw.chunk_index,
+        });
+      }
+    }
+  }
+
   const result = streamText({
     model: google("gemini-3-flash-preview"),
     system: systemPrompt,
@@ -424,6 +453,7 @@ ${uploadedDocsContext}`;
         if (sourceFilenames.length > 0) metadata.sources = sourceFilenames;
         if (lowConfidence) metadata.lowConfidence = true;
         if (totalImagesIncluded > 0) metadata.imagesUsed = totalImagesIncluded;
+        if (chunkImageUrls.length > 0) metadata.chunkImages = chunkImageUrls;
         await saveMessage(conversationId, "assistant", text,
           Object.keys(metadata).length > 0 ? metadata : undefined
         );
@@ -431,11 +461,14 @@ ${uploadedDocsContext}`;
     },
   });
 
-  return result.toDataStreamResponse({
-    headers: {
-      "X-Sources": encodeURIComponent(JSON.stringify(sourceFilenames)),
-    },
-  });
+  const responseHeaders: Record<string, string> = {
+    "X-Sources": encodeURIComponent(JSON.stringify(sourceFilenames)),
+  };
+  if (chunkImageUrls.length > 0) {
+    responseHeaders["X-Chunk-Images"] = encodeURIComponent(JSON.stringify(chunkImageUrls));
+  }
+
+  return result.toDataStreamResponse({ headers: responseHeaders });
  } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
     logError({

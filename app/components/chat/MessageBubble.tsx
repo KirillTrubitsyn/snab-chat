@@ -1,9 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Source } from "./types";
 import { InfographicIcon } from "./icons";
+
+interface ChunkImage {
+  url: string;
+  source: string;
+  chunk: number;
+}
 
 interface MessageBubbleProps {
   message: {
@@ -12,6 +19,7 @@ interface MessageBubbleProps {
     content: string;
     sources?: string[];
     attachments?: string[];
+    chunkImages?: ChunkImage[];
     metadata?: { type?: string; image_base64?: string; topic?: string; style?: string } | null;
   };
   allSources: Source[];
@@ -158,6 +166,7 @@ export default function MessageBubble({
   };
 
   const processedContent = linkifyContent(message.content, allSources);
+  const [expandedImg, setExpandedImg] = useState<string | null>(null);
 
   return (
     <div className="message message-ai">
@@ -201,6 +210,34 @@ export default function MessageBubble({
           {processedContent}
         </ReactMarkdown>
       </div>
+      {message.chunkImages && message.chunkImages.length > 0 && (
+        <div className="message-screenshots">
+          <div className="message-screenshots-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <polyline points="21 15 16 10 5 21" />
+            </svg>
+            Скриншоты из инструкций
+          </div>
+          <div className="message-screenshots-grid">
+            {message.chunkImages.map((img, i) => (
+              <div key={i} className="message-screenshot-item" onClick={() => setExpandedImg(img.url)}>
+                <img src={img.url} alt={`Скриншот ${i + 1}`} loading="lazy" />
+                <div className="message-screenshot-caption">Скриншот {i + 1}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {expandedImg && (
+        <div className="message-screenshot-overlay" onClick={() => setExpandedImg(null)}>
+          <div className="message-screenshot-overlay-content" onClick={(e) => e.stopPropagation()}>
+            <button className="message-screenshot-close" onClick={() => setExpandedImg(null)}>&times;</button>
+            <img src={expandedImg} alt="Скриншот" />
+          </div>
+        </div>
+      )}
       {message.sources && message.sources.length > 0 && (
         <div className="message-sources">
           <div className="message-sources-label">Источники:</div>
