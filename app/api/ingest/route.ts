@@ -22,34 +22,37 @@ export async function POST(req: NextRequest) {
     const folderPath = (formData.get("folderPath") as string) || null;
 
     // Build metadata preamble for each chunk
-    const preambleParts: string[] = [`📄 Документ: ${filename}`];
+    const preambleParts: string[] = [`\u{1F4C4} \u0414\u043E\u043A\u0443\u043C\u0435\u043D\u0442: ${filename}`];
     // Extract parent document from filename (text in parentheses at the end)
-    const parentMatch = filename.match(/\(([^)]+)\)[^)]*$/);
+    const parentMatch = filename.match(/\\(([^)]+)\\)[^)]*$/);
     if (parentMatch) {
-      preambleParts.push(`📎 Родительский документ: ${parentMatch[1].replace(/_/g, ' ')}`);
+      preambleParts.push(`\u{1F4CE} \u0420\u043E\u0434\u0438\u0442\u0435\u043B\u044C\u0441\u043A\u0438\u0439 \u0434\u043E\u043A\u0443\u043C\u0435\u043D\u0442: ${parentMatch[1].replace(/_/g, ' ')}`);
     }
     // Extract document type from first tag
     if (tags.length > 0) {
-      preambleParts.push(`📂 Тип: ${tags[0]}`);
+      preambleParts.push(`\u{1F4C2} \u0422\u0438\u043F: ${tags[0]}`);
     }
     // Extract category from second tag
     if (tags.length > 1) {
-      preambleParts.push(`🏷️ Категория: ${tags[1]}`);
+      preambleParts.push(`\u{1F3F7}\u{FE0F} \u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F: ${tags[1]}`);
     }
     // Add folder path if provided
     if (folderPath) {
-      preambleParts.push(`📁 Раздел: ${folderPath}`);
+      preambleParts.push(`\u{1F4C1} \u0420\u0430\u0437\u0434\u0435\u043B: ${folderPath}`);
     }
     const preamble = preambleParts.join(' | ');
 
     const supabase = createServiceClient();
 
-    // Upload original file to Supabase Storage if provided
-    let storagePath: string | null = null;
-    if (file) {
+    // If storagePath was provided (file already uploaded via /api/upload-url), use it.
+    // Otherwise, upload the original file to Supabase Storage if provided in form data.
+    let storagePath: string | null =
+      (formData.get("storagePath") as string) || null;
+
+    if (!storagePath && file) {
       const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
       if (file.size > MAX_FILE_SIZE) {
-        return NextResponse.json({ error: "Файл слишком большой (макс. 50 МБ)" }, { status: 400 });
+        return NextResponse.json({ error: "\u0424\u0430\u0439\u043B \u0441\u043B\u0438\u0448\u043A\u043E\u043C \u0431\u043E\u043B\u044C\u0448\u043E\u0439 (\u043C\u0430\u043A\u0441. 50 \u041C\u0411)" }, { status: 400 });
       }
       const buffer = Buffer.from(await file.arrayBuffer());
       const safeName = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
@@ -143,4 +146,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+        }
