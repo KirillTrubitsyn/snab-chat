@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "@/app/lib/google-ai";
-import { streamText } from "ai";
+import { streamText, type CoreMessage } from "ai";
 import { multiQuerySearch, filterByRelevance, intentAwareRerank } from "@/app/lib/retrieval";
 import { classifyIntent } from "@/app/lib/intent-classifier";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
@@ -343,53 +343,49 @@ ${uploadedDocsContext}`;
   // System prompt goes as system, then we build user/assistant messages
   // with images interleaved
 
-  type TextPart = { type: "text"; text: string };
-  type ImagePart = { type: "image"; image: string };
-  type ContentPart = TextPart | ImagePart;
-
-  const modelMessages: Array<{
-    role: "user" | "assistant";
-    content: string | ContentPart[];
-  }> = [];
+  const modelMessages: CoreMessage[] = [];
 
   // Add context messages
   const ctxMsgs = contextMessages.filter((m) => m.role !== "system");
   if (ctxMsgs.length > 0) {
-    modelMessages.push(
-      ...ctxMsgs.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content as string,
-      }))
-    );
+    for (const m of ctxMsgs) {
+      if (m.role === "user") {
+        modelMessages.push({ role: "user" as const, content: m.content as string });
+      } else if (m.role === "assistant") {
+        modelMessages.push({ role: "assistant" as const, content: m.content as string });
+      }
+    }
   } else {
     // Use messages from request (excluding last, we'll add it with images)
     for (let k = 0; k < messages.length - 1; k++) {
-      modelMessages.push({
-        role: messages[k].role as "user" | "assistant",
-        content: messages[k].content as string,
-      });
+      const msg = messages[k];
+      if (msg.role === "user") {
+        modelMessages.push({ role: "user" as const, content: msg.content as string });
+      } else if (msg.role === "assistant") {
+        modelMessages.push({ role: "assistant" as const, content: msg.content as string });
+      }
     }
   }
 
   // Build the final user message with multimodal content (text + chunk images)
   if (totalImagesIncluded > 0) {
     // Multimodal message: text + images from relevant chunks
-    const parts: ContentPart[] = [];
+    const parts: Array<{ type: "text"; text: string } | { type: "image"; image: string }> = [];
 
     // User's question text
-    parts.push({ type: "text" as const, text: userMessage.content });
+    parts.push({ type: "text", text: userMessage.content });
 
     // Append chunk images with labels
     for (let ci = 0; ci < chunksWithImages.length; ci++) {
       const cw = chunksWithImages[ci];
       if (cw.imageBase64.length > 0) {
         parts.push({
-          type: "text" as const,
+          type: "text",
           text: `\n[Скриншоты из документа "${cw.source_filename}", чанк ${cw.chunk_index}]:`,
         });
         for (const img of cw.imageBase64) {
           parts.push({
-            type: "image" as const,
+            type: "image",
             image: `data:${img.mimeType};base64,${img.base64}`,
           });
         }
