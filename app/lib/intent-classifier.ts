@@ -54,8 +54,8 @@ const CLASSIFY_PROMPT = `Ты — классификатор запросов д
 - "both" — сравнение двух режимов или вопрос применим к обоим
 - "unknown" — режим не определяется из запроса
 
-Правила для search_tags (2-5 штук, на русском, в нижнем регистре):
-- Включай релевантные теги: "223-ФЗ", "вне 223-ФЗ", "ценообразование", "матрица полномочий", "СМР", "ПИР", "реестр", "договоры", "инструкции", "единственный источник", "рамочный договор", "аварийная закупка"
+Правила для search_tags (2-5 штук, на русском, СТРОГО в нижнем регистре):
+- Включай релевантные теги: "223-фз", "вне 223-фз", "ценообразование", "матрица полномочий", "смр", "пир", "реестр", "договоры", "инструкции", "единственный источник", "рамочный договор", "аварийная закупка"
 - Для spu_search всегда добавляй "реестр"
 - Для pricing всегда добавляй "ценообразование"
 - При упоминании конкретных систем добавляй их аббревиатуру
@@ -102,6 +102,8 @@ export async function classifyIntent(query: string): Promise<IntentResult> {
     if (!validFz.includes(parsed.fz_type)) parsed.fz_type = "unknown";
 
     if (!Array.isArray(parsed.search_tags)) parsed.search_tags = [];
+    // Normalize tags to lowercase for consistent matching
+    parsed.search_tags = parsed.search_tags.map((t) => t.toLowerCase());
     if (!Array.isArray(parsed.query_variants)) parsed.query_variants = [query];
     if (typeof parsed.confidence !== "number") parsed.confidence = 0.5;
 
@@ -148,13 +150,13 @@ function fallbackClassify(query: string): IntentResult {
     search_tags.push("договоры");
   }
 
-  // FZ type detection
+  // FZ type detection (lowercase tags to match stored data)
   if (/223[\-\s]*фз/i.test(lower) && !/вне\s+223|не\s+по\s+223/i.test(lower)) {
     fz_type = "223";
-    search_tags.push("223-ФЗ");
+    search_tags.push("223-фз");
   } else if (/вне\s+223|не\s+по\s+223|без\s+223/i.test(lower)) {
     fz_type = "non-223";
-    search_tags.push("вне 223-ФЗ");
+    search_tags.push("вне 223-фз");
   }
 
   return {

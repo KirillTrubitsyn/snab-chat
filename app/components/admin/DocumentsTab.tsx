@@ -250,12 +250,23 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
       }
       formData.append("folderPath", parsedFileCategories[i] || "standards");
       try {
-        await fetch("/api/ingest", {
+        const ingestRes = await fetch("/api/ingest", {
           method: "POST",
           headers: { "x-admin-code": encodeURIComponent(adminCode) },
           body: formData,
         });
-      } catch { /* ignore */ }
+        if (!ingestRes.ok) {
+          const errData = await ingestRes.json().catch(() => ({}));
+          console.error(`[ingest] Failed for ${pf.filename}:`, ingestRes.status, errData);
+          alert(`Ошибка индексации "${pf.filename}": ${errData.error || ingestRes.statusText}`);
+        } else {
+          const result = await ingestRes.json();
+          console.log(`[ingest] OK: ${result.filename} — ${result.chunksInserted} чанков, ${result.imagesUploaded} изображений`);
+        }
+      } catch (err) {
+        console.error(`[ingest] Network error for ${pf.filename}:`, err);
+        alert(`Сетевая ошибка при индексации "${pf.filename}"`);
+      }
       setUploadProgress(((i + 1) / parsedFiles.length) * 100);
     }
     setUploadStage("done");

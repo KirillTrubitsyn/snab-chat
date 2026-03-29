@@ -21,7 +21,9 @@ export async function POST(req: NextRequest) {
     const mimeType = formData.get("mimeType") as string;
     const markdown = formData.get("markdown") as string;
     const tagsRaw = formData.get("tags") as string;
-    const tags: string[] = tagsRaw ? JSON.parse(tagsRaw) : [];
+    const tags: string[] = tagsRaw
+      ? (JSON.parse(tagsRaw) as string[]).map((t) => t.toLowerCase())
+      : [];
     const folderPath = (formData.get("folderPath") as string) || null;
 
     const supabase = createServiceClient();

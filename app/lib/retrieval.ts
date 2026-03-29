@@ -51,8 +51,8 @@ const TIER_WEIGHTS: Record<string, number> = {
   "законодательство": 1.25,
   "положения":        1.15,
   "стандарт":         1.10,
-  "223-ФЗ":           1.10,
-  "вне 223-ФЗ":       1.10,
+  "223-фз":           1.10,
+  "вне 223-фз":       1.10,
   "методика":         1.05,
   "матрица полномочий": 1.05,
   "инструкции":       1.00,
@@ -71,8 +71,8 @@ export function intentAwareRerank(
   let working = [...results];
 
   if (intent.fz_type === "223" || intent.fz_type === "non-223") {
-    const targetTag = intent.fz_type === "223" ? "223-ФЗ" : "вне 223-ФЗ";
-    const oppositeTag = intent.fz_type === "223" ? "вне 223-ФЗ" : "223-ФЗ";
+    const targetTag = intent.fz_type === "223" ? "223-фз" : "вне 223-фз";
+    const oppositeTag = intent.fz_type === "223" ? "вне 223-фз" : "223-фз";
 
     working = working.map((r) => {
       if (r.tags.includes(targetTag)) {
@@ -115,7 +115,7 @@ export function tierWeightedRerank(results: SearchResult[]): SearchResult[] {
     .map((r) => {
       let bestWeight = 1.0;
       for (const tag of r.tags) {
-        const w = TIER_WEIGHTS[tag];
+        const w = TIER_WEIGHTS[tag.toLowerCase()];
         if (w !== undefined && w > bestWeight) bestWeight = w;
       }
       return { ...r, similarity: r.similarity * bestWeight };
@@ -170,7 +170,12 @@ export async function hybridSearch(
   const queryEmbedding = await embedQuery(query);
   const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
-  console.log("hybrid_search: query =", query.slice(0, 100), "tags =", filterTags);
+  // Normalize filter tags to lowercase for consistent matching
+  const normalizedTags = filterTags
+    ? filterTags.map((t) => t.toLowerCase())
+    : null;
+
+  console.log("hybrid_search: query =", query.slice(0, 100), "tags =", normalizedTags);
 
   const { data, error } = await supabase.rpc("hybrid_search", {
     query_text: query,
@@ -178,7 +183,7 @@ export async function hybridSearch(
     match_count: matchCount,
     vector_weight: 0.7,
     fts_weight: 0.3,
-    filter_tags: filterTags,
+    filter_tags: normalizedTags,
   });
 
   if (error) {
@@ -237,8 +242,8 @@ export async function intentAwareSearch(
 ): Promise<SearchResult[]> {
   const tagSet = new Set<string>(intent.search_tags);
 
-  if (intent.fz_type === "223") tagSet.add("223-ФЗ");
-  if (intent.fz_type === "non-223") tagSet.add("вне 223-ФЗ");
+  if (intent.fz_type === "223") tagSet.add("223-фз");
+  if (intent.fz_type === "non-223") tagSet.add("вне 223-фз");
 
   const INTENT_TAG_MAP: Partial<Record<QueryIntent, string[]>> = {
     pricing: ["ценообразование"],
