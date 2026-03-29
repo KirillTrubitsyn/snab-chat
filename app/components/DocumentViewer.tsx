@@ -84,6 +84,75 @@ function ExcelViewer({ sheets }: { sheets: ExcelSheet[] }) {
   );
 }
 
+interface PptxSlide {
+  number: number;
+  paragraphs: string[];
+  images: { base64: string; mimeType: string }[];
+}
+
+function PptxViewer({ slides }: { slides: PptxSlide[] }) {
+  const [activeSlide, setActiveSlide] = useState(0);
+
+  return (
+    <div className="pptx-viewer">
+      <div className="pptx-slide-nav">
+        {slides.map((s, i) => (
+          <button
+            key={i}
+            className={`pptx-slide-thumb ${i === activeSlide ? "active" : ""}`}
+            onClick={() => setActiveSlide(i)}
+          >
+            {s.number}
+          </button>
+        ))}
+      </div>
+      <div className="pptx-slide-content">
+        {slides[activeSlide] && (
+          <>
+            <div className="pptx-slide-header">
+              Слайд {slides[activeSlide].number}
+              <span className="pptx-slide-counter">
+                {activeSlide + 1} / {slides.length}
+              </span>
+            </div>
+            <div className="pptx-slide-body">
+              {slides[activeSlide].paragraphs.map((p, i) => (
+                <p key={i} className={i === 0 ? "pptx-slide-title" : undefined}>{p}</p>
+              ))}
+              {slides[activeSlide].images.length > 0 && (
+                <div className="pptx-slide-images">
+                  {slides[activeSlide].images.map((img, i) => (
+                    <img
+                      key={i}
+                      src={`data:${img.mimeType};base64,${img.base64}`}
+                      alt={`Слайд ${slides[activeSlide].number}, изображение ${i + 1}`}
+                      className="pptx-slide-img"
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="pptx-slide-arrows">
+              <button
+                disabled={activeSlide === 0}
+                onClick={() => setActiveSlide(activeSlide - 1)}
+              >
+                &larr; Назад
+              </button>
+              <button
+                disabled={activeSlide === slides.length - 1}
+                onClick={() => setActiveSlide(activeSlide + 1)}
+              >
+                Далее &rarr;
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function DocumentViewer({
   source,
   onClose,
@@ -96,7 +165,7 @@ export default function DocumentViewer({
   const [content, setContent] = useState<string | null>(null);
   const [docxHtml, setDocxHtml] = useState<string | null>(null);
   const [excelSheets, setExcelSheets] = useState<ExcelSheet[] | null>(null);
-  const [pptxEmbedUrl, setPptxEmbedUrl] = useState<string | null>(null);
+  const [pptxSlides, setPptxSlides] = useState<PptxSlide[] | null>(null);
   const [loading, setLoading] = useState(true);
   // Resolved source: original file if this is a denormalized document
   const [resolved, setResolved] = useState<DocumentSource | null>(null);
@@ -178,12 +247,11 @@ export default function DocumentViewer({
     }
 
     if (srcIsPptx && srcHasOriginal) {
-      fetch(`/api/sources/signed-url?id=${src.id}`, { headers: authHeaders })
+      fetch(`/api/sources/pptx-slides?id=${src.id}`, { headers: authHeaders })
         .then((r) => r.json())
         .then((d) => {
-          if (d.signedUrl) {
-            const officeUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(d.signedUrl)}`;
-            setPptxEmbedUrl(officeUrl);
+          if (d.slides && d.slides.length > 0) {
+            setPptxSlides(d.slides);
             setLoading(false);
           } else {
             fetchContent(src.id);
@@ -281,13 +349,8 @@ export default function DocumentViewer({
               className="document-viewer-iframe"
               title={source.filename}
             />
-          ) : pptxEmbedUrl ? (
-            <iframe
-              src={pptxEmbedUrl}
-              className="document-viewer-iframe"
-              title={source.filename}
-              allowFullScreen
-            />
+          ) : pptxSlides ? (
+            <PptxViewer slides={pptxSlides} />
           ) : excelSheets ? (
             <ExcelViewer sheets={excelSheets} />
           ) : docxHtml ? (
