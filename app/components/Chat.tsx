@@ -1619,6 +1619,7 @@ export default function Chat() {
         <ChatDocumentViewer
           source={viewingSource}
           onClose={() => setViewingSource(null)}
+          inviteCode={inviteCodeRef.current}
         />
       )}
 
