@@ -67,6 +67,8 @@ ON-TOPIC queries (respond with: procurement):
 - Russian procurement laws (44-FZ, 223-FZ)
 - Preparing procurement documentation
 - Editing, improving, rephrasing work texts
+- Meta-questions about the system: what documents are loaded, what the assistant can do, asking for help
+- Requests to prepare/compose/draft any work document (ТЗ, письмо, таблица, отчёт, etc.)
 - Procurement abbreviations: НМЦК, НМЦЖ, НМЦ, ОКПД, ЕП, ТРУ, ТЗ, КП, ОЗ, НДС, ФАС, ЕИС, ЭТП, РНП, ОТР, СМР, ПИР
 - Responsibility assignment, organizational structure related to procurement processes
 - Any query mentioning work/service pricing, cost estimation, contract formation
@@ -98,6 +100,8 @@ RULES:
 - Russian procurement abbreviations (НМЦК, НМЦЖ, НМЦ, ОКПД, ЕИС, ЭТП, РНП, ФАС, СМР, ПИР, ТРУ) → ALWAYS procurement
 - Queries about responsibility, assignment, or organizational roles related to pricing, contracts, works, or services → procurement
 - Do NOT confuse professional/work queries with personal topics
+- Questions about the system itself (what documents are loaded, capabilities) → procurement
+- Requests to prepare/draft/compose any document → procurement
 
 You MUST respond with EXACTLY ONE word from the list above. Nothing else. No explanations.`;
 
@@ -123,15 +127,23 @@ function keywordClassify(text: string): OffTopicCategory {
     /приёмк/i, /приемк/i, /рекламаци/i, /поставщик/i, /контрагент/i,
     /44.?фз/i, /223.?фз/i, /закон.*закупк/i, /документаци/i,
     /переформулир/i, /перефразир/i, /улучш.*текст/i, /редактир/i,
-    /коммерческ.*предлож/i, /техническ.*задан/i, /тз\b/i,
-    /нмцк/i, /нмцж/i, /\bнмц\b/i, /начальн.*максимальн.*цен/i,
-    /окпд/i, /\bеис\b/i, /\bэтп\b/i, /\bрнп\b/i, /\bфас\b/i,
-    /\bсмр\b/i, /\bпир\b/i, /\bотр\b/i, /\bтру\b/i,
-    /единствен.*поставщик/i, /конкурс/i, /лот[аеуы\b]/i,
+    /подготов/i,
+    /коммерческ.*предлож/i, /техническ.*задан/i, /(?<![а-яёА-ЯЁ])тз(?![а-яёА-ЯЁ])/i,
+    /нмцк/i, /нмцж/i, /(?<![а-яёА-ЯЁ])нмц(?![а-яёА-ЯЁ])/i, /начальн.*максимальн.*цен/i,
+    /окпд/i, /(?<![а-яёА-ЯЁ])еис(?![а-яёА-ЯЁ])/i, /(?<![а-яёА-ЯЁ])этп(?![а-яёА-ЯЁ])/i,
+    /(?<![а-яёА-ЯЁ])рнп(?![а-яёА-ЯЁ])/i, /(?<![а-яёА-ЯЁ])фас(?![а-яёА-ЯЁ])/i,
+    /(?<![а-яёА-ЯЁ])смр(?![а-яёА-ЯЁ])/i, /(?<![а-яёА-ЯЁ])пир(?![а-яёА-ЯЁ])/i,
+    /(?<![а-яёА-ЯЁ])отр(?![а-яёА-ЯЁ])/i, /(?<![а-яёА-ЯЁ])тру(?![а-яёА-ЯЁ])/i,
+    /единствен.*поставщик/i, /конкурс/i, /лот[аеуы]/i,
     /обеспечен.*заявк/i, /обеспечен.*контракт/i, /обеспечен.*исполнен/i,
     /субподряд/i, /генподряд/i, /подрядчик/i, /исполнител/i,
     /заказчик/i, /извещен.*закупк/i, /протокол.*закупк/i,
     /формирован.*цен/i, /обоснован.*цен/i, /расчёт.*цен/i, /расчет.*цен/i,
+    // Meta-queries about the system itself (what documents are loaded, capabilities, etc.)
+    /документ.*загружен/i, /загружен.*документ/i, /какие.*документ/i,
+    /что ты (умеешь|можешь|знаешь)/i, /что.*загружен/i, /какие.*файл/i,
+    /база знаний/i, /помоги.*разобрат/i, /помоги.*найти/i, /помоги.*сделат/i,
+    /составь/i, /сформируй/i, /напиши.*письм/i, /сделай.*таблиц/i,
   ];
   for (const p of procurementPatterns) {
     if (p.test(lower)) return "procurement";
@@ -139,7 +151,7 @@ function keywordClassify(text: string): OffTopicCategory {
 
   // Off-topic keyword patterns
   const offTopicMap: [RegExp, OffTopicCategory][] = [
-    [/пиво|вино|водк|коктейл|рецепт|готов[иь]|кулинар|ресторан|кафе|диет|калори/i, "food_cooking"],
+    [/пиво|вино|водк|коктейл|рецепт|(?<![а-яёА-ЯЁ])готов[иь]|кулинар|ресторан|кафе|диет|калори/i, "food_cooking"],
     [/погод|прогноз.*температур|дожд|снег.*завтра|климат/i, "nature_weather"],
     [/гороскоп|астролог|таро|гадан|магия|сонник|знак.*зодиак/i, "esoteric"],
     [/фильм|сериал|кино|музык|песн|книг[уаи]|игр[уаы]|мем|анекдот/i, "entertainment"],
