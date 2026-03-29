@@ -297,7 +297,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
               if (src) setViewingSource(src);
             }}
             onDownload={(sourceId) => {
-              window.open("/api/sources/download?id=" + sourceId + "&action=download", "_blank");
+              window.open("/api/sources/download?id=" + sourceId + "&action=download&token=" + encodeURIComponent(adminCode), "_blank");
             }}
           />
           <div className="admin-doc-list-view">
@@ -372,7 +372,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
                     <button className="admin-doc-action-btn" title="Просмотр" onClick={(e) => { e.stopPropagation(); setViewingSource(doc); }}>
                       <span className="material-symbols-outlined">visibility</span>
                     </button>
-                    <a href={`/api/sources/download?id=${doc.id}&action=download`} className="admin-doc-action-btn" title="Скачать" onClick={(e) => e.stopPropagation()}>
+                    <a href={`/api/sources/download?id=${doc.id}&action=download&token=${encodeURIComponent(adminCode)}`} className="admin-doc-action-btn" title="Скачать" onClick={(e) => e.stopPropagation()}>
                       <span className="material-symbols-outlined">download</span>
                     </a>
                     <div style={{ position: "relative" }}>
@@ -527,7 +527,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
           </div>
         )}
       </div>
-      {viewingSource && <DocumentViewer source={viewingSource} onClose={() => setViewingSource(null)} />}
+      {viewingSource && <DocumentViewer source={viewingSource} onClose={() => setViewingSource(null)} authCode={adminCode} />}
     </>
   );
 }
