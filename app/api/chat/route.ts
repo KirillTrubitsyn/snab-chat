@@ -343,9 +343,13 @@ ${uploadedDocsContext}`;
   // System prompt goes as system, then we build user/assistant messages
   // with images interleaved
 
+  type TextPart = { type: "text"; text: string };
+  type ImagePart = { type: "image"; image: string };
+  type ContentPart = TextPart | ImagePart;
+
   const modelMessages: Array<{
     role: "user" | "assistant";
-    content: string | Array<{ type: string; text?: string; image?: string }>;
+    content: string | ContentPart[];
   }> = [];
 
   // Add context messages
@@ -370,22 +374,22 @@ ${uploadedDocsContext}`;
   // Build the final user message with multimodal content (text + chunk images)
   if (totalImagesIncluded > 0) {
     // Multimodal message: text + images from relevant chunks
-    const parts: Array<{ type: string; text?: string; image?: string }> = [];
+    const parts: ContentPart[] = [];
 
     // User's question text
-    parts.push({ type: "text", text: userMessage.content });
+    parts.push({ type: "text" as const, text: userMessage.content });
 
     // Append chunk images with labels
     for (let ci = 0; ci < chunksWithImages.length; ci++) {
       const cw = chunksWithImages[ci];
       if (cw.imageBase64.length > 0) {
         parts.push({
-          type: "text",
+          type: "text" as const,
           text: `\n[Скриншоты из документа "${cw.source_filename}", чанк ${cw.chunk_index}]:`,
         });
         for (const img of cw.imageBase64) {
           parts.push({
-            type: "image",
+            type: "image" as const,
             image: `data:${img.mimeType};base64,${img.base64}`,
           });
         }
