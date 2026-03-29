@@ -1,6 +1,18 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const mammoth = require("mammoth") as {
   convertToMarkdown: (opts: { buffer: Buffer }) => Promise<{ value: string }>;
+  convertToHtml: (
+    opts: { buffer: Buffer },
+    options?: Record<string, unknown>
+  ) => Promise<{ value: string }>;
+  images: {
+    imgElement: (
+      fn: (image: {
+        read: (encoding: string) => Promise<string>;
+        contentType: string;
+      }) => Promise<{ src: string }>
+    ) => unknown;
+  };
 };
 import * as XLSX from "xlsx";
 import { google, withGoogleApiLimit } from "./google-ai";
@@ -19,19 +31,32 @@ const IMAGE_MIMES = [
   "image/webp",
 ];
 
+/* ── Exported image type ── */
+export interface ExtractedImage {
+  data: Buffer;
+  mimeType: string;
+  /** Placeholder marker in markdown, e.g. "[СКРИНШОТ 1]" */
+  marker: string;
+}
+
+export interface ParseResult {
+  markdown: string;
+  images: ExtractedImage[];
+}
+
+/* ── Main entry point (updated signature) ── */
 export async function parseToMarkdown(
   buffer: Buffer,
   mimeType: string,
   filename: string
-): Promise<string> {
+): Promise<ParseResult> {
   if (
     mimeType ===
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
     filename.endsWith(".docx")
   ) {
     validateMagicBytes(buffer, [ZIP_MAGIC], "DOCX");
-    const result = await mammoth.convertToMarkdown({ buffer });
-    return result.value;
+    return parseDocxWithImages(buffer);
   }
 
   if (mimeType === "application/pdf" || filename.endsWith(".pdf")) {
@@ -40,7 +65,6 @@ export async function parseToMarkdown(
     const data = await pdfParse(buffer);
     let text = data.text;
 
-    // Check if PDF is scanned (image-based) — too little text extracted
     const isScannedPdf = !text || text.replace(/\s/g, "").length < 50;
     if (isScannedPdf) {
       console.log(
@@ -49,7 +73,7 @@ export async function parseToMarkdown(
       text = await ocrPdfWithGemini(buffer, filename);
     }
 
-    return addHeadingHeuristics(text);
+    return { markdown: addHeadingHeuristics(text), images: [] };
   }
 
   if (
@@ -57,7 +81,7 @@ export async function parseToMarkdown(
     filename.endsWith(".xlsx") ||
     filename.endsWith(".xls")
   ) {
-    return parseExcelToMarkdown(buffer, filename);
+    return { markdown: parseExcelToMarkdown(buffer, filename), images: [] };
   }
 
   // Image OCR via Gemini Vision
@@ -65,12 +89,159 @@ export async function parseToMarkdown(
     IMAGE_MIMES.includes(mimeType) ||
     /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(filename)
   ) {
-    return parseImageToMarkdown(buffer, mimeType);
+    const md = await parseImageToMarkdown(buffer, mimeType);
+    return { markdown: md, images: [] };
   }
 
-  // Fallback: treat as plain text
-  return buffer.toString("utf-8");
+  // Fallback: plain text
+  return { markdown: buffer.toString("utf-8"), images: [] };
 }
+
+/* ── DOCX parser with image extraction ── */
+
+async function parseDocxWithImages(buffer: Buffer): Promise<ParseResult> {
+  const images: ExtractedImage[] = [];
+  let imageIndex = 0;
+
+  // Step 1: Extract HTML with image placeholders
+  const result = await mammoth.convertToHtml({ buffer }, {
+    convertImage: mammoth.images.imgElement(async (image) => {
+      const base64 = await image.read("base64");
+      const imgData = Buffer.from(base64, "base64");
+      const mime = image.contentType || "image/png";
+
+      // Skip tiny images (icons, bullets, decorative elements < 2KB)
+      if (imgData.length < 2048) {
+        return { src: "" };
+      }
+
+      imageIndex++;
+      const marker = `[СКРИНШОТ ${imageIndex}]`;
+
+      images.push({
+        data: imgData,
+        mimeType: mime,
+        marker,
+      });
+
+      // Insert a unique placeholder that survives HTML-to-markdown conversion
+      return { src: `__IMG_PLACEHOLDER_${imageIndex}__` };
+    }),
+  });
+
+  // Step 2: Convert HTML to markdown-like text
+  let markdown = htmlToSimpleMarkdown(result.value);
+
+  // Step 3: Replace image placeholders with readable markers
+  for (let i = 1; i <= images.length; i++) {
+    // mammoth wraps img in <img src="...">, after HTML conversion it becomes
+    // something like ![](__IMG_PLACEHOLDER_N__) or just the raw placeholder
+    const placeholder = `__IMG_PLACEHOLDER_${i}__`;
+    const marker = `[СКРИНШОТ ${i}]`;
+
+    // Replace all forms the placeholder might appear in
+    markdown = markdown.replace(
+      new RegExp(`!\\[\\]\\(${placeholder}\\)`, "g"),
+      `\n\n${marker}\n\n`
+    );
+    markdown = markdown.replace(
+      new RegExp(placeholder, "g"),
+      `\n\n${marker}\n\n`
+    );
+  }
+
+  // Remove empty image refs (from skipped small images)
+  markdown = markdown.replace(/!\[\]\(\s*\)/g, "");
+
+  // Clean up excessive newlines
+  markdown = markdown.replace(/\n{3,}/g, "\n\n").trim();
+
+  console.log(
+    `[parser] DOCX parsed: ${markdown.length} chars, ${images.length} images extracted`
+  );
+
+  return { markdown, images };
+}
+
+/* ── Simple HTML to Markdown converter ── */
+
+function htmlToSimpleMarkdown(html: string): string {
+  let md = html;
+
+  // Headers
+  md = md.replace(/<h1[^>]*>(.*?)<\/h1>/gi, "\n# $1\n");
+  md = md.replace(/<h2[^>]*>(.*?)<\/h2>/gi, "\n## $1\n");
+  md = md.replace(/<h3[^>]*>(.*?)<\/h3>/gi, "\n### $1\n");
+  md = md.replace(/<h4[^>]*>(.*?)<\/h4>/gi, "\n#### $1\n");
+
+  // Bold and italic
+  md = md.replace(/<strong>(.*?)<\/strong>/gi, "**$1**");
+  md = md.replace(/<b>(.*?)<\/b>/gi, "**$1**");
+  md = md.replace(/<em>(.*?)<\/em>/gi, "*$1*");
+  md = md.replace(/<i>(.*?)<\/i>/gi, "*$1*");
+
+  // Images (keep src for placeholder replacement)
+  md = md.replace(/<img[^>]*src="([^"]*)"[^>]*\/?>/gi, "![]($1)");
+
+  // List items
+  md = md.replace(/<li[^>]*>(.*?)<\/li>/gi, "- $1\n");
+  md = md.replace(/<\/?[uo]l[^>]*>/gi, "\n");
+
+  // Tables: convert HTML tables to markdown tables
+  md = md.replace(/<table[^>]*>([\s\S]*?)<\/table>/gi, (_, tableContent) => {
+    const rows: string[][] = [];
+    const rowMatches = tableContent.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
+    for (const row of rowMatches) {
+      const cells: string[] = [];
+      const cellMatches = row.match(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi) || [];
+      for (const cell of cellMatches) {
+        const text = cell
+          .replace(/<t[hd][^>]*>/i, "")
+          .replace(/<\/t[hd]>/i, "")
+          .replace(/<[^>]+>/g, "")
+          .trim();
+        cells.push(text);
+      }
+      if (cells.length > 0) rows.push(cells);
+    }
+    if (rows.length === 0) return "";
+
+    const maxCols = Math.max(...rows.map((r) => r.length));
+    const lines: string[] = [];
+    rows.forEach((row, idx) => {
+      const padded = Array.from({ length: maxCols }, (_, i) => row[i] || "");
+      lines.push("| " + padded.join(" | ") + " |");
+      if (idx === 0) {
+        lines.push("| " + padded.map(() => "---").join(" | ") + " |");
+      }
+    });
+    return "\n" + lines.join("\n") + "\n";
+  });
+
+  // Paragraphs and line breaks
+  md = md.replace(/<br\s*\/?>/gi, "\n");
+  md = md.replace(/<p[^>]*>/gi, "\n");
+  md = md.replace(/<\/p>/gi, "\n");
+
+  // Strip remaining HTML tags
+  md = md.replace(/<[^>]+>/g, "");
+
+  // Decode HTML entities
+  md = md.replace(/&amp;/g, "&");
+  md = md.replace(/&lt;/g, "<");
+  md = md.replace(/&gt;/g, ">");
+  md = md.replace(/&quot;/g, '"');
+  md = md.replace(/&#39;/g, "'");
+  md = md.replace(/&nbsp;/g, " ");
+
+  // Clean up whitespace
+  md = md.replace(/\n{3,}/g, "\n\n");
+  md = md.trim();
+
+  return md;
+}
+
+/* ── Existing helpers (unchanged) ── */
 
 async function ocrPdfWithGemini(
   buffer: Buffer,
@@ -158,11 +329,15 @@ async function parseImageToMarkdown(
   return text || "(не удалось распознать текст)";
 }
 
-const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);   // ZIP (PK\x03\x04) — used by DOCX, XLSX
-const OLE2_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0]);  // OLE2 — used by DOC, XLS
-const PDF_MAGIC = Buffer.from([0x25, 0x50, 0x44, 0x46]);    // %PDF
+const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+const OLE2_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0]);
+const PDF_MAGIC = Buffer.from([0x25, 0x50, 0x44, 0x46]);
 
-function validateMagicBytes(buffer: Buffer, expected: Buffer[], label: string): void {
+function validateMagicBytes(
+  buffer: Buffer,
+  expected: Buffer[],
+  label: string
+): void {
   const head = buffer.subarray(0, 4);
   if (!expected.some((magic) => head.equals(magic))) {
     throw new Error(`Файл не является валидным ${label}-документом`);
@@ -175,10 +350,7 @@ function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
   const workbook = XLSX.read(buffer, { type: "buffer", cellStyles: true });
   const parts: string[] = [];
 
-  // Add filename as document header
-  const cleanName = filename
-    .replace(/\.(xlsx|xls)$/i, "")
-    .replace(/_/g, " ");
+  const cleanName = filename.replace(/\.(xlsx|xls)$/i, "").replace(/_/g, " ");
   parts.push(`# ${cleanName}\n`);
 
   for (const sheetName of workbook.SheetNames) {
@@ -190,7 +362,6 @@ function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
     const totalCols = range.e.c - range.s.c + 1;
     if (totalRows === 0 || totalCols === 0) continue;
 
-    // Sheet heading
     if (workbook.SheetNames.length > 1) {
       parts.push(`## Лист: ${sheetName}\n`);
     }
@@ -203,7 +374,6 @@ function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
 
     if (rows.length === 0) continue;
 
-    // Handle merged cells: detect and annotate
     const merges = sheet["!merges"] || [];
     const mergeMap = new Map<string, string>();
     for (const merge of merges) {
@@ -217,22 +387,20 @@ function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
       }
     }
 
-    // Detect if first row is likely a header (non-numeric, short values)
     const firstRow = rows[0];
     const isHeaderRow = firstRow.every(
-      (c) => typeof c === "string" || (String(c).length < 80 && isNaN(Number(c)))
+      (c) =>
+        typeof c === "string" ||
+        (String(c).length < 80 && isNaN(Number(c)))
     );
 
-    // For small tables (< 30 rows): use markdown table format
     if (rows.length <= 30) {
       const header = rows[0].map((c) =>
         String(c).replace(/\|/g, "\\|").replace(/\n/g, " ").trim()
       );
       if (header.length === 0 || header.every((h) => h === "")) continue;
 
-      parts.push(
-        "| " + header.join(" | ") + " |"
-      );
+      parts.push("| " + header.join(" | ") + " |");
       parts.push("| " + header.map(() => "---").join(" | ") + " |");
 
       for (let i = 1; i < rows.length; i++) {
@@ -240,23 +408,25 @@ function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
         if (row.every((c) => String(c).trim() === "")) continue;
         parts.push(
           "| " +
-            header.map((_, j) =>
-              String(row[j] ?? "")
-                .replace(/\|/g, "\\|")
-                .replace(/\n/g, " ")
-                .trim()
-            ).join(" | ") +
+            header
+              .map((_, j) =>
+                String(row[j] ?? "")
+                  .replace(/\|/g, "\\|")
+                  .replace(/\n/g, " ")
+                  .trim()
+              )
+              .join(" | ") +
             " |"
         );
       }
       parts.push("");
     } else {
-      // For large tables (> 30 rows): use structured text format
-      // This is better for RAG because markdown tables get mangled in chunking
       const headerRow = isHeaderRow ? rows[0] : null;
 
       if (headerRow) {
-        parts.push(`**Столбцы**: ${headerRow.filter(Boolean).map(String).join(", ")}\n`);
+        parts.push(
+          `**Столбцы**: ${headerRow.filter(Boolean).map(String).join(", ")}\n`
+        );
       }
 
       const dataRows = isHeaderRow ? rows.slice(1) : rows;
@@ -266,7 +436,6 @@ function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
         if (row.every((c) => String(c).trim() === "")) continue;
 
         if (headerRow) {
-          // Named format: "Столбец: Значение"
           const pairs = headerRow
             .map((h, j) => {
               const val = String(row[j] ?? "").trim();
@@ -278,10 +447,7 @@ function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
             parts.push(`- Строка ${i + 1}: ${pairs.join(" | ")}`);
           }
         } else {
-          // No header: just list values
-          const vals = row
-            .map((c) => String(c).trim())
-            .filter(Boolean);
+          const vals = row.map((c) => String(c).trim()).filter(Boolean);
           if (vals.length > 0) {
             parts.push(`- ${vals.join(" | ")}`);
           }
@@ -305,7 +471,6 @@ function addHeadingHeuristics(text: string): string {
       continue;
     }
 
-    // Short uppercase lines → heading
     if (
       trimmed.length <= 120 &&
       trimmed === trimmed.toUpperCase() &&
@@ -316,7 +481,6 @@ function addHeadingHeuristics(text: string): string {
       continue;
     }
 
-    // Numbered sections like "1. TITLE" or "Глава 3"
     if (/^(Глава|Раздел|Статья|ГЛАВА|РАЗДЕЛ|СТАТЬЯ)\s+\d/i.test(trimmed)) {
       result.push(`## ${trimmed}`);
       continue;

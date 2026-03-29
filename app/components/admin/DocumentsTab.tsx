@@ -227,6 +227,10 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
       formData.append("mimeType", pf.mimeType);
       formData.append("markdown", pf.markdown);
       formData.append("tags", JSON.stringify(pf.tags));
+      // Pass extracted images for multimodal embedding
+      if (pf.images && pf.images.length > 0) {
+        formData.append("images", JSON.stringify(pf.images));
+      }
       formData.append("folderPath", parsedFileCategories[i] || "standards");
       try {
         await fetch("/api/ingest", {

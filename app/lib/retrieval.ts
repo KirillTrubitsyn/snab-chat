@@ -9,6 +9,7 @@ export interface SearchResult {
   chunk_index: number;
   similarity: number;
   tags: string[];
+  image_paths: string[];  // NEW: paths to images in chunk-images bucket
 }
 
 /* ── Relevance filtering constants ── */
@@ -21,13 +22,6 @@ export interface FilteredSearchResult {
   lowConfidence: boolean;
 }
 
-/**
- * Post-filter search results by relevance:
- * 1. Drop chunks below SIMILARITY_THRESHOLD
- * 2. Detect "cliff" drops in similarity
- * 3. Cap at MAX_CHUNKS
- * 4. If all below threshold, keep best one and flag lowConfidence
- */
 export function filterByRelevance(results: SearchResult[]): FilteredSearchResult {
   if (results.length === 0) {
     return { results: [], lowConfidence: true };
@@ -53,11 +47,6 @@ export function filterByRelevance(results: SearchResult[]): FilteredSearchResult
 
 /* ── Tier-weighted reranking ── */
 
-/**
- * Source authority tiers. When two chunks have similar vector scores,
- * tier weight pushes authoritative sources (legislation, standards)
- * above lower-tier material (instructions, reference tables).
- */
 const TIER_WEIGHTS: Record<string, number> = {
   "законодательство": 1.25,
   "положения":        1.15,
@@ -75,21 +64,12 @@ const TIER_WEIGHTS: Record<string, number> = {
   "денормализовано":   1.00,
 };
 
-/**
- * Post-search reranking using intent classification.
- * Runs AFTER parallel search (zero latency impact).
- *
- * 1. Boosts results matching detected fz_type (+15%)
- * 2. Demotes results from opposite regime (-15%)
- * 3. Applies tier-weighted reranking on top
- */
 export function intentAwareRerank(
   results: SearchResult[],
   intent: IntentResult
 ): SearchResult[] {
   let working = [...results];
 
-  // FZ-type regime boosting/demotion
   if (intent.fz_type === "223" || intent.fz_type === "non-223") {
     const targetTag = intent.fz_type === "223" ? "223-ФЗ" : "вне 223-ФЗ";
     const oppositeTag = intent.fz_type === "223" ? "вне 223-ФЗ" : "223-ФЗ";
@@ -105,7 +85,6 @@ export function intentAwareRerank(
     });
   }
 
-  // Intent-specific tag boosting
   const INTENT_BOOST_TAGS: Partial<Record<QueryIntent, string[]>> = {
     pricing: ["ценообразование"],
     authority: ["матрица полномочий"],
@@ -144,13 +123,13 @@ export function tierWeightedRerank(results: SearchResult[]): SearchResult[] {
     .sort((a, b) => b.similarity - a.similarity);
 }
 
-/* ── Query variant generation (pattern-based) ── */
+/* ── Query variant generation ── */
 
 function generateQueryVariants(query: string): string[] {
   const variants: string[] = [query];
   const lower = query.toLowerCase();
 
-  const hasAmount = /\\d+[\\s,.]*(млн|миллион|тыс|тысяч|руб)/i.test(query);
+  const hasAmount = /\d+[\s,.]*(млн|миллион|тыс|тысяч|руб)/i.test(query);
   const hasProcurement = /закупк|согласов|утвержд|полномоч|одобр|решени|подпис/i.test(lower);
 
   if (hasAmount && hasProcurement) {
@@ -165,7 +144,7 @@ function generateQueryVariants(query: string): string[] {
     );
   }
 
-  if (/лимит|порог|сумм[аы]|стоимост|предел|свыше|больше|более|до \\d/i.test(lower) && hasProcurement) {
+  if (/лимит|порог|сумм[аы]|стоимост|предел|свыше|больше|более|до \d/i.test(lower) && hasProcurement) {
     variants.push(
       "лимит млн руб МТР централизованные децентрализованные услуги работы ПИР единственный источник"
     );
@@ -180,7 +159,7 @@ function generateQueryVariants(query: string): string[] {
   return variants;
 }
 
-/* ── Core hybrid search (unchanged) ── */
+/* ── Core hybrid search (updated: image_paths in result) ── */
 
 export async function hybridSearch(
   query: string,
@@ -207,11 +186,19 @@ export async function hybridSearch(
     return [];
   }
 
-  console.log("hybrid_search: results =", data?.length ?? 0);
-  return data ?? [];
+  // Ensure image_paths is always an array (backward compat with old chunks)
+  const results: SearchResult[] = (data ?? []).map(
+    (row: SearchResult & { image_paths?: string[] | null }) => ({
+      ...row,
+      image_paths: row.image_paths ?? [],
+    })
+  );
+
+  console.log("hybrid_search: results =", results.length);
+  return results;
 }
 
-/* ── Multi-query search (legacy, kept for backward compatibility) ── */
+/* ── Multi-query search ── */
 
 export async function multiQuerySearch(
   query: string,
@@ -241,29 +228,18 @@ export async function multiQuerySearch(
   return Array.from(merged.values()).sort((a, b) => b.similarity - a.similarity);
 }
 
-/* ── Intent-aware search (new primary entry point) ── */
+/* ── Intent-aware search ── */
 
-/**
- * Runs search using intent classification results:
- * 1. Merges intent tags with pattern-based tags
- * 2. Adds fz_type filter when regime is known
- * 3. Combines query variants from LLM + pattern matching
- * 4. Runs parallel searches and merges results
- * 5. Applies tier-weighted reranking
- */
 export async function intentAwareSearch(
   query: string,
   intent: IntentResult,
   matchCount: number = 20
 ): Promise<SearchResult[]> {
-  // Build combined tag filter
   const tagSet = new Set<string>(intent.search_tags);
 
-  // Add fz_type-specific tags
   if (intent.fz_type === "223") tagSet.add("223-ФЗ");
   if (intent.fz_type === "non-223") tagSet.add("вне 223-ФЗ");
 
-  // Add intent-specific tags
   const INTENT_TAG_MAP: Partial<Record<QueryIntent, string[]>> = {
     pricing: ["ценообразование"],
     authority: ["матрица полномочий"],
@@ -274,13 +250,11 @@ export async function intentAwareSearch(
   const extraTags = INTENT_TAG_MAP[intent.intent];
   if (extraTags) extraTags.forEach((t) => tagSet.add(t));
 
-  // For "both" or "unknown" fz_type, and general queries, don't filter by tags
-  // (let the search be broad, reranking will prioritize)
-  const filterTags = tagSet.size > 0 && intent.fz_type !== "both"
-    ? Array.from(tagSet)
-    : null;
+  const filterTags =
+    tagSet.size > 0 && intent.fz_type !== "both"
+      ? Array.from(tagSet)
+      : null;
 
-  // Build query variants: original + LLM variants + pattern variants
   const variantSet = new Set<string>([query]);
   intent.query_variants.forEach((v) => variantSet.add(v));
   generateQueryVariants(query).forEach((v) => variantSet.add(v));
@@ -293,22 +267,21 @@ export async function intentAwareSearch(
     variantCount: variants.length,
   });
 
-  // Run all variants in parallel
   const allResults = await Promise.all(
     variants.map((v) => hybridSearch(v, matchCount, filterTags))
   );
 
-  // If filtered search returned too few results and we had tags, retry without filter
   const totalResults = allResults.reduce((sum, r) => sum + r.length, 0);
   if (totalResults < 3 && filterTags && filterTags.length > 0) {
-    console.log("intentAwareSearch: too few results with tags, retrying unfiltered");
+    console.log(
+      "intentAwareSearch: too few results with tags, retrying unfiltered"
+    );
     const unfilteredResults = await Promise.all(
       variants.map((v) => hybridSearch(v, matchCount, null))
     );
     allResults.push(...unfilteredResults);
   }
 
-  // Merge and deduplicate by chunk id
   const merged = new Map<string, SearchResult>();
   for (const results of allResults) {
     for (const r of results) {
@@ -319,11 +292,14 @@ export async function intentAwareSearch(
     }
   }
 
-  // Apply tier-weighted reranking
   const reranked = tierWeightedRerank(Array.from(merged.values()));
 
-  console.log("intentAwareSearch: merged =", merged.size, "\u2192 top score =",
-    reranked[0]?.similarity?.toFixed(4) ?? "N/A");
+  console.log(
+    "intentAwareSearch: merged =",
+    merged.size,
+    "→ top score =",
+    reranked[0]?.similarity?.toFixed(4) ?? "N/A"
+  );
 
   return reranked;
 }

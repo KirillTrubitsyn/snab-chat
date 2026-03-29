@@ -18,27 +18,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+    const MAX_FILE_SIZE = 50 * 1024 * 1024;
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json({ error: "Файл слишком большой (макс. 50 МБ)" }, { status: 400 });
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const markdown = await parseToMarkdown(buffer, file.type, file.name);
+
+    // NEW: parseToMarkdown now returns { markdown, images }
+    const { markdown, images } = await parseToMarkdown(buffer, file.type, file.name);
     const tags = await autoTag(markdown, file.name, folderPath);
-    const chunks = chunkMarkdown(markdown);
+    const chunks = chunkMarkdown(markdown, images);
+
+    // Serialize images as base64 for transfer to frontend → ingest
+    const serializedImages = images.map((img) => ({
+      base64: img.data.toString("base64"),
+      mimeType: img.mimeType,
+      marker: img.marker,
+    }));
 
     return NextResponse.json({
       filename: file.name,
       mimeType: file.type,
       markdown,
       tags,
+      images: serializedImages,
       chunks: chunks.map((c) => ({
         index: c.index,
         preview: c.content.slice(0, 200),
         length: c.content.length,
+        imageCount: c.images.length,
       })),
       totalChunks: chunks.length,
+      totalImages: images.length,
     });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);

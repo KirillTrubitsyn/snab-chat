@@ -4,8 +4,10 @@ import { chunkMarkdown } from "@/app/lib/chunking";
 import { embedDocuments } from "@/app/lib/embeddings";
 import { requireAdmin } from "@/app/lib/auth";
 import { logError } from "@/app/lib/error-logger";
+import type { ExtractedImage } from "@/app/lib/parser";
 
 let bucketReady = false;
+let imageBucketReady = false;
 
 export async function POST(req: NextRequest) {
   const adminCheck = requireAdmin(req);
@@ -21,46 +23,59 @@ export async function POST(req: NextRequest) {
     const tags: string[] = tagsRaw ? JSON.parse(tagsRaw) : [];
     const folderPath = (formData.get("folderPath") as string) || null;
 
+    // Parse images from formData (sent as JSON array of {base64, mimeType, marker})
+    const imagesRaw = formData.get("images") as string | null;
+    const images: ExtractedImage[] = imagesRaw
+      ? (JSON.parse(imagesRaw) as Array<{ base64: string; mimeType: string; marker: string }>).map(
+          (img) => ({
+            data: Buffer.from(img.base64, "base64"),
+            mimeType: img.mimeType,
+            marker: img.marker,
+          })
+        )
+      : [];
+
     // Build metadata preamble for each chunk
     const preambleParts: string[] = [`📄 Документ: ${filename}`];
-    // Extract parent document from filename (text in parentheses at the end)
     const parentMatch = filename.match(/\(([^)]+)\)[^)]*$/);
     if (parentMatch) {
-      preambleParts.push(`📎 Родительский документ: ${parentMatch[1].replace(/_/g, ' ')}`);
+      preambleParts.push(
+        `📎 Родительский документ: ${parentMatch[1].replace(/_/g, " ")}`
+      );
     }
-    // Extract document type from first tag
     if (tags.length > 0) {
       preambleParts.push(`📂 Тип: ${tags[0]}`);
     }
-    // Extract category from second tag
     if (tags.length > 1) {
       preambleParts.push(`🏷️ Категория: ${tags[1]}`);
     }
-    // Add folder path if provided
     if (folderPath) {
       preambleParts.push(`📁 Раздел: ${folderPath}`);
     }
-    const preamble = preambleParts.join(' | ');
+    const preamble = preambleParts.join(" | ");
 
     const supabase = createServiceClient();
 
-    // If storagePath was provided (file already uploaded via /api/upload-url), use it.
-    // Otherwise, upload the original file to Supabase Storage if provided in form data.
+    // Upload original file to Storage
     let storagePath: string | null =
       (formData.get("storagePath") as string) || null;
 
     if (!storagePath && file) {
-      const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+      const MAX_FILE_SIZE = 50 * 1024 * 1024;
       if (file.size > MAX_FILE_SIZE) {
-        return NextResponse.json({ error: "Файл слишком большой (макс. 50 МБ)" }, { status: 400 });
+        return NextResponse.json(
+          { error: "Файл слишком большой (макс. 50 МБ)" },
+          { status: 400 }
+        );
       }
       const buffer = Buffer.from(await file.arrayBuffer());
       const safeName = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
       storagePath = safeName;
 
-      // Ensure bucket exists only once per server lifetime
       if (!bucketReady) {
-        await supabase.storage.createBucket("documents", { public: false }).catch(() => {});
+        await supabase.storage
+          .createBucket("documents", { public: false })
+          .catch(() => {});
         bucketReady = true;
       }
 
@@ -75,6 +90,14 @@ export async function POST(req: NextRequest) {
         console.error("Storage upload error:", uploadError);
         storagePath = null;
       }
+    }
+
+    // Ensure chunk-images bucket exists
+    if (images.length > 0 && !imageBucketReady) {
+      await supabase.storage
+        .createBucket("chunk-images", { public: false })
+        .catch(() => {});
+      imageBucketReady = true;
     }
 
     // Create source entry
@@ -99,16 +122,54 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const chunks = chunkMarkdown(markdown);
+    // Chunk with images
+    const chunks = chunkMarkdown(markdown, images);
 
-    // Embed in batches (single API call per batch)
+    // Upload chunk images to Storage and collect paths
+    const chunkImagePaths: Map<number, string[]> = new Map();
+
+    for (const chunk of chunks) {
+      if (chunk.images.length === 0) continue;
+
+      const paths: string[] = [];
+      for (let imgIdx = 0; imgIdx < chunk.images.length; imgIdx++) {
+        const img = chunk.images[imgIdx];
+        const ext = img.mimeType.split("/")[1] || "png";
+        const imgPath = `${source.id}/chunk_${chunk.index}_img_${imgIdx}.${ext}`;
+
+        const { error: imgUploadError } = await supabase.storage
+          .from("chunk-images")
+          .upload(imgPath, img.data, {
+            contentType: img.mimeType,
+            upsert: true,
+          });
+
+        if (imgUploadError) {
+          console.error(
+            `Image upload error (chunk ${chunk.index}, img ${imgIdx}):`,
+            imgUploadError
+          );
+        } else {
+          paths.push(imgPath);
+        }
+      }
+      chunkImagePaths.set(chunk.index, paths);
+    }
+
+    // Embed in batches with multimodal content
     const batchSize = 50;
     let insertedCount = 0;
 
     for (let i = 0; i < chunks.length; i += batchSize) {
       const batch = chunks.slice(i, i + batchSize);
-      const texts = batch.map((c) => c.content);
-      const embeddings = await embedDocuments(texts);
+
+      // Build embedding inputs: text + images for multimodal embedding
+      const embedInputs = batch.map((c) => ({
+        text: c.content,
+        images: c.images,
+      }));
+
+      const embeddings = await embedDocuments(embedInputs);
 
       const rows = batch.map((chunk, j) => ({
         source_id: source.id,
@@ -117,6 +178,7 @@ export async function POST(req: NextRequest) {
         content: `${preamble}\n\n${chunk.content}`,
         embedding: JSON.stringify(embeddings[j]),
         tags,
+        image_paths: chunkImagePaths.get(chunk.index) || [],
       }));
 
       const { error: chunkError } = await supabase.from("chunks").insert(rows);
@@ -132,15 +194,29 @@ export async function POST(req: NextRequest) {
       insertedCount += batch.length;
     }
 
+    const totalImages = Array.from(chunkImagePaths.values()).reduce(
+      (sum, paths) => sum + paths.length,
+      0
+    );
+
+    console.log(
+      `[ingest] ${filename}: ${insertedCount} chunks, ${totalImages} images uploaded`
+    );
+
     return NextResponse.json({
       sourceId: source.id,
       chunksInserted: insertedCount,
+      imagesUploaded: totalImages,
       filename,
     });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error("Ingest error:", err);
-    logError({ type: "ingest", message: errMsg, endpoint: "/api/ingest" }).catch(() => {});
+    logError({
+      type: "ingest",
+      message: errMsg,
+      endpoint: "/api/ingest",
+    }).catch(() => {});
     return NextResponse.json(
       { error: "Failed to ingest document" },
       { status: 500 }
