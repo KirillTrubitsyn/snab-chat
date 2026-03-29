@@ -15,8 +15,12 @@ const mammoth = require("mammoth") as {
   };
 };
 import * as XLSX from "xlsx";
+import JSZip from "jszip";
 import { google, withGoogleApiLimit } from "./google-ai";
 import { generateText } from "ai";
+
+const PPTX_MIME =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 const EXCEL_MIMES = [
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -84,6 +88,14 @@ export async function parseToMarkdown(
     return { markdown: parseExcelToMarkdown(buffer, filename), images: [] };
   }
 
+  if (
+    mimeType === PPTX_MIME ||
+    filename.endsWith(".pptx")
+  ) {
+    validateMagicBytes(buffer, [ZIP_MAGIC], "PPTX");
+    return parsePptxWithImages(buffer);
+  }
+
   // Image OCR via Gemini Vision
   if (
     IMAGE_MIMES.includes(mimeType) ||
@@ -95,6 +107,149 @@ export async function parseToMarkdown(
 
   // Fallback: plain text
   return { markdown: buffer.toString("utf-8"), images: [] };
+}
+
+/* ── PPTX parser with image extraction ── */
+
+async function parsePptxWithImages(buffer: Buffer): Promise<ParseResult> {
+  const zip = await JSZip.loadAsync(buffer);
+  const images: ExtractedImage[] = [];
+
+  // 1. Collect all slide filenames and sort numerically
+  const slideFiles = Object.keys(zip.files)
+    .filter((f) => /^ppt\/slides\/slide\d+\.xml$/i.test(f))
+    .sort((a, b) => {
+      const na = parseInt(a.match(/slide(\d+)/i)?.[1] || "0", 10);
+      const nb = parseInt(b.match(/slide(\d+)/i)?.[1] || "0", 10);
+      return na - nb;
+    });
+
+  // 2. Build media map: rId → { data, mimeType } for each slide
+  const mediaCache = new Map<string, { data: Buffer; mime: string }>();
+  for (const key of Object.keys(zip.files)) {
+    if (/^ppt\/media\//i.test(key) && !zip.files[key].dir) {
+      const ext = key.split(".").pop()?.toLowerCase() || "png";
+      const mime =
+        ext === "jpg" || ext === "jpeg"
+          ? "image/jpeg"
+          : ext === "gif"
+            ? "image/gif"
+            : ext === "emf"
+              ? "image/x-emf"
+              : ext === "wmf"
+                ? "image/x-wmf"
+                : `image/${ext}`;
+      const data = Buffer.from(await zip.files[key].async("arraybuffer"));
+      mediaCache.set(key, { data, mime });
+    }
+  }
+
+  const mdParts: string[] = [];
+  let globalImageIdx = 0;
+
+  for (const slideFile of slideFiles) {
+    const slideNum = parseInt(
+      slideFile.match(/slide(\d+)/i)?.[1] || "0",
+      10
+    );
+    const slideXml = await zip.files[slideFile].async("text");
+
+    // 3. Extract text from <a:t> tags, preserving paragraph breaks
+    const paragraphs: string[] = [];
+    // Split by <a:p> paragraph elements
+    const pParts = slideXml.split(/<a:p[\s>]/);
+    for (const pp of pParts) {
+      // Extract all <a:t>...</a:t> text runs within the paragraph
+      const textRuns: string[] = [];
+      const tRegex = /<a:t>([\s\S]*?)<\/a:t>/g;
+      let m;
+      while ((m = tRegex.exec(pp)) !== null) {
+        const t = m[1]
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .trim();
+        if (t) textRuns.push(t);
+      }
+      if (textRuns.length > 0) {
+        paragraphs.push(textRuns.join(" "));
+      }
+    }
+
+    // 4. Parse slide relationships to find images on this slide
+    const relsPath = slideFile.replace(
+      /ppt\/slides\/(slide\d+\.xml)/i,
+      "ppt/slides/_rels/$1.rels"
+    );
+    const slideImagePaths: string[] = [];
+
+    if (zip.files[relsPath]) {
+      const relsXml = await zip.files[relsPath].async("text");
+      const relRegex =
+        /<Relationship[^>]+Target="([^"]*)"[^>]+Type="[^"]*\/image"[^>]*\/?>/gi;
+      // Also match reversed attribute order
+      const relRegex2 =
+        /<Relationship[^>]+Type="[^"]*\/image"[^>]+Target="([^"]*)"[^>]*\/?>/gi;
+
+      const targets = new Set<string>();
+      let rm;
+      while ((rm = relRegex.exec(relsXml)) !== null) targets.add(rm[1]);
+      while ((rm = relRegex2.exec(relsXml)) !== null) targets.add(rm[1]);
+
+      for (const target of targets) {
+        // Target is relative like "../media/image1.png"
+        const mediaPath = target.startsWith("../")
+          ? `ppt/${target.slice(3)}`
+          : target.startsWith("/")
+            ? target.slice(1)
+            : `ppt/slides/${target}`;
+        if (mediaCache.has(mediaPath)) {
+          slideImagePaths.push(mediaPath);
+        }
+      }
+    }
+
+    // Skip slides with no text and no images
+    if (paragraphs.length === 0 && slideImagePaths.length === 0) continue;
+
+    mdParts.push(`\n## Слайд ${slideNum}\n`);
+
+    if (paragraphs.length > 0) {
+      mdParts.push(paragraphs.join("\n\n"));
+    }
+
+    // 5. Add images from this slide
+    for (const imgPath of slideImagePaths) {
+      const media = mediaCache.get(imgPath)!;
+      // Skip tiny images (icons, bullets < 2KB) and EMF/WMF (vector graphics, not screenshots)
+      if (
+        media.data.length < 2048 ||
+        media.mime === "image/x-emf" ||
+        media.mime === "image/x-wmf"
+      ) {
+        continue;
+      }
+
+      globalImageIdx++;
+      const marker = `[СКРИНШОТ ${globalImageIdx}]`;
+      images.push({
+        data: media.data,
+        mimeType: media.mime,
+        marker,
+      });
+      mdParts.push(`\n${marker}\n`);
+    }
+  }
+
+  const markdown = mdParts.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+
+  console.log(
+    `[parser] PPTX parsed: ${slideFiles.length} slides, ${markdown.length} chars, ${images.length} images extracted`
+  );
+
+  return { markdown, images };
 }
 
 /* ── DOCX parser with image extraction ── */
