@@ -37,8 +37,10 @@ export interface ParsedFile {
   mimeType: string;
   markdown: string;
   tags: string[];
-  chunks: { index: number; preview: string; length: number }[];
+  images: Array<{ base64: string; mimeType: string; marker: string }>; // NEW
+  chunks: { index: number; preview: string; length: number; imageCount: number }[]; // UPDATED
   totalChunks: number;
+  totalImages: number; // NEW
 }
 
 export interface NontargetItem {

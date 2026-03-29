@@ -15,10 +15,11 @@ import { extractSearchHints } from "@/app/lib/query-analyzer";
 export const runtime = "nodejs";
 
 const MAX_UPLOADED_DOC_CHARS = 50000;
+const MAX_CHUNK_IMAGES = 3; // Max images to include per chunk in prompt
+const MAX_TOTAL_IMAGES = 12; // Max total images in entire prompt
 
 export async function POST(req: NextRequest) {
  try {
-  // Проверка авторизации
   const invite = await getInviteCodeFromHeader(req);
   if (!invite) {
     return unauthorizedResponse();
@@ -26,7 +27,6 @@ export async function POST(req: NextRequest) {
 
   const { messages, conversationId, attachedDocuments } = await req.json();
 
-  // Проверяем принадлежность диалога (если не админ)
   if (conversationId && !isAdminCode(invite.code)) {
     const supabase = createServiceClient();
     const { data: conv } = await supabase
@@ -43,7 +43,6 @@ export async function POST(req: NextRequest) {
   const userMessage = messages[messages.length - 1];
   const hasAttachments = Array.isArray(attachedDocuments) && attachedDocuments.length > 0;
 
-  // If user message is generic and has attachments, enrich search query with doc content
   let searchQuery = userMessage.content;
   if (hasAttachments && searchQuery.length < 60) {
     const docPreview = attachedDocuments
@@ -52,10 +51,8 @@ export async function POST(req: NextRequest) {
     searchQuery = `${searchQuery} ${docPreview}`.slice(0, 1000);
   }
 
-  // Extract tag hints from query for filtered search
   const searchHints = extractSearchHints(userMessage.content);
 
-  // Run save, context load, RAG search, and off-topic classification in parallel
   const [, contextResult, intentResult, searchResults, offTopicResult] = await Promise.all([
     conversationId
       ? saveMessage(conversationId, "user", userMessage.content)
@@ -68,7 +65,7 @@ export async function POST(req: NextRequest) {
     classifyOffTopic(userMessage.content, messages.slice(0, -1)),
   ]);
 
-  // Обработка нецелевых запросов: логируем + блокируем
+  // Off-topic handling (unchanged)
   if (offTopicResult.isOffTopic && !isAdminCode(invite.code)) {
     const supabase = createServiceClient();
     const inviteCodeId = invite.id.startsWith("admin-") ? null : invite.id;
@@ -87,8 +84,6 @@ export async function POST(req: NextRequest) {
 
 Пожалуйста, задайте вопрос по теме закупок и снабжения.`;
 
-    // Await: сохраняем в БД + ТГ-уведомление + отказ в историю диалога
-    // (await обязателен — Vercel убивает функцию после return)
     await Promise.all([
       supabase.from("off_topic_queries").insert({
         invite_code_id: inviteCodeId,
@@ -106,7 +101,6 @@ export async function POST(req: NextRequest) {
         : Promise.resolve(),
     ]).catch((e) => console.error("[OffTopic] save error:", e));
 
-    // Возвращаем отказ в формате Vercel AI SDK data stream protocol
     const encoded = JSON.stringify(refusalMessage);
     const streamBody = `0:${encoded}\nd:{"finishReason":"stop"}\n`;
 
@@ -122,21 +116,78 @@ export async function POST(req: NextRequest) {
   const contextMessages: { role: string; content: string }[] =
     contextResult?.messages ?? [];
 
-  // Phase 1: Filter by relevance
+  // Rerank and filter
   const rerankedResults = intentAwareRerank(searchResults, intentResult);
   const { results: relevantChunks, lowConfidence } = filterByRelevance(rerankedResults);
 
-  // Phase 3a: Structured XML context format
-  const ragContext = relevantChunks.length
-    ? `<documents>\n${relevantChunks
+  // ── NEW: Load chunk images from Supabase Storage ──
+  const supabase = createServiceClient();
+  let totalImagesIncluded = 0;
+
+  interface ChunkWithImages {
+    content: string;
+    source_filename: string;
+    chunk_index: number;
+    similarity: number;
+    imageBase64: Array<{ base64: string; mimeType: string }>;
+  }
+
+  const chunksWithImages: ChunkWithImages[] = await Promise.all(
+    relevantChunks.map(async (chunk) => {
+      const imageBase64: Array<{ base64: string; mimeType: string }> = [];
+
+      if (chunk.image_paths && chunk.image_paths.length > 0 && totalImagesIncluded < MAX_TOTAL_IMAGES) {
+        const pathsToLoad = chunk.image_paths.slice(0, MAX_CHUNK_IMAGES);
+
+        for (const path of pathsToLoad) {
+          if (totalImagesIncluded >= MAX_TOTAL_IMAGES) break;
+
+          try {
+            const { data, error } = await supabase.storage
+              .from("chunk-images")
+              .download(path);
+
+            if (error || !data) {
+              console.error(`[chat] Failed to download image ${path}:`, error);
+              continue;
+            }
+
+            const arrayBuffer = await data.arrayBuffer();
+            const base64 = Buffer.from(arrayBuffer).toString("base64");
+            const ext = path.split(".").pop() || "png";
+            const mimeType = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : `image/${ext}`;
+
+            imageBase64.push({ base64, mimeType });
+            totalImagesIncluded++;
+          } catch (e) {
+            console.error(`[chat] Error loading image ${path}:`, e);
+          }
+        }
+      }
+
+      return {
+        content: chunk.content,
+        source_filename: chunk.source_filename,
+        chunk_index: chunk.chunk_index,
+        similarity: chunk.similarity,
+        imageBase64,
+      };
+    })
+  );
+
+  console.log(`[chat] Loaded ${totalImagesIncluded} images for ${chunksWithImages.length} chunks`);
+
+  // ── Build RAG context with text (images will be in multimodal messages) ──
+  const ragContext = chunksWithImages.length
+    ? `<documents>\n${chunksWithImages
         .map(
           (r, i) =>
-            `<document id="${i + 1}" filename="${r.source_filename}" chunk="${r.chunk_index}" similarity="${r.similarity.toFixed(2)}">\n${r.content}\n</document>`
+            `<document id="${i + 1}" filename="${r.source_filename}" chunk="${r.chunk_index}" similarity="${r.similarity.toFixed(2)}" has_screenshots="${r.imageBase64.length > 0 ? "yes" : "no"}">\n${r.content}\n</document>`
         )
         .join("\n")}\n</documents>`
     : "";
 
-  // Phase 3a-bis: Build uploaded documents context
+  // Uploaded documents context (unchanged)
   let uploadedDocsContext = "";
   if (hasAttachments) {
     const docs = attachedDocuments.map(
@@ -150,12 +201,10 @@ export async function POST(req: NextRequest) {
     uploadedDocsContext = `<uploaded_documents>\n${docs.join("\n")}\n</uploaded_documents>`;
   }
 
-  // Phase 3b: System prompt with citation protocol and few-shot examples
   const lowConfidenceWarning = lowConfidence
     ? `\n\n⚠️ ВНИМАНИЕ: Найденные документы имеют НИЗКУЮ релевантность к вопросу пользователя. Скорее всего, ответа в базе знаний нет. Сообщи об этом пользователю явно.`
     : "";
 
-  // Additional instructions when user uploaded documents for compliance checking
   const uploadedDocsInstructions = hasAttachments
     ? `
 
@@ -179,6 +228,17 @@ export async function POST(req: NextRequest) {
 - Начни с краткого резюме (соответствует / частично соответствует / не соответствует)
 - Используй разделы: "Соответствия", "Несоответствия", "Рекомендации"
 - Приводи дословные цитаты из обоих источников для обоснования`
+    : "";
+
+  // ── NEW: Screenshot instructions for the model ──
+  const screenshotInstructions = totalImagesIncluded > 0
+    ? `
+
+СКРИНШОТЫ ИЗ ИНСТРУКЦИЙ:
+К некоторым документам приложены скриншоты интерфейса CRM-системы. Они идут после текста соответствующего документа как изображения.
+- Если скриншот помогает ответить на вопрос — опиши, что на нём изображено (какие кнопки, меню, поля)
+- Ссылайся на скриншоты в ответе: «Как показано на скриншоте из документа N...»
+- Не описывай скриншоты, если они не относятся к вопросу пользователя`
     : "";
 
   const systemPrompt = `Ты СнабЧат — ИИ-ассистент Дирекции по закупкам. Ты помогаешь сотрудникам с вопросами о закупках, снабжении, договорах, нормативных документах и внутренних процедурах.
@@ -207,7 +267,7 @@ export async function POST(req: NextRequest) {
 
 ПРИМЕР ОТКАЗА (когда информации нет):
 Вопрос: Какова средняя зарплата в отделе закупок?
-Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${lowConfidenceWarning}
+Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}
 
 === РЕЕСТР СПУ (Список Потенциальных Участников) ===
 
@@ -279,28 +339,68 @@ ${ragContext || "В базе знаний не найдено релевантн
 
 ${uploadedDocsContext}`;
 
-  // Build messages for the model
-  const modelMessages = [
-    ...contextMessages
-      .filter((m) => m.role !== "system")
-      .map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
-  ];
+  // ── Build multimodal messages for the model ──
+  // System prompt goes as system, then we build user/assistant messages
+  // with images interleaved
 
-  // Use messages from request if no context loaded
-  if (modelMessages.length === 0) {
+  const modelMessages: Array<{
+    role: "user" | "assistant";
+    content: string | Array<{ type: string; text?: string; image?: string }>;
+  }> = [];
+
+  // Add context messages
+  const ctxMsgs = contextMessages.filter((m) => m.role !== "system");
+  if (ctxMsgs.length > 0) {
     modelMessages.push(
-      ...messages.map((m: { role: string; content: string }) => ({
+      ...ctxMsgs.map((m) => ({
         role: m.role as "user" | "assistant",
-        content: m.content,
+        content: m.content as string,
       }))
     );
   } else {
-    // Make sure the latest user message is included
+    // Use messages from request (excluding last, we'll add it with images)
+    for (let k = 0; k < messages.length - 1; k++) {
+      modelMessages.push({
+        role: messages[k].role as "user" | "assistant",
+        content: messages[k].content as string,
+      });
+    }
+  }
+
+  // Build the final user message with multimodal content (text + chunk images)
+  if (totalImagesIncluded > 0) {
+    // Multimodal message: text + images from relevant chunks
+    const parts: Array<{ type: string; text?: string; image?: string }> = [];
+
+    // User's question text
+    parts.push({ type: "text", text: userMessage.content });
+
+    // Append chunk images with labels
+    for (let ci = 0; ci < chunksWithImages.length; ci++) {
+      const cw = chunksWithImages[ci];
+      if (cw.imageBase64.length > 0) {
+        parts.push({
+          type: "text",
+          text: `\n[Скриншоты из документа "${cw.source_filename}", чанк ${cw.chunk_index}]:`,
+        });
+        for (const img of cw.imageBase64) {
+          parts.push({
+            type: "image",
+            image: `data:${img.mimeType};base64,${img.base64}`,
+          });
+        }
+      }
+    }
+
+    modelMessages.push({
+      role: "user",
+      content: parts,
+    });
+  } else {
+    // Plain text message (no images in chunks)
     const lastModel = modelMessages[modelMessages.length - 1];
     if (
+      !lastModel ||
       lastModel.role !== "user" ||
       lastModel.content !== userMessage.content
     ) {
@@ -311,10 +411,8 @@ ${uploadedDocsContext}`;
     }
   }
 
-  // Build source filenames from filtered relevant chunks (not all 20)
   const sourceFilenames = [...new Set(relevantChunks.map((r) => r.source_filename))];
 
-  // Phase 3c: Stream response from Gemini
   const result = streamText({
     model: google("gemini-3-flash-preview"),
     system: systemPrompt,
@@ -325,6 +423,7 @@ ${uploadedDocsContext}`;
         const metadata: Record<string, unknown> = {};
         if (sourceFilenames.length > 0) metadata.sources = sourceFilenames;
         if (lowConfidence) metadata.lowConfidence = true;
+        if (totalImagesIncluded > 0) metadata.imagesUsed = totalImagesIncluded;
         await saveMessage(conversationId, "assistant", text,
           Object.keys(metadata).length > 0 ? metadata : undefined
         );
