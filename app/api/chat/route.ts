@@ -413,7 +413,7 @@ ${uploadedDocsContext}`;
 
   const sourceFilenames = [...new Set(relevantChunks.map((r) => r.source_filename))];
 
-  // ── Generate signed URLs for chunk images to pass to frontend ──
+  // ── Build proxy URLs for chunk images to pass to frontend ──
   interface ChunkImageUrl {
     url: string;
     source: string;
@@ -422,23 +422,17 @@ ${uploadedDocsContext}`;
   const chunkImageUrls: ChunkImageUrl[] = [];
   for (const cw of chunksWithImages) {
     if (cw.imageBase64.length === 0) continue;
-    // Find original paths from the chunk data
     const originalChunk = relevantChunks.find(
       (c) => c.source_filename === cw.source_filename && c.chunk_index === cw.chunk_index
     );
     if (!originalChunk?.image_paths) continue;
-    const pathsToSign = originalChunk.image_paths.slice(0, MAX_CHUNK_IMAGES);
-    for (const path of pathsToSign) {
-      const { data: signedData } = await supabase.storage
-        .from("chunk-images")
-        .createSignedUrl(path, 3600); // 1 hour
-      if (signedData?.signedUrl) {
-        chunkImageUrls.push({
-          url: signedData.signedUrl,
-          source: cw.source_filename,
-          chunk: cw.chunk_index,
-        });
-      }
+    const pathsToProxy = originalChunk.image_paths.slice(0, MAX_CHUNK_IMAGES);
+    for (const path of pathsToProxy) {
+      chunkImageUrls.push({
+        url: `/api/chunk-image?path=${encodeURIComponent(path)}&token=${encodeURIComponent(invite.code)}`,
+        source: cw.source_filename,
+        chunk: cw.chunk_index,
+      });
     }
   }
 
