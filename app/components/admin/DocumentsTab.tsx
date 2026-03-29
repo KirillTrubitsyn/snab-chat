@@ -177,6 +177,34 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
     setUploadStage(parsed.length > 0 ? "review" : "idle");
   };
 
+  const LARGE_FILE_THRESHOLD = 4 * 1024 * 1024; // 4 MB
+
+  const uploadLargeFile = async (file: File): Promise<string | null> => {
+    try {
+      const res = await fetch("/api/upload-url", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-code": encodeURIComponent(adminCode),
+        },
+        body: JSON.stringify({ filename: file.name, mimeType: file.type }),
+      });
+      if (!res.ok) return null;
+      const { uploadUrl, storagePath, token } = await res.json();
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": file.type,
+          "x-upsert": "false",
+        },
+        body: file,
+      });
+      return putRes.ok ? storagePath : null;
+    } catch {
+      return null;
+    }
+  };
+
   const ingestFiles = async () => {
     setUploadStage("ingesting");
     setUploadProgress(0);
@@ -184,7 +212,17 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
       const pf = parsedFiles[i];
       const file = uploadFiles.find((f) => f.name === pf.filename);
       const formData = new FormData();
-      if (file) formData.append("file", file);
+
+      // For large files, upload via presigned URL to bypass Vercel 4.5MB limit
+      if (file && file.size > LARGE_FILE_THRESHOLD) {
+        const storagePath = await uploadLargeFile(file);
+        if (storagePath) {
+          formData.append("storagePath", storagePath);
+        }
+      } else if (file) {
+        formData.append("file", file);
+      }
+
       formData.append("filename", pf.filename);
       formData.append("mimeType", pf.mimeType);
       formData.append("markdown", pf.markdown);
