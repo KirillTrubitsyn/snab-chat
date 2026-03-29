@@ -183,10 +183,12 @@ export async function POST(req: NextRequest) {
     for (let i = 0; i < chunks.length; i += batchSize) {
       const batch = chunks.slice(i, i + batchSize);
 
-      // Build embedding inputs: text + images for multimodal embedding
+      // Text-only embeddings for retrieval accuracy.
+      // Multimodal embeddings with many images produce vectors too far from
+      // text-only query vectors, degrading search quality.
+      // Images are still stored in chunk-images and loaded during chat generation.
       const embedInputs = batch.map((c) => ({
         text: c.content,
-        images: c.images,
       }));
 
       const embeddings = await embedDocuments(embedInputs);
