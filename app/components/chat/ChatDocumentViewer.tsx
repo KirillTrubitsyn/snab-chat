@@ -10,9 +10,11 @@ import type { Source, ExcelSheet } from "./types";
 export default function ChatDocumentViewer({
   source,
   onClose,
+  inviteCode,
 }: {
   source: Source;
   onClose: () => void;
+  inviteCode?: string;
 }) {
   const [content, setContent] = useState<string | null>(null);
   const [docxHtml, setDocxHtml] = useState<string | null>(null);
@@ -29,6 +31,9 @@ export default function ChatDocumentViewer({
     source.filename?.endsWith(".docx") ||
     source.filename?.endsWith(".doc");
   const hasOriginal = !!source.storage_path;
+  const authHeaders: HeadersInit = inviteCode
+    ? { "x-invite-code": encodeURIComponent(inviteCode) }
+    : {};
 
   useEffect(() => {
     if (isPdf && hasOriginal) {
@@ -36,14 +41,14 @@ export default function ChatDocumentViewer({
       return;
     }
     if (isExcel) {
-      fetch(`/api/sources/excel-data?id=${source.id}`)
+      fetch(`/api/sources/excel-data?id=${source.id}`, { headers: authHeaders })
         .then((r) => r.json())
         .then((d) => {
           if (d.sheets && d.sheets.length > 0) {
             setExcelSheets(d.sheets);
             setLoading(false);
           } else {
-            fetch(`/api/sources/content?id=${source.id}`)
+            fetch(`/api/sources/content?id=${source.id}`, { headers: authHeaders })
               .then((r) => r.json())
               .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
               .catch(() => setContent("Не удалось загрузить содержимое"))
@@ -57,14 +62,14 @@ export default function ChatDocumentViewer({
       return;
     }
     if (isDocx && hasOriginal) {
-      fetch(`/api/sources/docx-html?id=${source.id}`)
+      fetch(`/api/sources/docx-html?id=${source.id}`, { headers: authHeaders })
         .then((r) => r.json())
         .then((d) => {
           if (d.html) {
             setDocxHtml(d.html);
             setLoading(false);
           } else {
-            fetch(`/api/sources/content?id=${source.id}`)
+            fetch(`/api/sources/content?id=${source.id}`, { headers: authHeaders })
               .then((r) => r.json())
               .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
               .catch(() => setContent("Не удалось загрузить содержимое"))
@@ -72,7 +77,7 @@ export default function ChatDocumentViewer({
           }
         })
         .catch(() => {
-          fetch(`/api/sources/content?id=${source.id}`)
+          fetch(`/api/sources/content?id=${source.id}`, { headers: authHeaders })
               .then((r) => r.json())
               .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
               .catch(() => setContent("Не удалось загрузить содержимое"))
@@ -80,12 +85,12 @@ export default function ChatDocumentViewer({
         });
       return;
     }
-    fetch(`/api/sources/content?id=${source.id}`)
+    fetch(`/api/sources/content?id=${source.id}`, { headers: authHeaders })
       .then((r) => r.json())
       .then((d) => setContent(d.markdown || ""))
       .catch(() => setContent("Не удалось загрузить содержимое"))
       .finally(() => setLoading(false));
-  }, [source.id, isPdf, isExcel, isDocx, hasOriginal]);
+  }, [source.id, isPdf, isExcel, isDocx, hasOriginal, inviteCode]);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
