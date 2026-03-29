@@ -244,8 +244,8 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
       formData.append("mimeType", pf.mimeType);
       formData.append("markdown", pf.markdown);
       formData.append("tags", JSON.stringify(pf.tags));
-      // Pass extracted images for multimodal embedding
-      if (pf.images && pf.images.length > 0) {
+      // Pass images only for small files; large files re-extract from Storage
+      if (!pf.storagePath && pf.images && pf.images.length > 0) {
         formData.append("images", JSON.stringify(pf.images));
       }
       formData.append("folderPath", parsedFileCategories[i] || "standards");

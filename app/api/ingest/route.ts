@@ -4,6 +4,7 @@ import { chunkMarkdown } from "@/app/lib/chunking";
 import { embedDocuments } from "@/app/lib/embeddings";
 import { requireAdmin } from "@/app/lib/auth";
 import { logError } from "@/app/lib/error-logger";
+import { parseToMarkdown } from "@/app/lib/parser";
 import type { ExtractedImage } from "@/app/lib/parser";
 
 let bucketReady = false;
@@ -23,17 +24,39 @@ export async function POST(req: NextRequest) {
     const tags: string[] = tagsRaw ? JSON.parse(tagsRaw) : [];
     const folderPath = (formData.get("folderPath") as string) || null;
 
-    // Parse images from formData (sent as JSON array of {base64, mimeType, marker})
+    const supabase = createServiceClient();
+
+    // Extract images: either from FormData (small files) or by re-parsing from Storage (large files)
+    let images: ExtractedImage[] = [];
     const imagesRaw = formData.get("images") as string | null;
-    const images: ExtractedImage[] = imagesRaw
-      ? (JSON.parse(imagesRaw) as Array<{ base64: string; mimeType: string; marker: string }>).map(
-          (img) => ({
-            data: Buffer.from(img.base64, "base64"),
-            mimeType: img.mimeType,
-            marker: img.marker,
-          })
-        )
-      : [];
+    const incomingStoragePath = (formData.get("storagePath") as string) || null;
+
+    if (imagesRaw) {
+      // Small file: images sent directly as base64
+      images = (JSON.parse(imagesRaw) as Array<{ base64: string; mimeType: string; marker: string }>).map(
+        (img) => ({
+          data: Buffer.from(img.base64, "base64"),
+          mimeType: img.mimeType,
+          marker: img.marker,
+        })
+      );
+    } else if (incomingStoragePath) {
+      // Large file: re-extract images from the file already in Storage
+      try {
+        const { data: fileData, error: dlError } = await supabase.storage
+          .from("documents")
+          .download(incomingStoragePath);
+
+        if (!dlError && fileData) {
+          const buffer = Buffer.from(await fileData.arrayBuffer());
+          const parsed = await parseToMarkdown(buffer, mimeType, filename);
+          images = parsed.images;
+          console.log(`[ingest] Re-extracted ${images.length} images from Storage for ${filename}`);
+        }
+      } catch (e) {
+        console.error("[ingest] Failed to re-extract images from Storage:", e);
+      }
+    }
 
     // Build metadata preamble for each chunk
     const preambleParts: string[] = [`📄 Документ: ${filename}`];
@@ -54,11 +77,8 @@ export async function POST(req: NextRequest) {
     }
     const preamble = preambleParts.join(" | ");
 
-    const supabase = createServiceClient();
-
-    // Upload original file to Storage
-    let storagePath: string | null =
-      (formData.get("storagePath") as string) || null;
+    // Upload original file to Storage (reuse storagePath from parse if available)
+    let storagePath: string | null = incomingStoragePath;
 
     if (!storagePath && file) {
       const MAX_FILE_SIZE = 50 * 1024 * 1024;
