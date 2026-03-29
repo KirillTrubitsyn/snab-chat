@@ -1194,7 +1194,7 @@ export default function Chat() {
                     if (src) setViewingSource(src);
                   }}
                   onDownload={(sourceId, filename) => {
-                    window.open("/api/sources/download?id=" + sourceId + "&action=download", "_blank");
+                    window.open("/api/sources/download?id=" + sourceId + "&action=download&token=" + encodeURIComponent(inviteCodeRef.current), "_blank");
                   }}
                 />
                   <div className="kb-list">
@@ -1275,7 +1275,7 @@ export default function Chat() {
                               </button>
                               <a
                                 className="kb-action-btn"
-                                href={`/api/sources/download?id=${doc.id}&action=download`}
+                                href={`/api/sources/download?id=${doc.id}&action=download&token=${encodeURIComponent(inviteCodeRef.current)}`}
                                 title="Скачать"
                               >
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

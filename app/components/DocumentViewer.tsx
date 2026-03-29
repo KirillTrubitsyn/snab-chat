@@ -87,9 +87,11 @@ function ExcelViewer({ sheets }: { sheets: ExcelSheet[] }) {
 export default function DocumentViewer({
   source,
   onClose,
+  authCode,
 }: {
   source: DocumentSource;
   onClose: () => void;
+  authCode?: string;
 }) {
   const [content, setContent] = useState<string | null>(null);
   const [docxHtml, setDocxHtml] = useState<string | null>(null);
@@ -112,6 +114,10 @@ export default function DocumentViewer({
     eff.filename?.endsWith(".doc");
   const hasOriginal = !!eff.storage_path;
   const isDenormalized = source.mime_type === "application/x-denormalized";
+  const tokenParam = authCode ? `&token=${encodeURIComponent(authCode)}` : "";
+  const authHeaders: HeadersInit = authCode
+    ? { "x-invite-code": encodeURIComponent(authCode) }
+    : {};
 
   // Step 1: resolve denormalized source to original
   useEffect(() => {
@@ -119,7 +125,7 @@ export default function DocumentViewer({
       setResolved(null);
       return;
     }
-    fetch(`/api/sources/resolve?id=${source.id}`)
+    fetch(`/api/sources/resolve?id=${source.id}`, { headers: authHeaders })
       .then((r) => r.json())
       .then((d) => {
         if (d.original) {
@@ -163,7 +169,7 @@ export default function DocumentViewer({
     }
 
     if (srcIsExcel && srcHasOriginal) {
-      fetch(`/api/sources/excel-data?id=${src.id}`)
+      fetch(`/api/sources/excel-data?id=${src.id}`, { headers: authHeaders })
         .then((r) => r.json())
         .then((d) => {
           if (d.sheets && d.sheets.length > 0) {
@@ -184,7 +190,7 @@ export default function DocumentViewer({
     }
 
     if (srcIsDocx && srcHasOriginal) {
-      fetch(`/api/sources/docx-html?id=${src.id}`)
+      fetch(`/api/sources/docx-html?id=${src.id}`, { headers: authHeaders })
         .then((r) => r.json())
         .then((d) => {
           if (d.html) {
@@ -203,7 +209,7 @@ export default function DocumentViewer({
   }
 
   function fetchContent(id: number) {
-    fetch(`/api/sources/content?id=${id}`)
+    fetch(`/api/sources/content?id=${id}`, { headers: authHeaders })
       .then((r) => r.json())
       .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
       .catch(() => setContent("Не удалось загрузить содержимое"))
@@ -224,7 +230,7 @@ export default function DocumentViewer({
               style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13 }}
               onClick={() =>
                 window.open(
-                  `/api/sources/download?id=${eff.id}&action=download`,
+                  `/api/sources/download?id=${eff.id}&action=download${tokenParam}`,
                   "_blank"
                 )
               }
@@ -246,7 +252,7 @@ export default function DocumentViewer({
             <div className="document-viewer-loading">Загрузка...</div>
           ) : isPdf && hasOriginal ? (
             <iframe
-              src={`/api/sources/download?id=${eff.id}&action=view`}
+              src={`/api/sources/download?id=${eff.id}&action=view${tokenParam}`}
               className="document-viewer-iframe"
               title={source.filename}
             />
