@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { checkAndRegisterDevice } from "@/app/lib/auth";
 import { registerSchema, parseBody } from "@/app/lib/validation";
+import { notifyNewUser } from "@/app/lib/telegram";
 
 export async function POST(req: NextRequest) {
   try {
@@ -71,6 +72,9 @@ export async function POST(req: NextRequest) {
       const userAgent = req.headers.get("user-agent") || "";
       await checkAndRegisterDevice(newCode.id, device_id, 2, userAgent);
     }
+
+    // Notify admins about new registration (fire-and-forget)
+    notifyNewUser(name, organization, newCode.code).catch(() => {});
 
     return NextResponse.json({
       type: "user",

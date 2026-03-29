@@ -154,6 +154,21 @@ export async function notifySupportMessage(
   await notifyAllAdmins(text, replyMarkup);
 }
 
+/** Уведомление о регистрации нового пользователя */
+export async function notifyNewUser(
+  userName: string,
+  organization?: string | null,
+  code?: string | null
+): Promise<void> {
+  const orgLine = organization ? `\n🏢 <b>Организация:</b> ${escapeHtml(organization)}` : "";
+  const codeLine = code ? `\n🔑 <b>Код:</b> <code>${escapeHtml(code)}</code>` : "";
+  const text =
+    `🆕 <b>Новый пользователь</b>\n\n` +
+    `👤 <b>Имя:</b> ${escapeHtml(userName)}${orgLine}${codeLine}\n\n` +
+    `🕐 ${getMoscowTime()}`;
+  await notifyAllAdmins(text);
+}
+
 /** Уведомление об ответе на обращение (чтобы все админы видели) */
 export async function notifySupportReply(
   adminName: string,
