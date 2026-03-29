@@ -19,6 +19,7 @@ export default function ChatDocumentViewer({
   const [content, setContent] = useState<string | null>(null);
   const [docxHtml, setDocxHtml] = useState<string | null>(null);
   const [excelSheets, setExcelSheets] = useState<ExcelSheet[] | null>(null);
+  const [pptxEmbedUrl, setPptxEmbedUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const isPdf = source.mime_type?.includes("pdf");
   const isExcel =
@@ -30,6 +31,10 @@ export default function ChatDocumentViewer({
     source.mime_type?.includes("wordprocessingml") ||
     source.filename?.endsWith(".docx") ||
     source.filename?.endsWith(".doc");
+  const isPptx =
+    source.mime_type?.includes("presentationml") ||
+    source.filename?.endsWith(".pptx") ||
+    source.filename?.endsWith(".ppt");
   const hasOriginal = !!source.storage_path;
   const authHeaders: HeadersInit = inviteCode
     ? { "x-invite-code": encodeURIComponent(inviteCode) }
@@ -38,6 +43,31 @@ export default function ChatDocumentViewer({
   useEffect(() => {
     if (isPdf && hasOriginal) {
       setLoading(false);
+      return;
+    }
+    if (isPptx && hasOriginal) {
+      fetch(`/api/sources/signed-url?id=${source.id}`, { headers: authHeaders })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.signedUrl) {
+            const officeUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(d.signedUrl)}`;
+            setPptxEmbedUrl(officeUrl);
+            setLoading(false);
+          } else {
+            fetch(`/api/sources/content?id=${source.id}`, { headers: authHeaders })
+              .then((r) => r.json())
+              .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
+              .catch(() => setContent("Не удалось загрузить содержимое"))
+              .finally(() => setLoading(false));
+          }
+        })
+        .catch(() => {
+          fetch(`/api/sources/content?id=${source.id}`, { headers: authHeaders })
+            .then((r) => r.json())
+            .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
+            .catch(() => setContent("Не удалось загрузить содержимое"))
+            .finally(() => setLoading(false));
+        });
       return;
     }
     if (isExcel) {
@@ -90,7 +120,7 @@ export default function ChatDocumentViewer({
       .then((d) => setContent(d.markdown || ""))
       .catch(() => setContent("Не удалось загрузить содержимое"))
       .finally(() => setLoading(false));
-  }, [source.id, isPdf, isExcel, isDocx, hasOriginal, inviteCode]);
+  }, [source.id, isPdf, isPptx, isExcel, isDocx, hasOriginal, inviteCode]);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -131,6 +161,13 @@ export default function ChatDocumentViewer({
               src={`/api/sources/download?id=${source.id}&action=view${inviteCode ? `&token=${encodeURIComponent(inviteCode)}` : ""}`}
               className="document-viewer-iframe"
               title={source.filename}
+            />
+          ) : pptxEmbedUrl ? (
+            <iframe
+              src={pptxEmbedUrl}
+              className="document-viewer-iframe"
+              title={source.filename}
+              allowFullScreen
             />
           ) : excelSheets ? (
             <ExcelViewer sheets={excelSheets} />

@@ -96,6 +96,7 @@ export default function DocumentViewer({
   const [content, setContent] = useState<string | null>(null);
   const [docxHtml, setDocxHtml] = useState<string | null>(null);
   const [excelSheets, setExcelSheets] = useState<ExcelSheet[] | null>(null);
+  const [pptxEmbedUrl, setPptxEmbedUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   // Resolved source: original file if this is a denormalized document
   const [resolved, setResolved] = useState<DocumentSource | null>(null);
@@ -112,6 +113,10 @@ export default function DocumentViewer({
     eff.mime_type?.includes("wordprocessingml") ||
     eff.filename?.endsWith(".docx") ||
     eff.filename?.endsWith(".doc");
+  const isPptx =
+    eff.mime_type?.includes("presentationml") ||
+    eff.filename?.endsWith(".pptx") ||
+    eff.filename?.endsWith(".ppt");
   const hasOriginal = !!eff.storage_path;
   const isDenormalized = source.mime_type === "application/x-denormalized";
   const tokenParam = authCode ? `&token=${encodeURIComponent(authCode)}` : "";
@@ -161,10 +166,30 @@ export default function DocumentViewer({
       src.mime_type?.includes("wordprocessingml") ||
       src.filename?.endsWith(".docx") ||
       src.filename?.endsWith(".doc");
+    const srcIsPptx =
+      src.mime_type?.includes("presentationml") ||
+      src.filename?.endsWith(".pptx") ||
+      src.filename?.endsWith(".ppt");
     const srcHasOriginal = !!src.storage_path;
 
     if (srcIsPdf && srcHasOriginal) {
       setLoading(false);
+      return;
+    }
+
+    if (srcIsPptx && srcHasOriginal) {
+      fetch(`/api/sources/signed-url?id=${src.id}`, { headers: authHeaders })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.signedUrl) {
+            const officeUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(d.signedUrl)}`;
+            setPptxEmbedUrl(officeUrl);
+            setLoading(false);
+          } else {
+            fetchContent(src.id);
+          }
+        })
+        .catch(() => fetchContent(src.id));
       return;
     }
 
@@ -255,6 +280,13 @@ export default function DocumentViewer({
               src={`/api/sources/download?id=${eff.id}&action=view${tokenParam}`}
               className="document-viewer-iframe"
               title={source.filename}
+            />
+          ) : pptxEmbedUrl ? (
+            <iframe
+              src={pptxEmbedUrl}
+              className="document-viewer-iframe"
+              title={source.filename}
+              allowFullScreen
             />
           ) : excelSheets ? (
             <ExcelViewer sheets={excelSheets} />
