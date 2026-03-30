@@ -1,6 +1,7 @@
 import { createServiceClient } from "./supabase";
 import { embedQuery } from "./embeddings";
 import type { IntentResult, QueryIntent } from "./intent-classifier";
+import type { SectionReference } from "./query-analyzer";
 
 export interface SearchResult {
   id: string;
@@ -307,4 +308,89 @@ export async function intentAwareSearch(
   );
 
   return reranked;
+}
+
+/* ── Section-aware direct chunk lookup ── */
+
+/**
+ * Fetches chunks from a specific document that contain a given section number.
+ * This bypasses embedding search and uses direct text matching,
+ * solving the problem where "пункт 61" has weak semantic similarity
+ * to the actual content of section 61.
+ */
+export async function fetchChunksBySection(
+  ref: SectionReference,
+  maxChunks: number = 6
+): Promise<SearchResult[]> {
+  const supabase = createServiceClient();
+
+  // Build filename filter if document hint is provided
+  let query = supabase
+    .from("chunks")
+    .select("id, content, source_filename, chunk_index, tags, image_paths");
+
+  if (ref.documentHint) {
+    query = query.ilike("source_filename", `%${ref.documentHint}%`);
+  }
+
+  // We fetch more chunks then filter in JS for section number presence
+  // because OR-ing many ILIKE patterns in Supabase is cumbersome
+  const { data, error } = await query
+    .order("chunk_index", { ascending: true })
+    .limit(200);
+
+  if (error) {
+    console.error("fetchChunksBySection error:", error);
+    return [];
+  }
+
+  if (!data || data.length === 0) return [];
+
+  // Filter chunks that actually contain the section reference
+  const sectionRegexes = ref.sections.map((s) => {
+    const escaped = s.replace(/\./g, "\\.");
+    // Match: "61." "61 " "Пункт 61" at various positions
+    return new RegExp(
+      `(?:^|\\n|\\s)${escaped}[\\.\\s\\)]|` +        // "61." or "61 " or "61)" at boundaries
+      `(?:пункт|п\\.|раздел|статья|ст\\.|глава|часть|приложение)\\s*${escaped}\\b`,
+      "im"
+    );
+  });
+
+  interface ChunkRow {
+    id: string;
+    content: string;
+    source_filename: string;
+    chunk_index: number;
+    tags: string[] | null;
+    image_paths: string[] | null;
+  }
+
+  const matched = (data as ChunkRow[]).filter((chunk) =>
+    sectionRegexes.some((re) => re.test(chunk.content))
+  );
+
+  if (matched.length === 0) {
+    console.log("fetchChunksBySection: no chunks matched for sections", ref.sections);
+    return [];
+  }
+
+  // Return as SearchResult with a synthetic high similarity score
+  // so these results survive relevance filtering
+  const results: SearchResult[] = matched.slice(0, maxChunks).map((chunk: ChunkRow) => ({
+    id: chunk.id,
+    content: chunk.content,
+    source_filename: chunk.source_filename,
+    chunk_index: chunk.chunk_index,
+    similarity: 0.85, // synthetic score — high enough to pass threshold
+    tags: chunk.tags ?? [],
+    image_paths: chunk.image_paths ?? [],
+  }));
+
+  console.log(
+    `fetchChunksBySection: found ${results.length} chunks for sections [${ref.sections.join(", ")}]` +
+    (ref.documentHint ? ` in docs matching "${ref.documentHint}"` : "")
+  );
+
+  return results;
 }
