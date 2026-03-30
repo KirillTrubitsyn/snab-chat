@@ -237,9 +237,92 @@ export async function POST(req: NextRequest) {
 
   // Rerank and filter
   const rerankedResults = intentAwareRerank(combinedResults, intentResult);
-  const { results: relevantChunks, lowConfidence } = filterByRelevance(rerankedResults);
+  let { results: relevantChunks, lowConfidence } = filterByRelevance(rerankedResults);
 
-  // ── NEW: Load chunk images from Supabase Storage ──
+  // ── Ensure original source documents are included alongside denormalized files ──
+  // When results contain denormalized .md files, find and add chunks from
+  // corresponding original documents (Положения, Стандарты) so users can
+  // preview and download them.
+  {
+    const mdSources = relevantChunks
+      .filter((r) => r.source_filename.endsWith(".md"))
+      .map((r) => r.source_filename);
+
+    if (mdSources.length > 0) {
+      // Extract organization keywords from denormalized filenames
+      // e.g. "зко_полномочия_кузбассэнерго.md" → "кузбассэнерго"
+      const orgKeywords = new Set<string>();
+      for (const fn of mdSources) {
+        const lower = fn.toLowerCase();
+        const orgPatterns = [
+          /кузбасс/i, /алтай/i, /новосибирск/i, /енисей/i,
+          /нтск/i, /нмгрэс/i, /сибэм/i, /сибэр/i, /координатор/i,
+          /сгк/i, /нак.?азот/i,
+        ];
+        for (const p of orgPatterns) {
+          if (p.test(lower)) {
+            const match = lower.match(p);
+            if (match) orgKeywords.add(match[0]);
+          }
+        }
+      }
+
+      if (orgKeywords.size > 0) {
+        const supabaseForDocs = createServiceClient();
+        const existingFilenames = new Set(relevantChunks.map((r) => r.source_filename));
+
+        // Find original documents (non-.md) matching org keywords
+        const { data: originalSources } = await supabaseForDocs
+          .from("sources")
+          .select("filename")
+          .not("filename", "like", "%.md");
+
+        if (originalSources) {
+          const matchedOriginals = originalSources
+            .filter((s: { filename: string }) => {
+              if (existingFilenames.has(s.filename)) return false;
+              const lower = s.filename.toLowerCase();
+              return Array.from(orgKeywords).some((kw) => lower.includes(kw)) &&
+                /положени|стандарт|приложени/i.test(lower);
+            })
+            .map((s: { filename: string }) => s.filename)
+            .slice(0, 5);
+
+          if (matchedOriginals.length > 0) {
+            // Fetch one representative chunk per original document
+            const { data: origChunks } = await supabaseForDocs
+              .from("chunks")
+              .select("id, content, source_filename, chunk_index, tags, image_paths")
+              .in("source_filename", matchedOriginals)
+              .order("chunk_index", { ascending: true })
+              .limit(matchedOriginals.length * 2);
+
+            if (origChunks && origChunks.length > 0) {
+              // Take first chunk per unique filename
+              const seen = new Set<string>();
+              const chunkIds = new Set(relevantChunks.map((r) => r.id));
+              for (const chunk of origChunks) {
+                if (seen.has(chunk.source_filename) || chunkIds.has(chunk.id)) continue;
+                seen.add(chunk.source_filename);
+                relevantChunks.push({
+                  id: chunk.id,
+                  content: chunk.content,
+                  source_filename: chunk.source_filename,
+                  chunk_index: chunk.chunk_index,
+                  similarity: 0.40,
+                  tags: chunk.tags ?? [],
+                  image_paths: chunk.image_paths ?? [],
+                });
+              }
+              console.log(`[chat] Added ${seen.size} original source documents alongside denormalized files`);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // ── Load chunk images from Supabase Storage ──
   const supabase = createServiceClient();
   let totalImagesIncluded = 0;
 
