@@ -91,9 +91,10 @@ export default function MessagesTab({ adminCode }: { adminCode: string }) {
                   <th style={{ width: 40 }}>
                     <input type="checkbox" checked={selectedIds.size === messages.length && messages.length > 0} onChange={toggleAll} />
                   </th>
-                  <th style={{ width: "15%" }}>ФИО</th>
-                  <th style={{ width: "15%" }}>Организация</th>
+                  <th style={{ width: "14%" }}>ФИО</th>
+                  <th style={{ width: "13%" }}>Организация</th>
                   <th>Сообщение</th>
+                  <th style={{ width: "9%", textAlign: "center" }}>Модель</th>
                   <th style={{ width: "12%", textAlign: "right" }}>Время</th>
                   <th style={{ width: 60, textAlign: "right" }}></th>
                 </tr>
@@ -105,6 +106,15 @@ export default function MessagesTab({ adminCode }: { adminCode: string }) {
                     <td className="admin-cell-name">{m.user_name}</td>
                     <td>{m.organization || <span className="admin-text-muted">—</span>}</td>
                     <td className="admin-cell-message">{m.content}</td>
+                    <td style={{ textAlign: "center" }}>
+                      {m.model ? (
+                        <span className={`admin-model-badge ${m.model.includes("pro") ? "admin-model-pro" : "admin-model-flash"}`}>
+                          {m.model.includes("pro") ? "Pro" : "Flash"}
+                        </span>
+                      ) : (
+                        <span className="admin-text-muted">—</span>
+                      )}
+                    </td>
                     <td className="admin-cell-date" style={{ textAlign: "right" }}>{formatDateTime(m.created_at)}</td>
                     <td style={{ textAlign: "right" }}>
                       <button className="admin-btn-icon-danger" onClick={() => deleteSingle(m.id)} title="Удалить сообщение">

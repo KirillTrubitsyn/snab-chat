@@ -147,6 +147,65 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ nontarget: result });
   }
 
+  // ── Type: messages ── User messages with model info
+  if (type === "messages") {
+    const { data: userMsgs, error } = await supabase
+      .from("messages")
+      .select("id, conversation_id, content, created_at")
+      .eq("role", "user")
+      .order("created_at", { ascending: false })
+      .limit(500);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (!userMsgs || userMsgs.length === 0) {
+      return NextResponse.json({ messages: [] });
+    }
+
+    const convIds = [...new Set(userMsgs.map((m) => m.conversation_id))].filter(Boolean);
+    const { convsMap, codesMap } = await buildConvsAndCodesMap(supabase, convIds);
+
+    // Fetch assistant messages with metadata to extract model
+    const { data: asstMsgs } = await supabase
+      .from("messages")
+      .select("conversation_id, metadata, created_at")
+      .eq("role", "assistant")
+      .in("conversation_id", convIds)
+      .order("created_at", { ascending: false })
+      .limit(1000);
+
+    // Index assistant messages by conversation for quick lookup
+    const asstByConv: Record<string, { metadata: Record<string, unknown> | null; created_at: string }[]> = {};
+    for (const m of asstMsgs || []) {
+      if (!asstByConv[m.conversation_id]) asstByConv[m.conversation_id] = [];
+      asstByConv[m.conversation_id].push({ metadata: m.metadata, created_at: m.created_at });
+    }
+
+    const result = userMsgs
+      .filter((m) => m.conversation_id in convsMap)
+      .map((m) => {
+        const convAsst = asstByConv[m.conversation_id] || [];
+        // Find the first assistant message after this user message
+        const nextAsst = convAsst
+          .filter((a) => new Date(a.created_at).getTime() >= new Date(m.created_at).getTime())
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
+
+        const model = (nextAsst?.metadata?.model as string) || null;
+
+        return {
+          id: m.id,
+          ...resolveUser(m.conversation_id, convsMap, codesMap),
+          content: m.content,
+          model,
+          created_at: m.created_at,
+        };
+      });
+
+    return NextResponse.json({ messages: result });
+  }
+
   // ── Default: activity feed (chat + infographic) ──
 
   // Load user messages, assistant messages (for lowConfidence + infographic), and off_topic in parallel

@@ -522,7 +522,7 @@ ${uploadedDocsContext}`;
     temperature: 0,
     async onFinish({ text }) {
       if (conversationId) {
-        const metadata: Record<string, unknown> = {};
+        const metadata: Record<string, unknown> = { model: modelId };
         if (sourceFilenames.length > 0) metadata.sources = sourceFilenames;
         if (lowConfidence) metadata.lowConfidence = true;
         if (totalImagesIncluded > 0) metadata.imagesUsed = totalImagesIncluded;
