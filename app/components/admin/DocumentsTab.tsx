@@ -532,7 +532,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
               <div className="admin-modal-body">
                 {uploadStage === "idle" && (
                   <div>
-                    <input ref={fileInputRef} type="file" multiple accept=".docx,.pdf,.xlsx,.xls" style={{ display: "none" }} onChange={(e) => handleFilesSelected(e.target.files)} />
+                    <input ref={fileInputRef} type="file" multiple accept=".docx,.pdf,.xlsx,.xls,.pptx,.html,.htm" style={{ display: "none" }} onChange={(e) => handleFilesSelected(e.target.files)} />
                     <div className="admin-upload-area" onClick={() => fileInputRef.current?.click()}>
                       <span className="material-symbols-outlined" style={{ fontSize: 40, opacity: 0.4, marginBottom: 8 }}>upload_file</span>
                       <p>Нажмите для выбора файлов</p>

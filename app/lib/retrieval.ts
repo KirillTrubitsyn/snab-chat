@@ -63,6 +63,7 @@ const TIER_WEIGHTS: Record<string, number> = {
   "справочники":      0.90,
   "форма":            0.90,
   "денормализовано":   1.00,
+  "обучение":          1.05,
 };
 
 export function intentAwareRerank(
@@ -92,6 +93,7 @@ export function intentAwareRerank(
     regulation: ["законодательство"],
     contract: ["договоры"],
     spu_search: ["реестр"],
+    procedure: ["обучение"],
   };
   const boostTags = INTENT_BOOST_TAGS[intent.intent];
   if (boostTags) {
