@@ -135,7 +135,8 @@ returns table (
   source_filename text,
   chunk_index integer,
   similarity float,
-  tags text[]
+  tags text[],
+  image_paths text[]
 )
 language plpgsql
 as $$
@@ -148,6 +149,7 @@ begin
       c.source_filename,
       c.chunk_index,
       c.tags,
+      c.image_paths,
       1 - (c.embedding <=> query_embedding) as vector_score
     from chunks c
     where (filter_tags is null or c.tags && filter_tags)
@@ -161,6 +163,7 @@ begin
       c.source_filename,
       c.chunk_index,
       c.tags,
+      c.image_paths,
       ts_rank_cd(c.fts, plainto_tsquery('russian', query_text)) as fts_score
     from chunks c
     where c.fts @@ plainto_tsquery('russian', query_text)
@@ -174,6 +177,7 @@ begin
       c.source_filename,
       c.chunk_index,
       c.tags,
+      c.image_paths,
       ts_rank_cd(c.fts_simple, plainto_tsquery('simple', query_text)) as fts_score
     from chunks c
     where c.fts_simple @@ plainto_tsquery('simple', query_text)
@@ -187,6 +191,7 @@ begin
       coalesce(r.source_filename, s.source_filename) as source_filename,
       coalesce(r.chunk_index, s.chunk_index) as chunk_index,
       coalesce(r.tags, s.tags) as tags,
+      coalesce(r.image_paths, s.image_paths) as image_paths,
       greatest(coalesce(r.fts_score, 0), coalesce(s.fts_score, 0)) as fts_score
     from fts_russian r
     full outer join fts_simple s on r.id = s.id
@@ -198,6 +203,7 @@ begin
       coalesce(v.source_filename, f.source_filename) as source_filename,
       coalesce(v.chunk_index, f.chunk_index) as chunk_index,
       coalesce(v.tags, f.tags) as tags,
+      coalesce(v.image_paths, f.image_paths) as image_paths,
       (
         coalesce(v.vector_score, 0) * vector_weight +
         coalesce(f.fts_score, 0) * fts_weight
@@ -211,7 +217,8 @@ begin
     combined.source_filename,
     combined.chunk_index,
     combined.combined_score as similarity,
-    combined.tags
+    combined.tags,
+    combined.image_paths
   from combined
   order by combined.combined_score desc
   limit match_count;
