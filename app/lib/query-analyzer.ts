@@ -180,8 +180,13 @@ export function extractSearchHints(query: string): string[] | null {
   if (/рамочн\w+ договор/i.test(lower)) hints.push("рамочный договор");
 
   // Regulation scope (lowercase to match stored tags)
-  if (/223[\-\s]*фз/i.test(lower) && !/вне\s+223/i.test(lower)) hints.push("223-фз");
-  if (/вне\s+223|не\s+по\s+223|без\s+223/i.test(lower)) hints.push("вне 223-фз");
+  // Detect "вне 223-ФЗ" patterns first (more specific)
+  const isNon223 = /вне\s+223|не\s+по\s+223|без\s+223|не\s+в\s+рамках\s+(?:фз[\-\s]*)?223|не\s+в\s+рамках\s+223[\-\s]*фз|не\s+(?:по|в\s+рамках)\s+(?:фз[\-\s]*)?223|не\s+подпада\S*\s+под\s+223/i.test(lower);
+  if (isNon223) {
+    hints.push("вне 223-фз");
+  } else if (/223[\-\s]*фз|фз[\-\s]*223/i.test(lower)) {
+    hints.push("223-фз");
+  }
 
   // Work type hints (lowercase)
   if (/\bсмр\b|строительн/i.test(lower)) hints.push("смр");
