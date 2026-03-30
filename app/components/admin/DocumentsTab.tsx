@@ -372,7 +372,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
           />
           <div className="admin-doc-list-view">
             {filteredSources.map((doc) => {
-              const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : "docx";
+              const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : doc.mime_type?.includes("presentationml") || doc.filename?.endsWith(".pptx") || doc.filename?.endsWith(".ppt") ? "pptx" : "docx";
               const isMenuOpen = openMenuId === doc.id;
               return (
                 <div key={doc.id} className={`admin-doc-row-wrapper${expandedSourceId === doc.id ? " expanded" : ""}`}>
@@ -407,6 +407,8 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
                       <span className="material-symbols-outlined">picture_as_pdf</span>
                     ) : ext === "xlsx" ? (
                       <span className="material-symbols-outlined">table_chart</span>
+                    ) : ext === "pptx" ? (
+                      <span className="material-symbols-outlined">slideshow</span>
                     ) : (
                       <span className="material-symbols-outlined">description</span>
                     )}

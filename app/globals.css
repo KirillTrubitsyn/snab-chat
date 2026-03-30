@@ -4546,6 +4546,11 @@ input, textarea {
   color: #16A34A;
 }
 
+.doc-icon-lg.pptx {
+  background: #FEF3C7;
+  color: #D97706;
+}
+
 .admin-doc-card-name {
   font-weight: 600;
   font-size: 14px;
