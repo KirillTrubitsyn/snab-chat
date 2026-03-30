@@ -99,26 +99,16 @@ export async function POST(req: NextRequest) {
   const searchResults = Array.from(mergedSearch.values())
     .sort((a, b) => b.similarity - a.similarity);
 
-  // Off-topic handling (unchanged)
+  // Off-topic: notify admin via TG but DO NOT block the user — let the model answer
   if (offTopicResult.isOffTopic && !isAdminCode(invite.code)) {
     const supabase = createServiceClient();
     const inviteCodeId = invite.id.startsWith("admin-") ? null : invite.id;
     const categoryLabel = CATEGORY_LABELS[offTopicResult.category as OffTopicCategory] ?? offTopicResult.category;
 
-    console.log(`[OffTopic] Blocking off-topic query: "${userMessage.content.slice(0, 80)}" (${offTopicResult.category})`);
+    console.log(`[OffTopic] Detected off-topic query (not blocking): "${userMessage.content.slice(0, 80)}" (${offTopicResult.category})`);
 
-    const refusalMessage = `Я — СнабЧат, ассистент Дирекции по закупкам. К сожалению, ваш вопрос не относится к моей области компетенции (закупки, снабжение, договоры, нормативные документы).
-
-Я могу помочь с вопросами о:
-- Закупках, тендерах, аукционах
-- Договорах и контрактах
-- Нормативных документах и регламентах
-- Поставках и логистике
-- Работе с поставщиками
-
-Пожалуйста, задайте вопрос по теме закупок и снабжения.`;
-
-    await Promise.all([
+    // Fire-and-forget: log + notify, don't await
+    Promise.all([
       supabase.from("off_topic_queries").insert({
         invite_code_id: inviteCodeId,
         user_name: invite.name,
@@ -127,24 +117,9 @@ export async function POST(req: NextRequest) {
         query_text: userMessage.content.slice(0, 5000),
       }).then(({ error }) => {
         if (error) console.error("[OffTopic] DB insert error:", error.message);
-        else console.log("[OffTopic] Saved to off_topic_queries");
       }),
       notifyOffTopic(invite.name, userMessage.content, offTopicResult.category, categoryLabel, invite.organization),
-      conversationId
-        ? saveMessage(conversationId, "assistant", refusalMessage, { offTopic: true })
-        : Promise.resolve(),
-    ]).catch((e) => console.error("[OffTopic] save error:", e));
-
-    const encoded = JSON.stringify(refusalMessage);
-    const streamBody = `0:${encoded}\nd:{"finishReason":"stop"}\n`;
-
-    return new Response(streamBody, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "X-Sources": encodeURIComponent(JSON.stringify([])),
-        "X-Off-Topic": "true",
-      },
-    });
+    ]).catch((e) => console.error("[OffTopic] notify error:", e));
   }
 
   const contextMessages: { role: string; content: string }[] =
@@ -406,6 +381,14 @@ export async function POST(req: NextRequest) {
 5. При цитировании — приводи ДОСЛОВНЫЕ цитаты из документов.
 6. Перед каждым утверждением мысленно проверь: есть ли для него ПРЯМОЕ подтверждение в <documents>? Если нет — НЕ включай его в ответ.
 7. НЕ вставляй ссылки на источники вида [doc:N] в текст ответа. Источники отображаются отдельно в интерфейсе.
+
+УТОЧНЯЮЩИЕ ВОПРОСЫ:
+Если запрос пользователя слишком общий, неоднозначный или может относиться к нескольким темам — ЗАДАЙ уточняющий вопрос, прежде чем давать ответ. Примеры ситуаций:
+- «Как провести закупку?» → уточни: какой тип товаров/услуг, примерная сумма, какой объект/юрлицо
+- «Какие сроки?» → уточни: сроки чего именно (подачи заявок, рассмотрения, поставки, оплаты)
+- «Расскажи про переторжку» → можно ответить общо, но предложить уточнить режим (223-ФЗ / вне 223-ФЗ)
+- Однословные запросы («НМЦД», «ЗКО», «аукцион») → уточни, что конкретно интересует
+При этом НЕ задавай уточняющих вопросов, если запрос достаточно конкретный для полноценного ответа. Если можешь дать полезный ответ — дай его, а уточняющий вопрос добавь в конце как предложение для углубления темы.
 
 ФОРМАТ ОТВЕТА:
 - Используй Markdown для форматирования
