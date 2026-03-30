@@ -156,22 +156,34 @@ export async function POST(req: NextRequest) {
     const countNon223 = combinedResults.filter((r) => r.tags.some((t) => t.toLowerCase() === "вне 223-фз")).length;
     const MIN_REGIME_CHUNKS = 3; // minimum chunks per regime for comparative queries
 
+    // Build search queries for regime-specific supplement: original + first variant
+    const regimeSearchQueries = [searchQuery];
+    if (intentResult.query_variants) {
+      const firstVariant = intentResult.query_variants.find((v) => v.length > 5 && v !== searchQuery);
+      if (firstVariant) regimeSearchQueries.push(firstVariant);
+    }
+
+    const addRegimeSearches = (tags: string[]) => {
+      for (const q of regimeSearchQueries) {
+        supplementSearches.push(hybridSearch(q, 10, tags));
+      }
+    };
+
     if (intentResult.fz_type === "223" && count223 === 0) {
-      supplementSearches.push(hybridSearch(searchQuery, 10, ["223-фз"]));
+      addRegimeSearches(["223-фз"]);
     } else if (intentResult.fz_type === "non-223" && countNon223 === 0) {
-      supplementSearches.push(hybridSearch(searchQuery, 10, ["вне 223-фз"]));
+      addRegimeSearches(["вне 223-фз"]);
     } else if (intentResult.fz_type === "both") {
-      // For comparative queries, ensure MINIMUM chunks per regime, not just "at least one"
-      if (count223 < MIN_REGIME_CHUNKS) supplementSearches.push(hybridSearch(searchQuery, 10, ["223-фз"]));
-      if (countNon223 < MIN_REGIME_CHUNKS) supplementSearches.push(hybridSearch(searchQuery, 10, ["вне 223-фз"]));
+      if (count223 < MIN_REGIME_CHUNKS) addRegimeSearches(["223-фз"]);
+      if (countNon223 < MIN_REGIME_CHUNKS) addRegimeSearches(["вне 223-фз"]);
     } else if (intentResult.fz_type === "unknown" && intentResult.confidence >= 0.4) {
       if (count223 === 0 && countNon223 === 0) {
-        supplementSearches.push(hybridSearch(searchQuery, 10, ["223-фз"]));
-        supplementSearches.push(hybridSearch(searchQuery, 10, ["вне 223-фз"]));
+        addRegimeSearches(["223-фз"]);
+        addRegimeSearches(["вне 223-фз"]);
       } else if (countNon223 === 0) {
-        supplementSearches.push(hybridSearch(searchQuery, 10, ["вне 223-фз"]));
+        addRegimeSearches(["вне 223-фз"]);
       } else if (count223 === 0) {
-        supplementSearches.push(hybridSearch(searchQuery, 10, ["223-фз"]));
+        addRegimeSearches(["223-фз"]);
       }
     }
 
