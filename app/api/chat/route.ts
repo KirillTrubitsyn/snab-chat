@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "@/app/lib/google-ai";
 import { streamText, type CoreMessage } from "ai";
-import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument } from "@/app/lib/retrieval";
+import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, type SearchResult } from "@/app/lib/retrieval";
 import { classifyIntent, type QueryIntent } from "@/app/lib/intent-classifier";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
@@ -139,16 +139,37 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Intent-aware supplementary search ──
-  // When intent classifier detected a specific fz_type or search_tags,
-  // check if current results already contain matching chunks.
-  // If not, run a targeted filtered search to fill the gap.
-  if (intentResult.confidence >= 0.5) {
-    const targetTags: string[] = [];
+  // After parallel tasks complete, use intent result to fill gaps:
+  // 1. Check fz_type coverage (223 / non-223 / both)
+  // 2. Use intent query_variants for broader search
+  // 3. Check source diversity (avoid single-source dominance)
+  {
+    const supplementSearches: Promise<SearchResult[]>[] = [];
 
-    if (intentResult.fz_type === "223") targetTags.push("223-фз");
-    if (intentResult.fz_type === "non-223") targetTags.push("вне 223-фз");
+    // 1. FZ-type coverage: ensure both regimes are represented when relevant
+    const has223 = combinedResults.some((r) => r.tags.some((t) => t.toLowerCase() === "223-фз"));
+    const hasNon223 = combinedResults.some((r) => r.tags.some((t) => t.toLowerCase() === "вне 223-фз"));
 
-    // Also add intent-specific tags
+    if (intentResult.fz_type === "223" && !has223) {
+      supplementSearches.push(hybridSearch(searchQuery, 10, ["223-фз"]));
+    } else if (intentResult.fz_type === "non-223" && !hasNon223) {
+      supplementSearches.push(hybridSearch(searchQuery, 10, ["вне 223-фз"]));
+    } else if (intentResult.fz_type === "both") {
+      if (!has223) supplementSearches.push(hybridSearch(searchQuery, 10, ["223-фз"]));
+      if (!hasNon223) supplementSearches.push(hybridSearch(searchQuery, 10, ["вне 223-фз"]));
+    } else if (intentResult.fz_type === "unknown" && intentResult.confidence >= 0.4) {
+      // For general procurement questions, try to get both regimes
+      if (!has223 && !hasNon223) {
+        supplementSearches.push(hybridSearch(searchQuery, 10, ["223-фз"]));
+        supplementSearches.push(hybridSearch(searchQuery, 10, ["вне 223-фз"]));
+      } else if (!hasNon223) {
+        supplementSearches.push(hybridSearch(searchQuery, 10, ["вне 223-фз"]));
+      } else if (!has223) {
+        supplementSearches.push(hybridSearch(searchQuery, 10, ["223-фз"]));
+      }
+    }
+
+    // 2. Intent-specific tag coverage
     const intentTagMap: Record<string, string[]> = {
       pricing: ["ценообразование"],
       authority: ["матрица полномочий"],
@@ -156,22 +177,42 @@ export async function POST(req: NextRequest) {
       contract: ["договоры"],
       system: ["инструкции"],
     };
-    const extraTags = intentTagMap[intentResult.intent];
-    if (extraTags) targetTags.push(...extraTags);
-
-    if (targetTags.length > 0) {
-      // Check if any current result has at least one target tag
-      const hasTargetCoverage = combinedResults.some((r) =>
-        r.tags.some((t) => targetTags.includes(t.toLowerCase()))
+    const intentTags = intentTagMap[intentResult.intent];
+    if (intentTags && intentResult.confidence >= 0.5) {
+      const hasIntentTag = combinedResults.some((r) =>
+        r.tags.some((t) => intentTags.includes(t.toLowerCase()))
       );
+      if (!hasIntentTag) {
+        supplementSearches.push(hybridSearch(searchQuery, 10, intentTags));
+      }
+    }
 
-      if (!hasTargetCoverage) {
-        console.log(`[chat] Intent supplementary search: no results with tags [${targetTags.join(", ")}], fetching...`);
-        const supplementary = await hybridSearch(searchQuery, 10, targetTags);
-        const newSupplementary = supplementary.filter((r) => !existingIds.has(r.id));
-        for (const r of newSupplementary) existingIds.add(r.id);
-        combinedResults = [...combinedResults, ...newSupplementary];
-        console.log(`[chat] Intent supplementary search added ${newSupplementary.length} new chunks`);
+    // 3. Use intent query_variants (broader semantic coverage)
+    if (intentResult.query_variants.length > 0) {
+      for (const variant of intentResult.query_variants.slice(0, 2)) {
+        if (variant !== searchQuery && variant.length > 5) {
+          supplementSearches.push(hybridSearch(variant, 10, null));
+        }
+      }
+    }
+
+    // 4. Source diversity check: if all results come from ≤2 sources, broaden search
+    const uniqueSources = new Set(combinedResults.map((r) => r.source_filename));
+    if (uniqueSources.size <= 2 && combinedResults.length >= 5 && intentResult.search_tags.length > 0) {
+      supplementSearches.push(hybridSearch(searchQuery, 10, intentResult.search_tags));
+    }
+
+    if (supplementSearches.length > 0) {
+      const allSupplementary = await Promise.all(supplementSearches);
+      let addedCount = 0;
+      for (const results of allSupplementary) {
+        const newResults = results.filter((r) => !existingIds.has(r.id));
+        for (const r of newResults) existingIds.add(r.id);
+        combinedResults = [...combinedResults, ...newResults];
+        addedCount += newResults.length;
+      }
+      if (addedCount > 0) {
+        console.log(`[chat] Intent supplementary search added ${addedCount} new chunks from ${supplementSearches.length} queries`);
       }
     }
   }
