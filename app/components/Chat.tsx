@@ -349,16 +349,25 @@ export default function Chat() {
 
   /* ── Switch conversation ── */
   const switchConversation = useCallback(
-    async (convId: string) => {
+    (convId: string) => {
       setActiveConvId(convId);
       convIdRef.current = convId;
       setRightOpen(false);
+    },
+    []
+  );
 
+  // Load messages after activeConvId changes (ensures useChat has re-initialized with new id)
+  useEffect(() => {
+    if (!activeConvId) return;
+    let cancelled = false;
+    (async () => {
       try {
-        const res = await fetch(`/api/conversations/messages?id=${convId}`, {
+        const res = await fetch(`/api/conversations/messages?id=${activeConvId}`, {
           headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
         });
         const data = await res.json();
+        if (cancelled) return;
         setHasSummary(data.conversation?.hasSummary ?? false);
         if (data.messages) {
           setMessages(
@@ -375,11 +384,11 @@ export default function Chat() {
           );
         }
       } catch {
-        setMessages([]);
+        if (!cancelled) setMessages([]);
       }
-    },
-    [setMessages]
-  );
+    })();
+    return () => { cancelled = true; };
+  }, [activeConvId, setMessages]);
 
   /* ── Create conversation ── */
   const createConversation = useCallback(
