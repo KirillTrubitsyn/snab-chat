@@ -1,7 +1,7 @@
 import { createServiceClient } from "./supabase";
 import { embedQuery } from "./embeddings";
 import type { IntentResult, QueryIntent } from "./intent-classifier";
-import type { SectionReference } from "./query-analyzer";
+import type { SectionReference, DocumentReference } from "./query-analyzer";
 
 export interface SearchResult {
   id: string;
@@ -390,6 +390,92 @@ export async function fetchChunksBySection(
   console.log(
     `fetchChunksBySection: found ${results.length} chunks for sections [${ref.sections.join(", ")}]` +
     (ref.documentHint ? ` in docs matching "${ref.documentHint}"` : "")
+  );
+
+  return results;
+}
+
+/* ── Document-aware direct chunk lookup ── */
+
+/**
+ * Fetches chunks from a specific document referenced by name.
+ * Returns representative chunks (first + evenly spaced) so the model
+ * has structural context about the document.
+ */
+export async function fetchChunksByDocument(
+  ref: DocumentReference,
+  maxChunks: number = 8
+): Promise<SearchResult[]> {
+  const supabase = createServiceClient();
+
+  // First, find matching source filenames
+  let sourceQuery = supabase
+    .from("sources")
+    .select("filename");
+
+  // Apply all hints as AND conditions (all must match)
+  for (const hint of ref.filenameHints) {
+    sourceQuery = sourceQuery.ilike("filename", `%${hint}%`);
+  }
+
+  const { data: sources, error: srcError } = await sourceQuery.limit(5);
+
+  if (srcError || !sources || sources.length === 0) {
+    console.log("fetchChunksByDocument: no matching sources for hints", ref.filenameHints);
+    return [];
+  }
+
+  const filenames = sources.map((s: { filename: string }) => s.filename);
+  console.log("fetchChunksByDocument: matched sources:", filenames);
+
+  // Fetch all chunks from matched documents
+  const { data: chunks, error: chunkError } = await supabase
+    .from("chunks")
+    .select("id, content, source_filename, chunk_index, tags, image_paths")
+    .in("source_filename", filenames)
+    .order("chunk_index", { ascending: true });
+
+  if (chunkError || !chunks || chunks.length === 0) {
+    console.log("fetchChunksByDocument: no chunks found for", filenames);
+    return [];
+  }
+
+  // Select representative chunks: first chunk + evenly spaced through the document
+  // This gives the model structural overview of the document
+  let selected: typeof chunks;
+  if (chunks.length <= maxChunks) {
+    selected = chunks;
+  } else {
+    selected = [chunks[0]]; // Always include first chunk (usually TOC/intro)
+    const step = Math.floor((chunks.length - 1) / (maxChunks - 1));
+    for (let i = step; i < chunks.length && selected.length < maxChunks; i += step) {
+      selected.push(chunks[i]);
+    }
+    // Always include last chunk if not already
+    if (selected[selected.length - 1] !== chunks[chunks.length - 1] && selected.length < maxChunks) {
+      selected.push(chunks[chunks.length - 1]);
+    }
+  }
+
+  const results: SearchResult[] = selected.map((chunk: {
+    id: string;
+    content: string;
+    source_filename: string;
+    chunk_index: number;
+    tags: string[] | null;
+    image_paths: string[] | null;
+  }) => ({
+    id: chunk.id,
+    content: chunk.content,
+    source_filename: chunk.source_filename,
+    chunk_index: chunk.chunk_index,
+    similarity: 0.80, // synthetic score — above threshold, slightly below section lookup
+    tags: chunk.tags ?? [],
+    image_paths: chunk.image_paths ?? [],
+  }));
+
+  console.log(
+    `fetchChunksByDocument: returning ${results.length}/${chunks.length} chunks from "${filenames.join(", ")}"`
   );
 
   return results;
