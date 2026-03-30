@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "@/app/lib/google-ai";
 import { streamText, type CoreMessage } from "ai";
-import { multiQuerySearch, filterByRelevance, intentAwareRerank } from "@/app/lib/retrieval";
+import { multiQuerySearch, filterByRelevance, intentAwareRerank, fetchChunksBySection } from "@/app/lib/retrieval";
 import { classifyIntent } from "@/app/lib/intent-classifier";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
@@ -10,7 +10,7 @@ import { unauthorizedResponse, notFound } from "@/app/lib/api-helpers";
 import { classifyOffTopic, CATEGORY_LABELS, type OffTopicCategory } from "@/app/lib/off-topic-classifier";
 import { notifyOffTopic } from "@/app/lib/telegram";
 import { logError } from "@/app/lib/error-logger";
-import { extractSearchHints } from "@/app/lib/query-analyzer";
+import { extractSearchHints, detectSectionReference } from "@/app/lib/query-analyzer";
 
 export const runtime = "nodejs";
 
@@ -52,8 +52,9 @@ export async function POST(req: NextRequest) {
   }
 
   const searchHints = extractSearchHints(userMessage.content);
+  const sectionRef = detectSectionReference(userMessage.content);
 
-  const [, contextResult, intentResult, searchResults, offTopicResult] = await Promise.all([
+  const [, contextResult, intentResult, searchResults, offTopicResult, sectionResults] = await Promise.all([
     conversationId
       ? saveMessage(conversationId, "user", userMessage.content)
       : Promise.resolve(),
@@ -63,6 +64,7 @@ export async function POST(req: NextRequest) {
     classifyIntent(searchQuery),
     multiQuerySearch(searchQuery, 20, searchHints),
     classifyOffTopic(userMessage.content, messages.slice(0, -1)),
+    sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
   ]);
 
   // Off-topic handling (unchanged)
@@ -116,8 +118,17 @@ export async function POST(req: NextRequest) {
   const contextMessages: { role: string; content: string }[] =
     contextResult?.messages ?? [];
 
+  // Merge section-lookup results with search results (dedup by id)
+  let combinedResults = searchResults;
+  if (sectionResults.length > 0) {
+    const existingIds = new Set(searchResults.map((r) => r.id));
+    const newSectionResults = sectionResults.filter((r) => !existingIds.has(r.id));
+    combinedResults = [...newSectionResults, ...searchResults];
+    console.log(`[chat] Section lookup added ${newSectionResults.length} new chunks`);
+  }
+
   // Rerank and filter
-  const rerankedResults = intentAwareRerank(searchResults, intentResult);
+  const rerankedResults = intentAwareRerank(combinedResults, intentResult);
   const { results: relevantChunks, lowConfidence } = filterByRelevance(rerankedResults);
 
   // ── NEW: Load chunk images from Supabase Storage ──
