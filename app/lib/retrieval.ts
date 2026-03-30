@@ -401,12 +401,13 @@ export async function fetchChunksBySection(
 
 /**
  * Fetches chunks from a specific document referenced by name.
- * Returns representative chunks (first + evenly spaced) so the model
- * has structural context about the document.
+ * When searchQuery is provided, ranks chunks by keyword relevance to the query.
+ * Otherwise returns representative chunks (first + evenly spaced).
  */
 export async function fetchChunksByDocument(
   ref: DocumentReference,
-  maxChunks: number = 8
+  maxChunks: number = 8,
+  searchQuery?: string
 ): Promise<SearchResult[]> {
   const supabase = createServiceClient();
 
@@ -442,20 +443,74 @@ export async function fetchChunksByDocument(
     return [];
   }
 
-  // Select representative chunks: first chunk + evenly spaced through the document
-  // This gives the model structural overview of the document
-  let selected: typeof chunks;
-  if (chunks.length <= maxChunks) {
-    selected = chunks;
-  } else {
-    selected = [chunks[0]]; // Always include first chunk (usually TOC/intro)
-    const step = Math.floor((chunks.length - 1) / (maxChunks - 1));
-    for (let i = step; i < chunks.length && selected.length < maxChunks; i += step) {
-      selected.push(chunks[i]);
+  interface DocChunkRow {
+    id: string;
+    content: string;
+    source_filename: string;
+    chunk_index: number;
+    tags: string[] | null;
+    image_paths: string[] | null;
+  }
+
+  const typedChunks = chunks as DocChunkRow[];
+
+  // Select chunks based on query relevance or representative sampling
+  let selected: DocChunkRow[];
+  if (typedChunks.length <= maxChunks) {
+    selected = typedChunks;
+  } else if (searchQuery) {
+    // Extract keywords from query for relevance scoring
+    const keywords = searchQuery
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 3)
+      .map((w) => w.replace(/[.,!?;:()]/g, ""));
+
+    // Score each chunk by keyword matches
+    const scored = typedChunks.map((chunk: DocChunkRow) => {
+      const lower = chunk.content.toLowerCase();
+      let score = 0;
+      for (const kw of keywords) {
+        const regex = new RegExp(kw, "gi");
+        const matches = lower.match(regex);
+        if (matches) score += matches.length;
+      }
+      return { chunk, score };
+    });
+
+    // Sort by score descending, take top N
+    scored.sort((a: { score: number }, b: { score: number }) => b.score - a.score);
+
+    // Always include first chunk (intro/TOC) + top scoring chunks
+    const firstChunk = typedChunks[0];
+    const topChunks = scored
+      .filter((s: { chunk: DocChunkRow; score: number }) => s.score > 0 && s.chunk !== firstChunk)
+      .slice(0, maxChunks - 1)
+      .map((s: { chunk: DocChunkRow }) => s.chunk);
+
+    selected = [firstChunk, ...topChunks];
+
+    // If not enough scored chunks, pad with evenly spaced
+    if (selected.length < maxChunks) {
+      const selectedIds = new Set(selected.map((c: DocChunkRow) => c.id));
+      const step = Math.floor(typedChunks.length / (maxChunks - selected.length + 1));
+      for (let i = step; i < typedChunks.length && selected.length < maxChunks; i += step) {
+        if (!selectedIds.has(typedChunks[i].id)) {
+          selected.push(typedChunks[i]);
+        }
+      }
     }
-    // Always include last chunk if not already
-    if (selected[selected.length - 1] !== chunks[chunks.length - 1] && selected.length < maxChunks) {
-      selected.push(chunks[chunks.length - 1]);
+
+    console.log(`fetchChunksByDocument: keyword scoring found ${topChunks.length} relevant chunks`);
+  } else {
+    // No query — representative sampling
+    selected = [typedChunks[0]];
+    const step = Math.floor((typedChunks.length - 1) / (maxChunks - 1));
+    for (let i = step; i < typedChunks.length && selected.length < maxChunks; i += step) {
+      selected.push(typedChunks[i]);
+    }
+    if (selected[selected.length - 1] !== typedChunks[typedChunks.length - 1] && selected.length < maxChunks) {
+      selected.push(typedChunks[typedChunks.length - 1]);
     }
   }
 
@@ -477,7 +532,7 @@ export async function fetchChunksByDocument(
   }));
 
   console.log(
-    `fetchChunksByDocument: returning ${results.length}/${chunks.length} chunks from "${filenames.join(", ")}"`
+    `fetchChunksByDocument: returning ${results.length}/${typedChunks.length} chunks from "${filenames.join(", ")}"`
   );
 
   return results;
