@@ -32,22 +32,29 @@ interface JsonlStatement {
 
 function sectionToTags(section: string, tableType?: string): string[] {
   const tags: string[] = [];
-  if (section.includes("Законодательство")) tags.push("законодательство");
-  else if (section.includes("Положения")) tags.push("положения");
-  else if (section.includes("223-ФЗ")) tags.push("223-ФЗ", "стандарт");
-  else if (section.includes("вне 223-ФЗ")) tags.push("вне 223-ФЗ", "стандарт");
-  else if (section.includes("планирования")) tags.push("планирование");
-  else if (section.includes("СМР") || section.includes("ПИР")) tags.push("СМР", "ПИР");
-  else if (section.includes("Ценообразование")) tags.push("ценообразование");
-  else if (section.includes("Договоры")) tags.push("договоры");
-  else if (section.includes("Инструкции")) tags.push("инструкции");
-  else if (section.includes("Методические")) tags.push("методика");
-  else if (section.includes("Справочники")) tags.push("справочники");
+  const s = section.trim();
+
+  // «вне 223-ФЗ» должно проверяться ДО «223-ФЗ», иначе includes("223-ФЗ") перехватывает
+  if (s.includes("Законодательство")) tags.push("законодательство");
+  else if (s.includes("Положения")) tags.push("положения");
+  else if (s.includes("вне 223-ФЗ") || s === "04") tags.push("вне 223-ФЗ", "стандарт");
+  else if (s.includes("223-ФЗ") || s === "03") tags.push("223-ФЗ", "стандарт");
+  else if (s.includes("планирования") || s === "05") tags.push("планирование");
+  else if (s.includes("СМР") || s.includes("ПИР")) tags.push("СМР", "ПИР");
+  else if (s.includes("Ценообразование")) tags.push("ценообразование");
+  else if (s.includes("Договоры")) tags.push("договоры");
+  else if (s.includes("Инструкции")) tags.push("инструкции");
+  else if (s.includes("Методические")) tags.push("методика");
+  else if (s.includes("Справочники")) tags.push("справочники");
+  else if (s.includes("Лимиты") || s.includes("деблокирования")) tags.push("лимиты");
+  else if (s.includes("Нормативные сроки")) tags.push("нормативные сроки");
+
   if (tableType === "decision_matrix") tags.push("матрица полномочий");
   else if (tableType === "registry") tags.push("реестр");
   else if (tableType === "numeric") tags.push("числовые данные");
   else if (tableType === "form") tags.push("форма");
   else if (tableType === "reference") tags.push("справочник");
+
   tags.push("денормализовано");
   return tags;
 }
