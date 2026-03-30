@@ -104,34 +104,6 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
     } catch { /* ignore */ }
   };
 
-  const recategorizeAll = async () => {
-    const updates: { id: number; folderPath: string }[] = [];
-    for (const s of sources) {
-      const detected = detectCategory(s.tags || [], s.filename);
-      if (detected !== normalizeFolderPath(s.folder_path)) {
-        updates.push({ id: s.id, folderPath: detected });
-      }
-    }
-    if (updates.length === 0) return;
-    setSources((prev) =>
-      prev.map((s) => {
-        const u = updates.find((x) => x.id === s.id);
-        return u ? { ...s, folder_path: u.folderPath } : s;
-      })
-    );
-    let updated = 0;
-    for (const u of updates) {
-      try {
-        await fetch(`/api/sources?id=${u.id}`, {
-          method: "PATCH",
-          headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify({ folder_path: u.folderPath }),
-        });
-        updated++;
-      } catch { /* ignore */ }
-    }
-    alert(`Категории обновлены: ${updated} документов`);
-  };
 
   const startRename = (doc: Source) => {
     setRenamingId(doc.id);
@@ -304,12 +276,6 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
                     <span className="material-symbols-outlined">checklist</span>Выбрать
                   </button>
                 )}
-                <button className="admin-btn-secondary" onClick={recategorizeAll}>
-                  <span className="material-symbols-outlined">auto_fix_high</span>Пересортировать
-                </button>
-                <button className="admin-btn-secondary" onClick={loadSources} disabled={sourcesLoading}>
-                  <span className="material-symbols-outlined">refresh</span>Обновить
-                </button>
                 <button className="admin-btn-primary" onClick={() => setShowUpload(true)}>
                   <span className="material-symbols-outlined">add</span>Загрузить документ
                 </button>
