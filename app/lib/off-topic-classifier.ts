@@ -72,6 +72,11 @@ ON-TOPIC queries (respond with: procurement):
 - Procurement abbreviations: НМЦК, НМЦЖ, НМЦ, ОКПД, ЕП, ТРУ, ТЗ, КП, ОЗ, НДС, ФАС, ЕИС, ЭТП, РНП, ОТР, СМР, ПИР
 - Responsibility assignment, organizational structure related to procurement processes
 - Any query mentioning work/service pricing, cost estimation, contract formation
+- Document templates (шаблон), forms (бланк, образец), reports (отчёт, сводка, ведомость)
+- Cost summaries, cost calculations, expenditure breakdowns for works and services (затраты, расценки, калькуляция)
+- Acts (акт выполненных работ, акт сверки, КС-2, КС-3), defect statements, estimates (сметы)
+- Any mention of "работы" (works) and "услуги" (services) in business/procurement context
+- Registers, certificates, extracts, protocols, memos (реестр, справка, выписка, протокол, записка)
 
 OFF-TOPIC categories:
 - household — home repair, cleaning, interior design, dacha
@@ -139,6 +144,18 @@ function keywordClassify(text: string): OffTopicCategory {
     /субподряд/i, /генподряд/i, /подрядчик/i, /исполнител/i,
     /заказчик/i, /извещен.*закупк/i, /протокол.*закупк/i,
     /формирован.*цен/i, /обоснован.*цен/i, /расчёт.*цен/i, /расчет.*цен/i,
+    // Document templates, forms, reports — work document requests
+    /шаблон/i, /образец/i, /бланк/i, /форм[аеуы].*документ/i,
+    /сводк/i, /ведомост/i, /калькуляц/i, /расценк/i,
+    /затрат.*работ/i, /затрат.*услуг/i, /работ.*услуг/i,
+    /акт.*выполнен/i, /акт.*приёмк/i, /акт.*приемк/i, /акт.*сверк/i,
+    /(?<![а-яёА-ЯЁ])кс-2(?![а-яёА-ЯЁ])/i, /(?<![а-яёА-ЯЁ])кс-3(?![а-яёА-ЯЁ])/i,
+    /дефектн.*ведомост/i, /дефектн.*акт/i, /сметн/i,
+    /объём.*работ/i, /объем.*работ/i, /перечень.*работ/i, /перечень.*услуг/i,
+    /стоимост.*работ/i, /стоимост.*услуг/i,
+    /(?<![а-яёА-ЯЁ])гпд(?![а-яёА-ЯЁ])/i, /гражданско.*правов/i,
+    /реестр/i, /справк/i, /выписк/i, /протокол/i, /заключен/i,
+    /отчёт/i, /отчет/i, /служебн.*записк/i, /пояснительн.*записк/i,
     // Meta-queries about the system itself (what documents are loaded, capabilities, etc.)
     /документ.*загружен/i, /загружен.*документ/i, /какие.*документ/i,
     /что ты (умеешь|можешь|знаешь)/i, /что.*загружен/i, /какие.*файл/i,
