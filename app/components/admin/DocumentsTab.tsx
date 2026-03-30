@@ -372,7 +372,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
           />
           <div className="admin-doc-list-view">
             {filteredSources.map((doc) => {
-              const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : doc.mime_type?.includes("presentationml") || doc.filename?.endsWith(".pptx") || doc.filename?.endsWith(".ppt") ? "pptx" : "docx";
+              const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : doc.mime_type?.includes("presentationml") || doc.filename?.endsWith(".pptx") || doc.filename?.endsWith(".ppt") ? "pptx" : doc.mime_type?.includes("html") || doc.filename?.endsWith(".html") || doc.filename?.endsWith(".htm") ? "html" : "docx";
               const isMenuOpen = openMenuId === doc.id;
               return (
                 <div key={doc.id} className={`admin-doc-row-wrapper${expandedSourceId === doc.id ? " expanded" : ""}`}>
@@ -409,6 +409,8 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
                       <span className="material-symbols-outlined">table_chart</span>
                     ) : ext === "pptx" ? (
                       <span className="material-symbols-outlined">slideshow</span>
+                    ) : ext === "html" ? (
+                      <span className="material-symbols-outlined">school</span>
                     ) : (
                       <span className="material-symbols-outlined">description</span>
                     )}
