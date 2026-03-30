@@ -187,6 +187,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 2b. Training course coverage: for procedure/general/regulation questions,
+    // always try to include training materials if none are present
+    const trainingIntents = ["procedure", "general", "regulation", "authority", "pricing"];
+    if (trainingIntents.includes(intentResult.intent)) {
+      const hasTraining = combinedResults.some((r) =>
+        r.tags.some((t) => t.toLowerCase() === "обучение")
+      );
+      if (!hasTraining) {
+        supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение"]));
+      }
+    }
+
     // 3. Use intent query_variants (broader semantic coverage)
     if (intentResult.query_variants.length > 0) {
       for (const variant of intentResult.query_variants.slice(0, 2)) {
