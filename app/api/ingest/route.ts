@@ -61,21 +61,21 @@ export async function POST(req: NextRequest) {
     }
 
     // Build metadata preamble for each chunk
-    const preambleParts: string[] = [`📄 Документ: ${filename}`];
+    const preambleParts: string[] = [`Документ: ${filename}`];
     const parentMatch = filename.match(/\(([^)]+)\)[^)]*$/);
     if (parentMatch) {
       preambleParts.push(
-        `📎 Родительский документ: ${parentMatch[1].replace(/_/g, " ")}`
+        `Родительский документ: ${parentMatch[1].replace(/_/g, " ")}`
       );
     }
     if (tags.length > 0) {
-      preambleParts.push(`📂 Тип: ${tags[0]}`);
+      preambleParts.push(`Тип: ${tags[0]}`);
     }
     if (tags.length > 1) {
-      preambleParts.push(`🏷️ Категория: ${tags[1]}`);
+      preambleParts.push(`Категория: ${tags[1]}`);
     }
     if (folderPath) {
-      preambleParts.push(`📁 Раздел: ${folderPath}`);
+      preambleParts.push(`Раздел: ${folderPath}`);
     }
     const preamble = preambleParts.join(" | ");
 
