@@ -49,6 +49,12 @@ alter table chunks add column if not exists fts tsvector
 
 create index if not exists chunks_fts_idx on chunks using gin (fts);
 
+-- Полнотекстовый индекс без стемминга (для аббревиатур: НМЦД, ЗКО, ЕИ)
+alter table chunks add column if not exists fts_simple tsvector
+  generated always as (to_tsvector('simple', content)) stored;
+
+create index if not exists chunks_fts_simple_idx on chunks using gin (fts_simple);
+
 -- Индекс по source_id для каскадных операций
 create index if not exists chunks_source_id_idx on chunks (source_id);
 
@@ -129,7 +135,8 @@ returns table (
   source_filename text,
   chunk_index integer,
   similarity float,
-  tags text[]
+  tags text[],
+  image_paths text[]
 )
 language plpgsql
 as $$
@@ -142,24 +149,52 @@ begin
       c.source_filename,
       c.chunk_index,
       c.tags,
+      c.image_paths,
       1 - (c.embedding <=> query_embedding) as vector_score
     from chunks c
     where (filter_tags is null or c.tags && filter_tags)
     order by c.embedding <=> query_embedding
     limit match_count * 2
   ),
-  fts_results as (
+  fts_russian as (
     select
       c.id::text as id,
       c.content,
       c.source_filename,
       c.chunk_index,
       c.tags,
+      c.image_paths,
       ts_rank_cd(c.fts, plainto_tsquery('russian', query_text)) as fts_score
     from chunks c
     where c.fts @@ plainto_tsquery('russian', query_text)
       and (filter_tags is null or c.tags && filter_tags)
     limit match_count * 2
+  ),
+  fts_simple as (
+    select
+      c.id::text as id,
+      c.content,
+      c.source_filename,
+      c.chunk_index,
+      c.tags,
+      c.image_paths,
+      ts_rank_cd(c.fts_simple, plainto_tsquery('simple', query_text)) as fts_score
+    from chunks c
+    where c.fts_simple @@ plainto_tsquery('simple', query_text)
+      and (filter_tags is null or c.tags && filter_tags)
+    limit match_count * 2
+  ),
+  fts_combined as (
+    select
+      coalesce(r.id, s.id) as id,
+      coalesce(r.content, s.content) as content,
+      coalesce(r.source_filename, s.source_filename) as source_filename,
+      coalesce(r.chunk_index, s.chunk_index) as chunk_index,
+      coalesce(r.tags, s.tags) as tags,
+      coalesce(r.image_paths, s.image_paths) as image_paths,
+      greatest(coalesce(r.fts_score, 0), coalesce(s.fts_score, 0)) as fts_score
+    from fts_russian r
+    full outer join fts_simple s on r.id = s.id
   ),
   combined as (
     select
@@ -168,12 +203,13 @@ begin
       coalesce(v.source_filename, f.source_filename) as source_filename,
       coalesce(v.chunk_index, f.chunk_index) as chunk_index,
       coalesce(v.tags, f.tags) as tags,
+      coalesce(v.image_paths, f.image_paths) as image_paths,
       (
         coalesce(v.vector_score, 0) * vector_weight +
         coalesce(f.fts_score, 0) * fts_weight
       ) as combined_score
     from vector_results v
-    full outer join fts_results f on v.id = f.id
+    full outer join fts_combined f on v.id = f.id
   )
   select
     combined.id,
@@ -181,7 +217,8 @@ begin
     combined.source_filename,
     combined.chunk_index,
     combined.combined_score as similarity,
-    combined.tags
+    combined.tags,
+    combined.image_paths
   from combined
   order by combined.combined_score desc
   limit match_count;

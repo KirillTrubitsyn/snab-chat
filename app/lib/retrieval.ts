@@ -15,8 +15,10 @@ export interface SearchResult {
 
 /* ── Relevance filtering constants ── */
 const SIMILARITY_THRESHOLD = 0.35;
-const CLIFF_RATIO = 0.7;
-const MAX_CHUNKS = 8;
+const CLIFF_RATIO = 0.6;
+const CLIFF_RATIO_RELAXED = 0.5;
+const MAX_CHUNKS = 10;
+const MIN_CHUNKS_BEFORE_RELAX = 3;
 
 export interface FilteredSearchResult {
   results: SearchResult[];
@@ -41,6 +43,16 @@ export function filterByRelevance(results: SearchResult[]): FilteredSearchResult
     if (sorted[i].similarity < sorted[i - 1].similarity * CLIFF_RATIO) break;
     if (filtered.length >= MAX_CHUNKS) break;
     filtered.push(sorted[i]);
+  }
+
+  // If too few chunks passed strict filtering, retry with relaxed cliff ratio
+  if (filtered.length < MIN_CHUNKS_BEFORE_RELAX && sorted.length > filtered.length) {
+    for (let i = filtered.length; i < sorted.length; i++) {
+      if (sorted[i].similarity < SIMILARITY_THRESHOLD) break;
+      if (sorted[i].similarity < sorted[0].similarity * CLIFF_RATIO_RELAXED) break;
+      if (filtered.length >= MAX_CHUNKS) break;
+      filtered.push(sorted[i]);
+    }
   }
 
   return { results: filtered, lowConfidence: false };
