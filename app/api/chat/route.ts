@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "@/app/lib/google-ai";
 import { streamText, type CoreMessage } from "ai";
-import { multiQuerySearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument } from "@/app/lib/retrieval";
+import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument } from "@/app/lib/retrieval";
 import { classifyIntent } from "@/app/lib/intent-classifier";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
@@ -133,8 +133,47 @@ export async function POST(req: NextRequest) {
 
   if (docResults.length > 0) {
     const newDocResults = docResults.filter((r) => !existingIds.has(r.id));
+    for (const r of newDocResults) existingIds.add(r.id);
     combinedResults = [...combinedResults, ...newDocResults];
     console.log(`[chat] Document lookup added ${newDocResults.length} new chunks`);
+  }
+
+  // ── Intent-aware supplementary search ──
+  // When intent classifier detected a specific fz_type or search_tags,
+  // check if current results already contain matching chunks.
+  // If not, run a targeted filtered search to fill the gap.
+  if (intentResult.confidence >= 0.5) {
+    const targetTags: string[] = [];
+
+    if (intentResult.fz_type === "223") targetTags.push("223-фз");
+    if (intentResult.fz_type === "non-223") targetTags.push("вне 223-фз");
+
+    // Also add intent-specific tags
+    const intentTagMap: Record<string, string[]> = {
+      pricing: ["ценообразование"],
+      authority: ["матрица полномочий"],
+      regulation: ["законодательство"],
+      contract: ["договоры"],
+      system: ["инструкции"],
+    };
+    const extraTags = intentTagMap[intentResult.intent];
+    if (extraTags) targetTags.push(...extraTags);
+
+    if (targetTags.length > 0) {
+      // Check if any current result has at least one target tag
+      const hasTargetCoverage = combinedResults.some((r) =>
+        r.tags.some((t) => targetTags.includes(t.toLowerCase()))
+      );
+
+      if (!hasTargetCoverage) {
+        console.log(`[chat] Intent supplementary search: no results with tags [${targetTags.join(", ")}], fetching...`);
+        const supplementary = await hybridSearch(searchQuery, 10, targetTags);
+        const newSupplementary = supplementary.filter((r) => !existingIds.has(r.id));
+        for (const r of newSupplementary) existingIds.add(r.id);
+        combinedResults = [...combinedResults, ...newSupplementary];
+        console.log(`[chat] Intent supplementary search added ${newSupplementary.length} new chunks`);
+      }
+    }
   }
 
   // Rerank and filter
