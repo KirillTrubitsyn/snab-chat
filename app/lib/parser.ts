@@ -69,7 +69,7 @@ export async function parseToMarkdown(
     const data = await pdfParse(buffer);
     let text = data.text;
 
-    const isScannedPdf = !text || text.replace(/\s/g, "").length < 50;
+    const isScannedPdf = !text || text.replace(/\s/g, "").length < 200;
     if (isScannedPdf) {
       console.log(
         `[parser] PDF "${filename}" appears to be scanned (extracted only ${text?.length || 0} chars). Using Gemini OCR...`
@@ -368,12 +368,17 @@ function htmlToSimpleMarkdown(html: string): string {
       const cells: string[] = [];
       const cellMatches = row.match(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi) || [];
       for (const cell of cellMatches) {
-        const text = cell
+        let cellHtml = cell
           .replace(/<t[hd][^>]*>/i, "")
-          .replace(/<\/t[hd]>/i, "")
-          .replace(/<[^>]+>/g, "")
-          .trim();
-        cells.push(text);
+          .replace(/<\/t[hd]>/i, "");
+        // Convert inline formatting before stripping tags
+        cellHtml = cellHtml.replace(/<strong>(.*?)<\/strong>/gi, "**$1**");
+        cellHtml = cellHtml.replace(/<b>(.*?)<\/b>/gi, "**$1**");
+        cellHtml = cellHtml.replace(/<em>(.*?)<\/em>/gi, "*$1*");
+        cellHtml = cellHtml.replace(/<li[^>]*>(.*?)<\/li>/gi, "$1; ");
+        cellHtml = cellHtml.replace(/<br\s*\/?>/gi, " ");
+        cellHtml = cellHtml.replace(/<[^>]+>/g, "");
+        cells.push(cellHtml.trim());
       }
       if (cells.length > 0) rows.push(cells);
     }
@@ -568,9 +573,10 @@ function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
     );
 
     if (rows.length <= 30) {
-      const header = rows[0].map((c) =>
-        String(c).replace(/\|/g, "\\|").replace(/\n/g, " ").trim()
-      );
+      const header = rows[0].map((c, j) => {
+        const val = String(c).replace(/\|/g, "\\|").replace(/\n/g, " ").trim();
+        return val || mergeMap.get(`${range.s.r}:${range.s.c + j}`) || "";
+      });
       if (header.length === 0 || header.every((h) => h === "")) continue;
 
       parts.push("| " + header.join(" | ") + " |");
@@ -582,12 +588,11 @@ function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
         parts.push(
           "| " +
             header
-              .map((_, j) =>
-                String(row[j] ?? "")
-                  .replace(/\|/g, "\\|")
-                  .replace(/\n/g, " ")
-                  .trim()
-              )
+              .map((_, j) => {
+                const raw = String(row[j] ?? "").trim();
+                const merged = raw || mergeMap.get(`${range.s.r + i}:${range.s.c + j}`) || "";
+                return merged.replace(/\|/g, "\\|").replace(/\n/g, " ").trim();
+              })
               .join(" | ") +
             " |"
         );
@@ -603,6 +608,7 @@ function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
       }
 
       const dataRows = isHeaderRow ? rows.slice(1) : rows;
+      const dataStartRow = isHeaderRow ? 1 : 0;
 
       for (let i = 0; i < dataRows.length; i++) {
         const row = dataRows[i];
@@ -611,7 +617,8 @@ function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
         if (headerRow) {
           const pairs = headerRow
             .map((h, j) => {
-              const val = String(row[j] ?? "").trim();
+              const raw = String(row[j] ?? "").trim();
+              const val = raw || mergeMap.get(`${range.s.r + dataStartRow + i}:${range.s.c + j}`) || "";
               const hStr = String(h).trim();
               return val && hStr ? `${hStr}: ${val}` : null;
             })

@@ -95,16 +95,20 @@ export const CATEGORY_KEYWORDS: Record<string, string> = {
   "указ": "npa",
   "распоряжение": "npa",
 };
+// Sort keywords by length descending — longer (more specific) keywords match first
+const SORTED_CATEGORY_ENTRIES = Object.entries(CATEGORY_KEYWORDS)
+  .sort((a, b) => b[0].length - a[0].length);
+
 export function detectCategory(tags: string[], filename?: string): string {
   for (const tag of tags) {
     const lower = tag.toLowerCase();
-    for (const [keyword, category] of Object.entries(CATEGORY_KEYWORDS)) {
+    for (const [keyword, category] of SORTED_CATEGORY_ENTRIES) {
       if (lower.includes(keyword)) return category;
     }
   }
   if (filename) {
     const lower = filename.toLowerCase();
-    for (const [keyword, category] of Object.entries(CATEGORY_KEYWORDS)) {
+    for (const [keyword, category] of SORTED_CATEGORY_ENTRIES) {
       if (lower.includes(keyword)) return category;
     }
   }

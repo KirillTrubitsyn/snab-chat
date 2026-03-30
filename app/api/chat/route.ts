@@ -55,7 +55,8 @@ export async function POST(req: NextRequest) {
   const sectionRef = detectSectionReference(userMessage.content);
   const docRef = detectDocumentReference(userMessage.content);
 
-  const [, contextResult, intentResult, searchResults, offTopicResult, sectionResults, docResults] = await Promise.all([
+  // Phase 1: Run intent classification + non-search tasks in parallel
+  const [, contextResult, intentResult, offTopicResult] = await Promise.all([
     conversationId
       ? saveMessage(conversationId, "user", userMessage.content)
       : Promise.resolve(),
@@ -63,11 +64,40 @@ export async function POST(req: NextRequest) {
       ? loadConversationContext(conversationId)
       : Promise.resolve(null),
     classifyIntent(searchQuery),
-    multiQuerySearch(searchQuery, 20, searchHints),
     classifyOffTopic(userMessage.content, messages.slice(0, -1)),
+  ]);
+
+  // Phase 2: Use intent query_variants in search for better coverage
+  // Build search variants: original query + LLM-generated reformulations
+  const searchVariants = new Set<string>([searchQuery]);
+  if (intentResult.query_variants) {
+    for (const v of intentResult.query_variants.slice(0, 2)) {
+      if (v.length > 5 && v !== searchQuery) searchVariants.add(v);
+    }
+  }
+
+  // Run all search tasks in parallel (now enriched with intent variants)
+  const searchPromises = Array.from(searchVariants).map((q) =>
+    hybridSearch(q, 20, searchHints)
+  );
+  const [sectionResults, docResults, ...variantResults] = await Promise.all([
     sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
     docRef ? fetchChunksByDocument(docRef, 8, userMessage.content) : Promise.resolve([]),
+    ...searchPromises,
   ]);
+
+  // Merge variant search results (dedup, keep highest similarity)
+  const mergedSearch = new Map<string, SearchResult>();
+  for (const results of variantResults) {
+    for (const r of results) {
+      const existing = mergedSearch.get(r.id);
+      if (!existing || r.similarity > existing.similarity) {
+        mergedSearch.set(r.id, r);
+      }
+    }
+  }
+  const searchResults = Array.from(mergedSearch.values())
+    .sort((a, b) => b.similarity - a.similarity);
 
   // Off-topic handling (unchanged)
   if (offTopicResult.isOffTopic && !isAdminCode(invite.code)) {
