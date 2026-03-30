@@ -241,6 +241,13 @@ export async function GET(req: NextRequest) {
   // Build set of off-topic query texts to exclude from activity feed
   const offTopicTexts = new Set((offTopicRows || []).map((r) => r.query_text));
 
+  // Build model lookup: for each conversation, index assistant messages by time
+  const asstByConvActivity: Record<string, { metadata: Record<string, unknown> | null; created_at: string }[]> = {};
+  for (const m of assistantMsgs || []) {
+    if (!asstByConvActivity[m.conversation_id]) asstByConvActivity[m.conversation_id] = [];
+    asstByConvActivity[m.conversation_id].push({ metadata: m.metadata, created_at: m.created_at });
+  }
+
   const infographicMessages = (assistantMsgs || []).filter(
     (m) => m.metadata?.type === "infographic"
   );
@@ -262,13 +269,20 @@ export async function GET(req: NextRequest) {
       if (offTopicTexts.has(m.content.slice(0, 5000))) return false;
       return true;
     })
-    .map((m) => ({
-      id: m.id,
-      type: "chat" as const,
-      ...resolveUser(m.conversation_id, convsMap, codesMap),
-      content: m.content.slice(0, 120) + (m.content.length > 120 ? "…" : ""),
-      created_at: m.created_at,
-    }));
+    .map((m) => {
+      const convAsst = asstByConvActivity[m.conversation_id] || [];
+      const nextAsst = convAsst
+        .filter((a) => new Date(a.created_at).getTime() >= new Date(m.created_at).getTime())
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
+      return {
+        id: m.id,
+        type: "chat" as const,
+        ...resolveUser(m.conversation_id, convsMap, codesMap),
+        content: m.content.slice(0, 120) + (m.content.length > 120 ? "…" : ""),
+        model: (nextAsst?.metadata?.model as string) || null,
+        created_at: m.created_at,
+      };
+    });
 
   const infographicItems = infographicMessages
     .filter((m) => m.conversation_id in convsMap)
@@ -277,6 +291,7 @@ export async function GET(req: NextRequest) {
       type: "infographic" as const,
       ...resolveUser(m.conversation_id, convsMap, codesMap),
       content: m.metadata?.topic || m.content.slice(0, 120),
+      model: null,
       created_at: m.created_at,
     }));
 

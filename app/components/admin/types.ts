@@ -19,6 +19,7 @@ export interface ActivityItem {
   user_name: string;
   organization: string | null;
   content: string;
+  model: string | null;
   created_at: string;
 }
 
