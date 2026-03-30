@@ -142,6 +142,33 @@ export function detectDocumentReference(query: string): DocumentReference | null
     }
   }
 
+  // 3b. Direct entity/object mentions (without document type prefix)
+  // "срочная закупка на НМГРЭС" → hints: ["нмгрэс"]
+  const entityPatterns: Array<{ re: RegExp; hints: string[] }> = [
+    { re: /\bнмгрэс\b/i, hints: ["нмгрэс"] },
+    { re: /\bнак[\-\s]*азот\b/i, hints: ["нак", "азот"] },
+    { re: /\bсгк[\-\s]*новосибирск\b/i, hints: ["новосибирск"] },
+    { re: /\bсгк[\-\s]*алтай\b/i, hints: ["алтай"] },
+    { re: /\bенисейск\S*\s+тгк\b/i, hints: ["енисей"] },
+    { re: /\bкузбассэнерго\b/i, hints: ["кузбасс"] },
+    { re: /\bсибэм\b/i, hints: ["сибэм"] },
+    { re: /\bнтск\b/i, hints: ["нтск"] },
+    { re: /\bбарнаул/i, hints: ["алтай"] },
+    { re: /\bкрасноярск/i, hints: ["енисей"] },
+    { re: /\bкемеров/i, hints: ["кузбасс"] },
+    { re: /\bновосибирск/i, hints: ["новосибирск"] },
+    { re: /\bновомосковск/i, hints: ["нмгрэс"] },
+  ];
+
+  if (hints.length === 0) {
+    for (const ep of entityPatterns) {
+      if (ep.re.test(lower)) {
+        hints.push(...ep.hints);
+        break;
+      }
+    }
+  }
+
   // 4. Generic document type + any distinguishing words
   // "положение о закупках ред 15" → ["положен", "ред_15" or "ред 15"]
   const redMatch = lower.match(/ред(?:акци[яиейю])?\s*(?:№?\s*)(\d+)/);

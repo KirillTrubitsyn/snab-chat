@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     multiQuerySearch(searchQuery, 20, searchHints),
     classifyOffTopic(userMessage.content, messages.slice(0, -1)),
     sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
-    docRef ? fetchChunksByDocument(docRef) : Promise.resolve([]),
+    docRef ? fetchChunksByDocument(docRef, 8, userMessage.content) : Promise.resolve([]),
   ]);
 
   // Off-topic handling (unchanged)
