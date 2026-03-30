@@ -11,6 +11,7 @@ export const DOCUMENT_CATEGORIES = [
   { key: "references", label: "Справочники и Реестры", icon: "list_alt" },
   { key: "contractor-cards", label: "Карточки контрагентов", icon: "badge" },
   { key: "contracts", label: "Договоры", icon: "handshake" },
+  { key: "training", label: "Обучение", icon: "school" },
 ] as const;
 
 const VALID_CATEGORY_KEYS = new Set<string>(DOCUMENT_CATEGORIES.map((c) => c.key));
@@ -65,7 +66,10 @@ export const CATEGORY_KEYWORDS: Record<string, string> = {
   "руководство": "instructions",
   "памятка": "instructions",
   "onboarding": "instructions",
-  "обучение": "instructions",
+  "обучение": "training",
+  "курс": "training",
+  "тренинг": "training",
+  "учебный": "training",
   "форма": "forms",
   "шаблон": "forms",
   "бланк": "forms",

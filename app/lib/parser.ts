@@ -105,6 +105,18 @@ export async function parseToMarkdown(
     return { markdown: md, images: [] };
   }
 
+  // HTML files
+  if (
+    mimeType === "text/html" ||
+    mimeType === "application/xhtml+xml" ||
+    filename.endsWith(".html") ||
+    filename.endsWith(".htm")
+  ) {
+    const html = buffer.toString("utf-8");
+    const markdown = htmlToSimpleMarkdown(html);
+    return { markdown, images: [] };
+  }
+
   // Fallback: plain text
   return { markdown: buffer.toString("utf-8"), images: [] };
 }
@@ -321,7 +333,13 @@ async function parseDocxWithImages(buffer: Buffer): Promise<ParseResult> {
 /* ── Simple HTML to Markdown converter ── */
 
 function htmlToSimpleMarkdown(html: string): string {
+  // Strip <style>, <script>, and HTML comments before conversion
   let md = html;
+  md = md.replace(/<style[\s\S]*?<\/style>/gi, "");
+  md = md.replace(/<script[\s\S]*?<\/script>/gi, "");
+  md = md.replace(/<!--[\s\S]*?-->/g, "");
+  // Convert semantic HTML5 elements to paragraph breaks
+  md = md.replace(/<\/?(section|article|nav|aside|header|footer|main|figure|figcaption)[^>]*>/gi, "\n\n");
 
   // Headers
   md = md.replace(/<h1[^>]*>(.*?)<\/h1>/gi, "\n# $1\n");
