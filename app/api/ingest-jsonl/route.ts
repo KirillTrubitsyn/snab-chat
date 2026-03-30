@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
-import { embedTexts } from "@/app/lib/embeddings";
+import { embedDocuments } from "@/app/lib/embeddings";
 import { requireAdmin } from "@/app/lib/auth";
 import { logError } from "@/app/lib/error-logger";
 
 /**
- * POST /api/ingest-jsonl â Ð±Ð°ÑÑÐµÐ²Ð°Ñ Ð·Ð°Ð³ÑÑÐ·ÐºÐ° Ð´ÐµÐ½Ð¾ÑÐ¼Ð°Ð»Ð¸Ð·Ð¾Ð²Ð°Ð½Ð½ÑÑ ÑÑÐ²ÐµÑÐ¶Ð´ÐµÐ½Ð¸Ð¹.
+ * POST /api/ingest-jsonl — батчевая загрузка денормализованных утверждений.
  *
- * ÐÑÐ¸Ð½Ð¸Ð¼Ð°ÐµÑ JSON body (ÐÐ formData), ÑÑÐ¾Ð±Ñ ÑÐ°Ð±Ð¾ÑÐ°ÑÑ Ð¸Ð· browser console.
- * ÐÐ°ÑÑ Ð¿Ð¾ 15-20 ÑÑÐ²ÐµÑÐ¶Ð´ÐµÐ½Ð¸Ð¹ Ð·Ð° Ð²ÑÐ·Ð¾Ð² (ÑÐºÐ»Ð°Ð´ÑÐ²Ð°ÐµÑÑÑ Ð² ÑÐ°Ð¹Ð¼Ð°ÑÑ Vercel).
+ * Принимает JSON body (НЕ formData), чтобы работать из browser console.
+ * Батч по 15-20 утверждений за вызов (укладывается в таймаут Vercel).
  *
  * Body: {
  *   statements: Array<{ text, source_file, source_document, section, table_type? }>,
- *   sourceId?: string,     // Ð¿ÐµÑÐµÐ´Ð°ÑÐ¼ Ð¿ÑÐ¸ Ð¿Ð¾Ð²ÑÐ¾ÑÐ½ÑÑ Ð²ÑÐ·Ð¾Ð²Ð°Ñ Ð´Ð»Ñ ÑÐ¾Ð³Ð¾ Ð¶Ðµ source_file
- *   chunkOffset?: number   // ÑÐ¼ÐµÑÐµÐ½Ð¸Ðµ Ð¸Ð½Ðh´ÐµÐºÑÐ° ÑÐ°Ð½ÐºÐ°
+ *   sourceId?: string,     // передаём при повторных вызовах для того же source_file
+ *   chunkOffset?: number   // смещение индекса чанка
  * }
  *
  * Response: { sourceId, inserted, total }
@@ -32,23 +32,23 @@ interface JsonlStatement {
 
 function sectionToTags(section: string, tableType?: string): string[] {
   const tags: string[] = [];
-  if (section.includes("ÐÐ°ÐºÐ¾Ð½Ð¾Ð´Ð°ÑÐµÐ»ÑÑÑÐ²Ð¾")) tags.push("Ð·Ð°ÐºÐ¾Ð½Ð¾Ð´Ð°ÑÐµÐ»ÑÑÑÐ²Ð¾");
-  else if (section.includes("ÐÐ¾Ð»Ð¾Ð¶ÐµÐ½Ð¸Ñ")) tags.push("Ð¿Ð¾Ð»Ð¾Ð¶ÐµÐ½Ð¸Ñ");
-  else if (section.includes("223-Ð¤Ð")) tags.push("223-Ð¤Ð", "ÑÑÐ°Ð½Ð´Ð°ÑÑ");
-  else if (section.includes("Ð²Ð½Ðµ 223-Ð¤Ð")) tags.push("Ð²Ð½Ðµ 223-Ð¤Ð", "ÑÑÐ°Ð½Ð´Ð°ÑÑ");
-  else if (section.includes("Ð¿Ð»Ð°Ð½Ð¸ÑÐ¾Ð²Ð°Ð½Ð¸Ñ")) tags.push("Ð¿Ð»Ð°Ð½Ð¸ÑÐ¾Ð²Ð°Ð½Ð¸Ðµ");
-  else if (section.includes("Ð¡ÐÐ ") || section.includes("ÐÐÐ ")) tags.push("Ð¡ÐÐ ", "ÐÐÐ ");
-  else if (section.includes("Ð¦ÐµÐ½Ð¾Ð¾Ð±ÑÐ°Ð·Ð¾Ð²Ð°Ð½Ð¸Ðµ")) tags.push("ÑÐµÐ½Ð¾Ð¾Ð±ÑÐ°Ð·Ð¾Ð²Ð°Ð½Ð¸Ðµ");
-  else if (section.includes("ÐÐ¾Ð³Ð¾Ð²Ð¾ÑÑ")) tags.push("Ð´Ð¾Ð³Ð¾Ð²Ð¾ÑÑ");
-  else if (section.includes("ÐÐ½ÑÑÑÑÐºÑÐ¸Ð¸")) tags.push("Ð¸Ð½ÑÑÑÑÐºÑÐ¸Ð¸");
-  else if (section.includes("ÐÐµÑÐ¾Ð´Ð¸ÑÐµÑÐºÐ¸Ðµ")) tags.push("Ð¼ÐµÑÐ¾Ð´Ð¸ÐºÐ°");
-  else if (section.includes("Ð¡Ð¿ÑÐ°Ð²Ð¾ÑÐ½Ð¸ÐºÐ¸")) tags.push("ÑÐ¿ÑÐ°Ð²Ð¾ÑÐ½Ð¸ÐºÐ¸");
-  if (tableType === "decision_matrix") tags.push("Ð¼Ð°ÑÑÐ¸ÑÐ° Ð¿Ð¾Ð»Ð½Ð¾Ð¼Ð¾ÑÐ¸Ð¹");
-  else if (tableType === "registry") tags.push("ÑÐµÐµÑÑÑ");
-  else if (tableType === "numeric") tags.push("ÑÐ¸ÑÐ»Ð¾Ð²ÑÐµ Ð´Ð°Ð½Ð½ÑÐµ");
-  else if (tableType === "form") tags.push("ÑÐ¾ÑÐ¼Ð°");
-  else if (tableType === "reference") tags.push("ÑÐ¿ÑÐ°Ð²Ð¾ÑÐ½Ð¸Ðº");
-  tags.push("Ð´ÐµÐ½Ð¾ÑÐ¼Ð°Ð»Ð¸Ð·Ð¾Ð²Ð°Ð½Ð¾");
+  if (section.includes("Законодательство")) tags.push("законодательство");
+  else if (section.includes("Положения")) tags.push("положения");
+  else if (section.includes("223-ФЗ")) tags.push("223-ФЗ", "стандарт");
+  else if (section.includes("вне 223-ФЗ")) tags.push("вне 223-ФЗ", "стандарт");
+  else if (section.includes("планирования")) tags.push("планирование");
+  else if (section.includes("СМР") || section.includes("ПИР")) tags.push("СМР", "ПИР");
+  else if (section.includes("Ценообразование")) tags.push("ценообразование");
+  else if (section.includes("Договоры")) tags.push("договоры");
+  else if (section.includes("Инструкции")) tags.push("инструкции");
+  else if (section.includes("Методические")) tags.push("методика");
+  else if (section.includes("Справочники")) tags.push("справочники");
+  if (tableType === "decision_matrix") tags.push("матрица полномочий");
+  else if (tableType === "registry") tags.push("реестр");
+  else if (tableType === "numeric") tags.push("числовые данные");
+  else if (tableType === "form") tags.push("форма");
+  else if (tableType === "reference") tags.push("справочник");
+  tags.push("денормализовано");
   return tags;
 }
 
@@ -57,15 +57,7 @@ export async function POST(req: NextRequest) {
   if (adminCheck instanceof NextResponse) return adminCheck;
 
   try {
-    let body: any;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json(
-        { error: "Invalid JSON body" },
-        { status: 400 }
-      );
-    }
+    const body = await req.json();
     const statements: JsonlStatement[] = body.statements ?? [];
     let sourceId: string | null = body.sourceId ?? null;
     const chunkOffset: number = body.chunkOffset ?? 0;
@@ -93,7 +85,7 @@ export async function POST(req: NextRequest) {
           filename: firstStmt.source_file,
           mime_type: "application/x-denormalized",
           tags,
-          content_preview: `ÐÐµÐ½Ð¾ÑÐ¼Ð°Ð»Ð¸Ð·Ð¾Ð²Ð°Ð½Ð¾: ${firstStmt.source_document}`,
+          content_preview: `Денормализовано: ${firstStmt.source_document}`,
           folder_path: firstStmt.section,
         })
         .select("id")
@@ -110,7 +102,7 @@ export async function POST(req: NextRequest) {
 
     // Embed all texts in batch
     const texts = statements.map((s) => s.text);
-    const embeddings = await embedTexts(texts);
+    const embeddings = await embedDocuments(texts);
 
     // Build rows
     const rows = statements
@@ -153,7 +145,7 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * DELETE /api/ingest-jsonl â ÑÐ´Ð°Ð»ÑÐµÑ Ð²ÑÐµ Ð´ÐµÐ½Ð¾ÑÐ¼Ð°Ð»Ð¸Ð·Ð¾Ð²Ð°Ð½Ð½ÑÐµ Ð´Ð°Ð½Ð½ÑÐµ.
+ * DELETE /api/ingest-jsonl — удаляет все денормализованные данные.
  */
 export async function DELETE(req: NextRequest) {
   const adminCheck = requireAdmin(req);
@@ -164,7 +156,7 @@ export async function DELETE(req: NextRequest) {
   const { error: delChunks, count: chunksDeleted } = await supabase
     .from("chunks")
     .delete({ count: "exact" })
-    .contains("tags", ["Ð´ÐµÐ½Ð¾ÑÐ¼Ð°Ð»Ð¸Ð·Ð¾Ð²Ð°Ð½Ð¾"]);
+    .contains("tags", ["денормализовано"]);
 
   const { error: delSources, count: sourcesDeleted } = await supabase
     .from("sources")

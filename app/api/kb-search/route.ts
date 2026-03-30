@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { embedQuery } from "@/app/lib/embeddings";
-import { getInviteCodeFromHeader } from "@/app/lib/auth";
-import { unauthorizedResponse } from "@/app/lib/api-helpers";
 
 /**
- * POST /api/kb-search â ÐºÐ¾Ð¼Ð±Ð¸Ð½Ð¸ÑÐ¾Ð²Ð°Ð½Ð½ÑÐ¹ Ð¿Ð¾Ð¸ÑÐº Ð¿Ð¾ Ð±Ð°Ð·Ðµ Ð·Ð½Ð°Ð½Ð¸Ð¹.
+ * POST /api/kb-search — комбинированный поиск по базе знаний.
  *
- * ÐÐ±ÑÐµÐ´Ð¸Ð½ÑÐµÑ ÑÑÐ¸ ÑÑÑÐ°ÑÐµÐ³Ð¸Ð¸:
- *   1. ÐÐ¾Ð»Ð½Ð¾ÑÐµÐºÑÑÐ¾Ð²ÑÐ¹ Ð¿Ð¾Ð¸ÑÐº Ð¿Ð¾ filename/folder_path Ð² ÑÐ°Ð±Ð»Ð¸ÑÐµ sources
- *   2. Ð¡ÐµÐ¼Ð°Ð½ÑÐ¸ÑÐµÑÐºÐ¸Ð¹ Ð¿Ð¾Ð¸ÑÐº Ð¿Ð¾ ÑÐ¼Ð±ÐµÐ´Ð´Ð¸Ð½Ð³Ð°Ð¼ Ð² ÑÐ°Ð±Ð»Ð¸ÑÐµ chunks
- *   3. ÐÑÑÐ¿Ð¿Ð¸ÑÐ¾Ð²ÐºÐ° ÑÐµÐ·ÑÐ»ÑÑÐ°ÑÐ¾Ð² Ð¿Ð¾ source_id Ñ ÑÐ°Ð½Ð¶Ð¸ÑÐ¾Ð²Ð°Ð½Ð¸ÐµÐ¼
+ * Объединяет три стратегии:
+ *   1. Полнотекстовый поиск по filename/folder_path в таблице sources
+ *   2. Семантический поиск по эмбеддингам в таблице chunks
+ *   3. Группировка результатов по source_id с ранжированием
  *
  * Body: { query: string, limit?: number, folder?: string }
  * Response: { results: KBSearchResult[] }
@@ -24,25 +22,22 @@ export interface KBSearchResult {
   tags: string[];
   content_preview: string | null;
   created_at: string;
-  /** ÐÑÑÑÐ¸Ð¹ ÑÑÐ°Ð³Ð¼ÐµÐ½Ñ Ð¸Ð· ÑÐµÐ¼Ð°Ð½ÑÐ¸ÑÐµÑÐºÐ¾Ð³Ð¾ Ð¿Ð¾Ð¸ÑÐºÐ° */
+  /** Лучший фрагмент из семантического поиска */
   best_chunk: string | null;
-  /** ÐÐ¾ÑÐ¸Ð½ÑÑÐ½Ð¾Ðµ ÑÑÐ¾Ð´ÑÑÐ²Ð¾ Ð»ÑÑÑÐµÐ³Ð¾ ÑÑÐ°Ð³Ð¼ÐµÐ½ÑÐ° */
+  /** Косинусное сходство лучшего фрагмента */
   similarity: number;
-  /** ÐÐ¾Ð»Ð¸ÑÐµÑÑÐ²Ð¾ ÑÐ¾Ð²Ð¿Ð°Ð²ÑÐ¸Ñ ÑÐ°Ð½ÐºÐ¾Ð² */
+  /** Количество совпавших чанков */
   chunk_count: number;
-  /** ÐÑÑÐ¾ÑÐ½Ð¸Ðº ÑÐ¾Ð²Ð¿Ð°Ð´ÐµÐ½Ð¸Ñ: fts, semantic, both */
+  /** Источник совпадения: fts, semantic, both */
   match_type: "fts" | "semantic" | "both";
 }
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
-const FTS_BOOST = 0.15; // Ð±Ð¾Ð½ÑÑ Ð·Ð° ÑÐ¾Ð²Ð¿Ð°Ð´ÐµÐ½Ð¸Ðµ Ð² Ð¸Ð¼ÐµÐ½Ð¸ ÑÐ°Ð¹Ð»Ð°
+const FTS_BOOST = 0.15; // бонус за совпадение в имени файла
 
 export async function POST(req: NextRequest) {
   try {
-    const invite = await getInviteCodeFromHeader(req);
-    if (!invite) return unauthorizedResponse();
-
     const body = await req.json();
     const query: string = (body.query ?? "").trim();
     const limit: number = Math.min(body.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
@@ -57,10 +52,10 @@ export async function POST(req: NextRequest) {
 
     const supabase = createServiceClient();
 
-    // ââ 1. ÐÐ¾Ð»Ð½Ð¾ÑÐµÐºÑÑÐ¾Ð²ÑÐ¹ Ð¿Ð¾Ð¸ÑÐº Ð¿Ð¾ sources ââ
+    // ── 1. Полнотекстовый поиск по sources ──
     const ftsResults = await searchSourcesByText(supabase, query, folder, limit);
 
-    // ââ 2. Ð¡ÐµÐ¼Ð°Ð½ÑÐ¸ÑÐµÑÐºÐ¸Ð¹ Ð¿Ð¾Ð¸ÑÐº Ð¿Ð¾ chunks ââ
+    // ── 2. Семантический поиск по chunks ──
     const semanticResults = await searchSourcesBySemantic(
       supabase,
       query,
@@ -68,7 +63,7 @@ export async function POST(req: NextRequest) {
       limit
     );
 
-    // ââ 3. ÐÐ±ÑÐµÐ´Ð¸Ð½ÐµÐ½Ð¸Ðµ Ð¸ ÑÐ°Ð½Ð¶Ð¸ÑÐ¾Ð²Ð°Ð½Ð¸Ðµ ââ
+    // ── 3. Объединение и ранжирование ──
     const merged = mergeResults(ftsResults, semanticResults, limit);
 
     return NextResponse.json({ results: merged });
@@ -81,9 +76,9 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/* ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
-/* ÐÐ¾Ð»Ð½Ð¾ÑÐµÐºÑÑÐ¾Ð²ÑÐ¹ Ð¿Ð¾Ð¸ÑÐº Ð¿Ð¾ sources (filename, folder_path, content_preview) */
-/* ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Полнотекстовый поиск по sources (filename, folder_path, content_preview) */
+/* ────────────────────────────────────────────────────────────────────────── */
 
 interface FTSRow {
   id: string;
@@ -103,8 +98,8 @@ async function searchSourcesByText(
 ): Promise<Map<string, KBSearchResult>> {
   const results = new Map<string, KBSearchResult>();
 
-  // Ð Ð°Ð·Ð±Ð¸Ð²Ð°ÐµÐ¼ Ð·Ð°Ð¿ÑÐ¾Ñ Ð½Ð° ÑÐ»Ð¾Ð²Ð° Ð´Ð»Ñ ilike-Ð¿Ð¾Ð¸ÑÐºÐ° (PostgreSQL FTS Ð¿Ð¾ ÑÑÑÑÐºÐ¾Ð¼Ñ
-  // ÑÐµÐºÑÑÑ ÑÐ°Ð±Ð¾ÑÐ°ÐµÑ Ð½ÐµÑÑÐ°Ð±Ð¸Ð»ÑÐ½Ð¾ Ð±ÐµÐ· ÑÐ»Ð¾Ð²Ð°ÑÑ, Ð¿Ð¾ÑÑÐ¾Ð¼Ñ ilike Ð½Ð°Ð´ÑÐ¶Ð½ÐµÐµ)
+  // Разбиваем запрос на слова для ilike-поиска (PostgreSQL FTS по русскому
+  // тексту работает нестабильно без словаря, поэтому ilike надёжнее)
   const words = query
     .toLowerCase()
     .split(/\s+/)
@@ -112,9 +107,9 @@ async function searchSourcesByText(
 
   if (words.length === 0) return results;
 
-  // Ð¡Ð¾Ð±Ð¸ÑÐ°ÐµÐ¼ OR-ÑÑÐ»Ð¾Ð²Ð¸Ðµ: filename ilike '%word%'
-  // Supabase JS SDK Ð½Ðµ Ð¿Ð¾Ð´Ð´ÐµÑÐ¶Ð¸Ð²Ð°ÐµÑ ÑÐ»Ð¾Ð¶Ð½ÑÐµ OR Ð½Ð°Ð¿ÑÑÐ¼ÑÑ,
-  // Ð¿Ð¾ÑÑÐ¾Ð¼Ñ Ð¸ÑÐ¿Ð¾Ð»ÑÐ·ÑÐµÐ¼ RPC Ð¸Ð»Ð¸ or-ÑÐ¸Ð»ÑÑÑ
+  // Собираем OR-условие: filename ilike '%word%'
+  // Supabase JS SDK не поддерживает сложные OR напрямую,
+  // поэтому используем RPC или or-фильтр
   let qb = supabase
     .from("sources")
     .select("id, filename, folder_path, mime_type, tags, content_preview, created_at")
@@ -125,8 +120,8 @@ async function searchSourcesByText(
     qb = qb.eq("folder_path", folder);
   }
 
-  // Ð¤Ð¸Ð»ÑÑÑÐ°ÑÐ¸Ñ: Ð¸ÑÐµÐ¼ Ð¿Ð¾ Ð¿ÐµÑÐ²Ð¾Ð¼Ñ ÑÐ»Ð¾Ð²Ñ Ð² filename (Ð¾ÑÐ½Ð¾Ð²Ð½Ð¾Ð¹ ÑÐ¸Ð»ÑÑÑ)
-  // ÐÑÑÐ°Ð»ÑÐ½ÑÐµ ÑÐ»Ð¾Ð²Ð° ÑÐ¸Ð»ÑÑÑÑÐµÐ¼ Ð½Ð° ÐºÐ»Ð¸ÐµÐ½ÑÐµ Ð´Ð»Ñ ÑÐ¾ÑÐ½Ð¾ÑÑÐ¸
+  // Фильтрация: ищем по первому слову в filename (основной фильтр)
+  // Остальные слова фильтруем на клиенте для точности
   const orConditions = words
     .map((w) => `filename.ilike.%${w}%,content_preview.ilike.%${w}%,folder_path.ilike.%${w}%`)
     .join(",");
@@ -162,7 +157,7 @@ async function searchSourcesByText(
   return results;
 }
 
-/** ÐÐ¾Ð´ÑÑÑÑ ÑÐµÐ»ÐµÐ²Ð°Ð½ÑÐ½Ð¾ÑÑÐ¸ FTS: ÑÐºÐ¾Ð»ÑÐºÐ¾ ÑÐ»Ð¾Ð² Ð·Ð°Ð¿ÑÐ¾ÑÐ° ÑÐ¾Ð²Ð¿Ð°Ð»Ð¾ */
+/** Подсчёт релевантности FTS: сколько слов запроса совпало */
 function calculateFTSScore(row: FTSRow, words: string[]): number {
   const target = [
     row.filename ?? "",
@@ -179,7 +174,7 @@ function calculateFTSScore(row: FTSRow, words: string[]): number {
 
   if (matched === 0) return 0;
 
-  // ÐÐ¾ÑÐ¼Ð°Ð»Ð¸Ð·ÑÐµÐ¼: Ð²ÑÐµ ÑÐ»Ð¾Ð²Ð° ÑÐ¾Ð²Ð¿Ð°Ð»Ð¸ = 1.0, + Ð±Ð¾Ð½ÑÑ Ð·Ð° Ð¸Ð¼Ñ ÑÐ°Ð¹Ð»Ð°
+  // Нормализуем: все слова совпали = 1.0, + бонус за имя файла
   let score = matched / words.length;
   const filenameLower = (row.filename ?? "").toLowerCase();
   if (words.some((w) => filenameLower.includes(w))) {
@@ -189,9 +184,9 @@ function calculateFTSScore(row: FTSRow, words: string[]): number {
   return Math.min(score, 1.0);
 }
 
-/* ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
-/* Ð¡ÐµÐ¼Ð°Ð½ÑÐ¸ÑÐµÑÐºÐ¸Ð¹ Ð¿Ð¾Ð¸ÑÐº Ð¿Ð¾ chunks â Ð³ÑÑÐ¿Ð¿Ð¸ÑÐ¾Ð²ÐºÐ° Ð¿Ð¾ source_id                  */
-/* ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Семантический поиск по chunks → группировка по source_id                  */
+/* ────────────────────────────────────────────────────────────────────────── */
 
 interface SemanticRow {
   id: string;
@@ -213,11 +208,11 @@ async function searchSourcesBySemantic(
   const queryEmbedding = await embedQuery(query);
   const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
-  // ÐÑÐ¿Ð¾Ð»ÑÐ·ÑÐµÐ¼ ÑÑÑÐµÑÑÐ²ÑÑÑÑÑ RPC-ÑÑÐ½ÐºÑÐ¸Ñ hybrid_search
+  // Используем существующую RPC-функцию hybrid_search
   const { data, error } = await supabase.rpc("hybrid_search", {
     query_text: query,
     query_embedding: embeddingStr,
-    match_count: limit * 3, // Ð±ÐµÑÑÐ¼ Ð±Ð¾Ð»ÑÑÐµ, Ñ.Ðº. Ð¿Ð¾ÑÐ¾Ð¼ Ð³ÑÑÐ¿Ð¿Ð¸ÑÑÐµÐ¼
+    match_count: limit * 3, // берём больше, т.к. потом группируем
     vector_weight: 0.7,
     fts_weight: 0.3,
     filter_tags: null,
@@ -228,13 +223,13 @@ async function searchSourcesBySemantic(
     return results;
   }
 
-  // ÐÐ°Ð³ÑÑÐ¶Ð°ÐµÐ¼ Ð¼ÐµÑÐ°Ð´Ð°Ð½Ð½ÑÐµ Ð¸ÑÑÐ¾ÑÐ½Ð¸ÐºÐ¾Ð² Ð´Ð»Ñ Ð½Ð°Ð¹Ð´ÐµÐ½Ð½ÑÑ ÑÐ°Ð½ÐºÐ¾Ð²
+  // Загружаем метаданные источников для найденных чанков
   const chunkRows = (data ?? []) as SemanticRow[];
   const sourceIds = [...new Set(chunkRows.map((r) => r.source_id))];
 
   if (sourceIds.length === 0) return results;
 
-  // ÐÐ¾Ð»ÑÑÐ°ÐµÐ¼ sources
+  // Получаем sources
   let sourcesQuery = supabase
     .from("sources")
     .select("id, filename, folder_path, mime_type, tags, content_preview, created_at")
@@ -250,10 +245,10 @@ async function searchSourcesBySemantic(
     sourcesMap.set(s.id, s);
   }
 
-  // ÐÑÑÐ¿Ð¿Ð¸ÑÑÐµÐ¼ ÑÐ°Ð½ÐºÐ¸ Ð¿Ð¾ source_id
+  // Группируем чанки по source_id
   for (const chunk of chunkRows) {
     const source = sourcesMap.get(chunk.source_id);
-    if (!source) continue; // Ð¸ÑÑÐ¾ÑÐ½Ð¸Ðº Ð¾ÑÑÐ¸Ð»ÑÑÑÐ¾Ð²Ð°Ð½ Ð¿Ð¾ folder
+    if (!source) continue; // источник отфильтрован по folder
 
     const existing = results.get(chunk.source_id);
     if (existing) {
@@ -282,9 +277,9 @@ async function searchSourcesBySemantic(
   return results;
 }
 
-/* ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
-/* ÐÐ±ÑÐµÐ´Ð¸Ð½ÐµÐ½Ð¸Ðµ FTS + Semantic                                                */
-/* ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Объединение FTS + Semantic                                                */
+/* ────────────────────────────────────────────────────────────────────────── */
 
 function mergeResults(
   ftsMap: Map<string, KBSearchResult>,
@@ -293,16 +288,16 @@ function mergeResults(
 ): KBSearchResult[] {
   const merged = new Map<string, KBSearchResult>();
 
-  // Ð¡Ð½Ð°ÑÐ°Ð»Ð° Ð´Ð¾Ð±Ð°Ð²Ð»ÑÐµÐ¼ ÑÐµÐ¼Ð°Ð½ÑÐ¸ÑÐµÑÐºÐ¸Ðµ (Ð¾ÑÐ½Ð¾Ð²Ð½Ð¾Ð¹ Ð¿ÑÐ¸Ð¾ÑÐ¸ÑÐµÑ)
+  // Сначала добавляем семантические (основной приоритет)
   for (const [id, result] of semanticMap) {
     merged.set(id, result);
   }
 
-  // ÐÐ¾Ð±Ð°Ð²Ð»ÑÐµÐ¼ / Ð¾Ð±Ð¾Ð³Ð°ÑÐ°ÐµÐ¼ Ð¸Ð· FTS
+  // Добавляем / обогащаем из FTS
   for (const [id, ftsResult] of ftsMap) {
     const existing = merged.get(id);
     if (existing) {
-      // ÐÐ¾ÐºÑÐ¼ÐµÐ½Ñ Ð½Ð°Ð¹Ð´ÐµÐ½ Ð¾Ð±Ð¾Ð¸Ð¼Ð¸ ÑÐ¿Ð¾ÑÐ¾Ð±Ð°Ð¼Ð¸ â Ð¿Ð¾Ð²ÑÑÐ°ÐµÐ¼ score
+      // Документ найден обоими способами — повышаем score
       existing.match_type = "both";
       existing.similarity = Math.min(
         existing.similarity + FTS_BOOST,
@@ -313,7 +308,7 @@ function mergeResults(
     }
   }
 
-  // Ð¡Ð¾ÑÑÐ¸ÑÑÐµÐ¼: ÑÐ½Ð°ÑÐ°Ð»Ð° both > semantic > fts, Ð·Ð°ÑÐµÐ¼ Ð¿Ð¾ similarity
+  // Сортируем: сначала both > semantic > fts, затем по similarity
   const typeOrder: Record<string, number> = { both: 3, semantic: 2, fts: 1 };
   const sorted = Array.from(merged.values()).sort((a, b) => {
     const typeDiff = (typeOrder[b.match_type] ?? 0) - (typeOrder[a.match_type] ?? 0);
