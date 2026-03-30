@@ -237,9 +237,100 @@ export async function POST(req: NextRequest) {
 
   // Rerank and filter
   const rerankedResults = intentAwareRerank(combinedResults, intentResult);
-  const { results: relevantChunks, lowConfidence } = filterByRelevance(rerankedResults);
+  let { results: relevantChunks, lowConfidence } = filterByRelevance(rerankedResults);
 
-  // ── NEW: Load chunk images from Supabase Storage ──
+  // ── Ensure original source documents are included alongside denormalized files ──
+  // Denormalized files store the original document name in the sources.content_preview
+  // field as "Денормализовано: <original_filename>". We look up these originals
+  // and add a representative chunk so users can preview/download them.
+  {
+    const denormFilenames = [...new Set(
+      relevantChunks
+        .filter((r) => r.tags.some((t) => t.toLowerCase() === "денормализовано") || r.source_filename.endsWith(".md"))
+        .map((r) => r.source_filename)
+    )];
+
+    if (denormFilenames.length > 0) {
+      const supabaseForDocs = createServiceClient();
+
+      // Look up content_preview in sources table to get original document names
+      const { data: denormSources } = await supabaseForDocs
+        .from("sources")
+        .select("filename, content_preview")
+        .in("filename", denormFilenames);
+
+      if (denormSources && denormSources.length > 0) {
+        // Extract original document names from "Денормализовано: <name>"
+        const originalDocNames = new Set<string>();
+        for (const src of denormSources as { filename: string; content_preview: string | null }[]) {
+          const preview = src.content_preview ?? "";
+          const match = preview.match(/Денормализовано:\s*(.+)/i);
+          if (match) {
+            originalDocNames.add(match[1].trim());
+          }
+        }
+
+        if (originalDocNames.size > 0) {
+          const existingFilenames = new Set(relevantChunks.map((r) => r.source_filename));
+          // Remove already-present originals
+          for (const fn of existingFilenames) originalDocNames.delete(fn);
+
+          if (originalDocNames.size > 0) {
+            // Find these original documents by exact or fuzzy filename match
+            const { data: allSources } = await supabaseForDocs
+              .from("sources")
+              .select("filename")
+              .neq("mime_type", "application/x-denormalized");
+
+            const matchedOriginals: string[] = [];
+            if (allSources) {
+              for (const origName of originalDocNames) {
+                const origLower = origName.toLowerCase().replace(/\s+/g, "_");
+                const found = (allSources as { filename: string }[]).find((s) =>
+                  s.filename.toLowerCase().includes(origLower) ||
+                  origLower.includes(s.filename.toLowerCase().replace(/\.[^.]+$/, ""))
+                );
+                if (found && !existingFilenames.has(found.filename)) {
+                  matchedOriginals.push(found.filename);
+                  existingFilenames.add(found.filename);
+                }
+              }
+            }
+
+            if (matchedOriginals.length > 0) {
+              const { data: origChunks } = await supabaseForDocs
+                .from("chunks")
+                .select("id, content, source_filename, chunk_index, tags, image_paths")
+                .in("source_filename", matchedOriginals)
+                .order("chunk_index", { ascending: true })
+                .limit(matchedOriginals.length * 2);
+
+              if (origChunks && origChunks.length > 0) {
+                const seen = new Set<string>();
+                const chunkIds = new Set(relevantChunks.map((r) => r.id));
+                for (const chunk of origChunks) {
+                  if (seen.has(chunk.source_filename) || chunkIds.has(chunk.id)) continue;
+                  seen.add(chunk.source_filename);
+                  relevantChunks.push({
+                    id: chunk.id,
+                    content: chunk.content,
+                    source_filename: chunk.source_filename,
+                    chunk_index: chunk.chunk_index,
+                    similarity: 0.40,
+                    tags: chunk.tags ?? [],
+                    image_paths: chunk.image_paths ?? [],
+                  });
+                }
+                console.log(`[chat] Added ${seen.size} original source documents: ${[...seen].join(", ")}`);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // ── Load chunk images from Supabase Storage ──
   const supabase = createServiceClient();
   let totalImagesIncluded = 0;
 
