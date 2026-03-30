@@ -4551,6 +4551,11 @@ input, textarea {
   color: #D97706;
 }
 
+.doc-icon-lg.html {
+  background: #F3E8FF;
+  color: #7C3AED;
+}
+
 .admin-doc-card-name {
   font-weight: 600;
   font-size: 14px;
