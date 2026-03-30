@@ -107,6 +107,7 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
                     <input type="checkbox" checked={selectedIds.size === activity.length && activity.length > 0} onChange={toggleAll} />
                   </th>
                   <th>ФИО</th><th>Организация</th><th>Тип</th><th>Запрос</th>
+                  <th style={{ textAlign: "center" }}>Модель</th>
                   <th style={{ textAlign: "right" }}>Время</th>
                   <th style={{ width: 60, textAlign: "right" }}></th>
                 </tr>
@@ -123,6 +124,15 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
                       </span>
                     </td>
                     <td className="admin-cell-title" title={a.content}>{a.content}</td>
+                    <td style={{ textAlign: "center" }}>
+                      {a.model ? (
+                        <span className={`admin-model-badge ${a.model.includes("pro") ? "admin-model-pro" : "admin-model-flash"}`}>
+                          {a.model.includes("pro") ? "Pro" : "Flash"}
+                        </span>
+                      ) : (
+                        <span className="admin-text-muted">—</span>
+                      )}
+                    </td>
                     <td className="admin-cell-date" style={{ textAlign: "right" }}>{formatDateTime(a.created_at)}</td>
                     <td style={{ textAlign: "right" }}>
                       <button className="admin-btn-icon-danger" onClick={() => deleteSingle(a.id)} title="Удалить">

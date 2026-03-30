@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "@/app/lib/google-ai";
 import { streamText, type CoreMessage } from "ai";
 import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument } from "@/app/lib/retrieval";
-import { classifyIntent } from "@/app/lib/intent-classifier";
+import { classifyIntent, type QueryIntent } from "@/app/lib/intent-classifier";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
 import { createServiceClient } from "@/app/lib/supabase";
@@ -509,14 +509,20 @@ ${uploadedDocsContext}`;
     }
   }
 
+  // ── Model selection: Pro for complex queries, Flash for simple ones ──
+  const PRO_INTENTS: QueryIntent[] = ["procedure", "regulation", "pricing", "authority", "contract"];
+  const useProModel = hasAttachments || PRO_INTENTS.includes(intentResult.intent);
+  const modelId = useProModel ? "gemini-3.1-pro-preview" : "gemini-3-flash-preview";
+  console.log(`[chat] Model: ${modelId} (intent=${intentResult.intent}, attachments=${hasAttachments})`);
+
   const result = streamText({
-    model: google("gemini-3-flash-preview"),
+    model: google(modelId),
     system: systemPrompt,
     messages: modelMessages,
     temperature: 0,
     async onFinish({ text }) {
       if (conversationId) {
-        const metadata: Record<string, unknown> = {};
+        const metadata: Record<string, unknown> = { model: modelId };
         if (sourceFilenames.length > 0) metadata.sources = sourceFilenames;
         if (lowConfidence) metadata.lowConfidence = true;
         if (totalImagesIncluded > 0) metadata.imagesUsed = totalImagesIncluded;
