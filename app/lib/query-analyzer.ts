@@ -38,28 +38,121 @@ export function detectSectionReference(query: string): SectionReference | null {
   if (sections.size === 0) return null;
 
   // Try to extract document name hint
-  let documentHint: string | null = null;
+  const documentHint = extractDocumentHint(lower);
 
-  // Common document name patterns in procurement context
+  return { sections: Array.from(sections), documentHint };
+}
+
+/* ── Document name reference detection ── */
+
+export interface DocumentReference {
+  /** Filename substring hints for ILIKE matching */
+  filenameHints: string[];
+}
+
+/**
+ * Extracts document hint from query text (lowercase).
+ * Returns a substring for ILIKE matching against source_filename.
+ */
+function extractDocumentHint(lower: string): string | null {
+  // 1. Direct filename mention (with extension)
+  const filenameMatch = lower.match(/[а-яёa-z0-9_\-]+\.(?:docx?|pdf|xlsx?)/i);
+  if (filenameMatch) {
+    // Strip extension and return the name part
+    return filenameMatch[0].replace(/\.(?:docx?|pdf|xlsx?)$/i, "");
+  }
+
+  // 2. Quoted document name: «...» or "..."
+  const quotedMatch = lower.match(/[«"]([^»"]+)[»"]/);
+  if (quotedMatch && quotedMatch[1].length > 3) {
+    return quotedMatch[1];
+  }
+
+  // 3. Common document type patterns with distinguishing keywords
   const docPatterns: Array<{ re: RegExp; hint: string }> = [
-    { re: /положени[яеийюём]\s*(о\s*)?закупк/i, hint: "положение" },
-    { re: /положени[яеийюём]\s*(о\s*)?закупочн/i, hint: "положение" },
+    // Specific documents with organization names
+    { re: /положени[яеийюём]\s*(?:о\s*)?закупк\S*\s+(?:сгк|сибирск)/i, hint: "положен" },
+    { re: /положени[яеийюём]\s*(?:о\s*)?закупк/i, hint: "положен" },
+    { re: /положени[яеийюём]\s*(?:о\s*)?закупочн/i, hint: "положен" },
+    { re: /стандарт[аеуом]?\s+закуп/i, hint: "стандарт" },
+    { re: /стандарт[аеуом]?\s+планиров/i, hint: "стандарт" },
     { re: /стандарт[аеуом]?\s/i, hint: "стандарт" },
     { re: /инструкци[яиейюём]/i, hint: "инструкци" },
     { re: /методик[аиейу]/i, hint: "методик" },
     { re: /регламент[аеуом]?/i, hint: "регламент" },
-    { re: /223[\-\s]*фз/i, hint: "223" },
     { re: /порядк[аеуом]?/i, hint: "порядок" },
   ];
 
   for (const dp of docPatterns) {
     if (dp.re.test(lower)) {
-      documentHint = dp.hint;
+      return dp.hint;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Detects when user explicitly references a specific document by name.
+ * Returns filename hints for direct chunk lookup.
+ *
+ * Handles:
+ * - Explicit filenames: "Положение_о_закупках_СГК-Новосибирск_ред_15.docx"
+ * - Quoted names: «Положение о закупках СГК-Новосибирск»
+ * - Natural references: "в положении о закупках СГК-Новосибирск"
+ * - Organization-specific: "положение СГК-Новосибирск", "стандарт НАК Азот"
+ */
+export function detectDocumentReference(query: string): DocumentReference | null {
+  const lower = query.toLowerCase();
+  const hints: string[] = [];
+
+  // 1. Direct filename mention (with extension) — highest priority
+  const filenameMatch = query.match(/[\wА-Яа-яёЁ_\-]+\.(?:docx?|pdf|xlsx?)/i);
+  if (filenameMatch) {
+    const name = filenameMatch[0].replace(/\.(?:docx?|pdf|xlsx?)$/i, "");
+    hints.push(name);
+  }
+
+  // 2. Quoted document name
+  const quotedPatterns = [/«([^»]+)»/g, /"([^"]+)"/g, /„([^"]+)"/g];
+  for (const pattern of quotedPatterns) {
+    let match;
+    while ((match = pattern.exec(query)) !== null) {
+      if (match[1].length > 5) {
+        hints.push(match[1]);
+      }
+    }
+  }
+
+  // 3. Organization-specific document references
+  // "положение о закупках СГК-Новосибирск" → hints: ["положен", "новосибирск"]
+  const orgPatterns: Array<{ re: RegExp; hints: string[] }> = [
+    { re: /(?:положени|стандарт|инструкци|регламент|порядок)\S*\s+.*?(сгк[\-\s]*новосибирск)/i, hints: ["новосибирск"] },
+    { re: /(?:положени|стандарт|инструкци|регламент|порядок)\S*\s+.*?(кузбасс)/i, hints: ["кузбасс"] },
+    { re: /(?:положени|стандарт|инструкци|регламент|порядок)\S*\s+.*?(енисей)/i, hints: ["енисей"] },
+    { re: /(?:положени|стандарт|инструкци|регламент|порядок)\S*\s+.*?(сгк[\-\s]*алтай)/i, hints: ["алтай"] },
+    { re: /(?:положени|стандарт|инструкци|регламент|порядок)\S*\s+.*?(нак[\-\s]*азот|новомосковск)/i, hints: ["нак", "азот"] },
+    { re: /(?:положени|стандарт|инструкци|регламент|порядок)\S*\s+.*?(сибэм)/i, hints: ["сибэм"] },
+  ];
+
+  for (const op of orgPatterns) {
+    if (op.re.test(lower)) {
+      hints.push(...op.hints);
       break;
     }
   }
 
-  return { sections: Array.from(sections), documentHint };
+  // 4. Generic document type + any distinguishing words
+  // "положение о закупках ред 15" → ["положен", "ред_15" or "ред 15"]
+  const redMatch = lower.match(/ред(?:акци[яиейю])?\s*(?:№?\s*)(\d+)/);
+  if (redMatch) {
+    hints.push(`ред_${redMatch[1]}`);
+    hints.push(`ред ${redMatch[1]}`);
+  }
+
+  if (hints.length === 0) return null;
+
+  return { filenameHints: hints };
 }
 
 /**

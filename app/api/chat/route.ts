@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "@/app/lib/google-ai";
 import { streamText, type CoreMessage } from "ai";
-import { multiQuerySearch, filterByRelevance, intentAwareRerank, fetchChunksBySection } from "@/app/lib/retrieval";
+import { multiQuerySearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument } from "@/app/lib/retrieval";
 import { classifyIntent } from "@/app/lib/intent-classifier";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
@@ -10,7 +10,7 @@ import { unauthorizedResponse, notFound } from "@/app/lib/api-helpers";
 import { classifyOffTopic, CATEGORY_LABELS, type OffTopicCategory } from "@/app/lib/off-topic-classifier";
 import { notifyOffTopic } from "@/app/lib/telegram";
 import { logError } from "@/app/lib/error-logger";
-import { extractSearchHints, detectSectionReference } from "@/app/lib/query-analyzer";
+import { extractSearchHints, detectSectionReference, detectDocumentReference } from "@/app/lib/query-analyzer";
 
 export const runtime = "nodejs";
 
@@ -53,8 +53,9 @@ export async function POST(req: NextRequest) {
 
   const searchHints = extractSearchHints(userMessage.content);
   const sectionRef = detectSectionReference(userMessage.content);
+  const docRef = detectDocumentReference(userMessage.content);
 
-  const [, contextResult, intentResult, searchResults, offTopicResult, sectionResults] = await Promise.all([
+  const [, contextResult, intentResult, searchResults, offTopicResult, sectionResults, docResults] = await Promise.all([
     conversationId
       ? saveMessage(conversationId, "user", userMessage.content)
       : Promise.resolve(),
@@ -65,6 +66,7 @@ export async function POST(req: NextRequest) {
     multiQuerySearch(searchQuery, 20, searchHints),
     classifyOffTopic(userMessage.content, messages.slice(0, -1)),
     sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
+    docRef ? fetchChunksByDocument(docRef) : Promise.resolve([]),
   ]);
 
   // Off-topic handling (unchanged)
@@ -118,13 +120,21 @@ export async function POST(req: NextRequest) {
   const contextMessages: { role: string; content: string }[] =
     contextResult?.messages ?? [];
 
-  // Merge section-lookup results with search results (dedup by id)
+  // Merge section-lookup and document-lookup results with search results (dedup by id)
   let combinedResults = searchResults;
+  const existingIds = new Set(searchResults.map((r) => r.id));
+
   if (sectionResults.length > 0) {
-    const existingIds = new Set(searchResults.map((r) => r.id));
     const newSectionResults = sectionResults.filter((r) => !existingIds.has(r.id));
-    combinedResults = [...newSectionResults, ...searchResults];
+    for (const r of newSectionResults) existingIds.add(r.id);
+    combinedResults = [...newSectionResults, ...combinedResults];
     console.log(`[chat] Section lookup added ${newSectionResults.length} new chunks`);
+  }
+
+  if (docResults.length > 0) {
+    const newDocResults = docResults.filter((r) => !existingIds.has(r.id));
+    combinedResults = [...combinedResults, ...newDocResults];
+    console.log(`[chat] Document lookup added ${newDocResults.length} new chunks`);
   }
 
   // Rerank and filter
