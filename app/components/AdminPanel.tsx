@@ -8,7 +8,6 @@ import {
   NontargetTab,
   SupportTab,
   ErrorsTab,
-  MessagesTab,
   SettingsTab,
 } from "./admin";
 
@@ -24,7 +23,7 @@ function getInitials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-type TabKey = "codes" | "activity" | "documents" | "nontarget" | "support" | "errors" | "messages" | "settings";
+type TabKey = "codes" | "activity" | "documents" | "nontarget" | "support" | "errors" | "settings";
 
 const navItems: { key: TabKey; label: string; icon: string }[] = [
   { key: "activity", label: "Активность", icon: "monitoring" },
@@ -33,7 +32,6 @@ const navItems: { key: TabKey; label: string; icon: string }[] = [
   { key: "nontarget", label: "Нецелевые запросы", icon: "block" },
   { key: "support", label: "Поддержка", icon: "headset_mic" },
   { key: "errors", label: "Ошибки", icon: "error" },
-  { key: "messages", label: "Сообщения", icon: "forum" },
 ];
 
 export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanelProps) {
@@ -123,7 +121,6 @@ export default function AdminPanel({ adminCode, userName, onLogout }: AdminPanel
             {tab === "nontarget" && <NontargetTab adminCode={adminCode} />}
             {tab === "support" && <SupportTab adminCode={adminCode} />}
             {tab === "errors" && <ErrorsTab adminCode={adminCode} />}
-            {tab === "messages" && <MessagesTab adminCode={adminCode} />}
             {tab === "settings" && <SettingsTab adminCode={adminCode} />}
           </div>
         </div>

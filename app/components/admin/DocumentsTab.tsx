@@ -20,6 +20,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
   const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);
   const [sourceTagInput, setSourceTagInput] = useState("");
   const [docCategoryFilter, setDocCategoryFilter] = useState<string>("all");
+  const [docTypeFilter, setDocTypeFilter] = useState<string>("all");
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -253,9 +254,18 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
     setParsedFiles((prev) => prev.map((f, i) => (i === index ? { ...f, tags } : f)));
   };
 
-  const filteredSources = docCategoryFilter === "all"
-    ? sources
-    : sources.filter((s) => normalizeFolderPath(s.folder_path) === docCategoryFilter);
+  const getFileExt = (doc: Source): string => {
+    if (doc.mime_type?.includes("x-denormalized") || doc.filename?.endsWith(".md")) return "md";
+    if (doc.mime_type?.includes("pdf")) return "pdf";
+    if (doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel")) return "xlsx";
+    if (doc.mime_type?.includes("presentationml") || doc.filename?.endsWith(".pptx") || doc.filename?.endsWith(".ppt")) return "pptx";
+    if (doc.mime_type?.includes("html") || doc.filename?.endsWith(".html") || doc.filename?.endsWith(".htm")) return "html";
+    return "docx";
+  };
+
+  const filteredSources = sources
+    .filter((s) => docCategoryFilter === "all" || normalizeFolderPath(s.folder_path) === docCategoryFilter)
+    .filter((s) => docTypeFilter === "all" || getFileExt(s) === docTypeFilter);
 
   const categoryCounts = DOC_CATEGORIES.reduce((acc, cat) => {
     acc[cat.key] = sources.filter((s) => normalizeFolderPath(s.folder_path) === cat.key).length;
@@ -313,6 +323,30 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
               {cat.label} ({categoryCounts[cat.key] || 0})
             </button>
           ))}
+        </div>
+
+        {/* File type filter pills */}
+        <div className="admin-doc-pills" style={{ marginTop: -4 }}>
+          {[
+            { key: "all", label: "Все типы" },
+            { key: "pdf", label: "PDF", icon: "picture_as_pdf" },
+            { key: "docx", label: "DOCX", icon: "description" },
+            { key: "xlsx", label: "Excel", icon: "table_chart" },
+            { key: "pptx", label: "PPTX", icon: "slideshow" },
+            { key: "html", label: "HTML", icon: "school" },
+            { key: "md", label: "Markdown", icon: "grid_view" },
+          ].map((ft) => {
+            const count = ft.key === "all"
+              ? sources.filter((s) => docCategoryFilter === "all" || normalizeFolderPath(s.folder_path) === docCategoryFilter).length
+              : sources.filter((s) => (docCategoryFilter === "all" || normalizeFolderPath(s.folder_path) === docCategoryFilter) && getFileExt(s) === ft.key).length;
+            if (ft.key !== "all" && count === 0) return null;
+            return (
+              <button key={ft.key} className={`admin-doc-pill ${docTypeFilter === ft.key ? "active" : ""}`} onClick={() => setDocTypeFilter(ft.key)}>
+                {ft.icon && <span className="material-symbols-outlined" style={{ fontSize: 14, marginRight: 2 }}>{ft.icon}</span>}
+                {ft.label} ({count})
+              </button>
+            );
+          })}
         </div>
 
         {/* Card grid */}

@@ -4,11 +4,31 @@ import { useState, useCallback, useEffect } from "react";
 import { formatDateTime } from "@/app/lib/date-utils";
 import type { ActivityItem } from "./types";
 
+type DateFilter = "today" | "7days" | "30days" | "all";
+
+const DATE_FILTERS: { key: DateFilter; label: string }[] = [
+  { key: "today", label: "Сегодня" },
+  { key: "7days", label: "7 дней" },
+  { key: "30days", label: "30 дней" },
+  { key: "all", label: "Все время" },
+];
+
+function filterByDate(items: ActivityItem[], filter: DateFilter): ActivityItem[] {
+  if (filter === "all") return items;
+  const now = new Date();
+  const cutoff = new Date();
+  if (filter === "today") cutoff.setHours(0, 0, 0, 0);
+  else if (filter === "7days") cutoff.setDate(now.getDate() - 7);
+  else if (filter === "30days") cutoff.setDate(now.getDate() - 30);
+  return items.filter((a) => new Date(a.created_at) >= cutoff);
+}
+
 export default function ActivityTab({ adminCode }: { adminCode: string }) {
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [dateFilter, setDateFilter] = useState<DateFilter>("today");
 
   const headers = { "x-admin-code": encodeURIComponent(adminCode) };
 
@@ -22,6 +42,8 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
     setActivityLoading(false);
   }, [adminCode]);
 
+  const filteredActivity = filterByDate(activity, dateFilter);
+
   useEffect(() => { loadActivity(); }, [loadActivity]);
 
   const toggleSelection = (id: string) => {
@@ -33,8 +55,8 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
   };
 
   const toggleAll = () => {
-    if (selectedIds.size === activity.length) setSelectedIds(new Set());
-    else setSelectedIds(new Set(activity.map((a) => a.id)));
+    if (selectedIds.size === filteredActivity.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(filteredActivity.map((a) => a.id)));
   };
 
   const deleteSelected = async () => {
@@ -74,7 +96,7 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
         <div className="admin-card-header">
           <div className="admin-card-header-left">
             <h3 className="admin-card-title">Запросы пользователей</h3>
-            <span className="admin-card-badge">{activity.length}</span>
+            <span className="admin-card-badge">{filteredActivity.length}</span>
           </div>
           <div className="admin-card-actions">
             {selectedIds.size > 0 && (
@@ -94,9 +116,18 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
           </div>
         </div>
 
+        {/* Date filter pills */}
+        <div className="admin-doc-pills" style={{ marginBottom: 0 }}>
+          {DATE_FILTERS.map((f) => (
+            <button key={f.key} className={`admin-doc-pill ${dateFilter === f.key ? "active" : ""}`} onClick={() => { setDateFilter(f.key); setSelectedIds(new Set()); }}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+
         {activityLoading ? (
           <div className="admin-loading-text"><div className="admin-spinner" />Загрузка...</div>
-        ) : activity.length === 0 ? (
+        ) : filteredActivity.length === 0 ? (
           <div className="admin-empty">Нет активности</div>
         ) : (
           <div className="admin-table-wrap">
@@ -104,7 +135,7 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
               <thead>
                 <tr>
                   <th style={{ width: 40 }}>
-                    <input type="checkbox" checked={selectedIds.size === activity.length && activity.length > 0} onChange={toggleAll} />
+                    <input type="checkbox" checked={selectedIds.size === filteredActivity.length && filteredActivity.length > 0} onChange={toggleAll} />
                   </th>
                   <th>ФИО</th><th>Организация</th><th>Тип</th><th>Запрос</th>
                   <th style={{ textAlign: "center" }}>Модель</th>
@@ -113,7 +144,7 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
                 </tr>
               </thead>
               <tbody>
-                {activity.map((a) => (
+                {filteredActivity.map((a) => (
                   <tr key={a.id} className={selectedIds.has(a.id) ? "admin-row-selected" : ""}>
                     <td><input type="checkbox" checked={selectedIds.has(a.id)} onChange={() => toggleSelection(a.id)} /></td>
                     <td className="admin-cell-name">{a.user_name}</td>
