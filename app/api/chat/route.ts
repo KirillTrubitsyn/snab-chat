@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "@/app/lib/google-ai";
-import { streamText, type CoreMessage } from "ai";
+import { streamText, generateText, type CoreMessage } from "ai";
 import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, type SearchResult } from "@/app/lib/retrieval";
 import { llmRerank } from "@/app/lib/reranker";
 import { classifyIntent } from "@/app/lib/intent-classifier";
@@ -12,6 +12,7 @@ import { classifyOffTopic, CATEGORY_LABELS, type OffTopicCategory } from "@/app/
 import { notifyOffTopic } from "@/app/lib/telegram";
 import { logError } from "@/app/lib/error-logger";
 import { extractSearchHints, detectSectionReference, detectDocumentReference } from "@/app/lib/query-analyzer";
+import { isComplexQuery, createAgenticContext, createRagTools, finalizeAgenticResults } from "@/app/lib/agentic-rag";
 
 export const runtime = "nodejs";
 
@@ -68,6 +69,93 @@ export async function POST(req: NextRequest) {
     classifyOffTopic(userMessage.content, messages.slice(0, -1)),
   ]);
 
+  // Off-topic: notify admin via TG but DO NOT block the user — let the model answer
+  if (offTopicResult.isOffTopic && !isAdminCode(invite.code)) {
+    const supabase = createServiceClient();
+    const inviteCodeId = invite.id.startsWith("admin-") ? null : invite.id;
+    const categoryLabel = CATEGORY_LABELS[offTopicResult.category as OffTopicCategory] ?? offTopicResult.category;
+
+    console.log(`[OffTopic] Detected off-topic query (not blocking): "${userMessage.content.slice(0, 80)}" (${offTopicResult.category})`);
+
+    // Fire-and-forget: log + notify, don't await
+    Promise.all([
+      supabase.from("off_topic_queries").insert({
+        invite_code_id: inviteCodeId,
+        user_name: invite.name,
+        organization: invite.organization ?? null,
+        category: offTopicResult.category,
+        query_text: userMessage.content.slice(0, 5000),
+      }).then(({ error }) => {
+        if (error) console.error("[OffTopic] DB insert error:", error.message);
+      }),
+      notifyOffTopic(invite.name, userMessage.content, offTopicResult.category, categoryLabel, invite.organization),
+    ]).catch((e) => console.error("[OffTopic] notify error:", e));
+  }
+
+  const contextMessages: { role: string; content: string }[] =
+    contextResult?.messages ?? [];
+
+  // ── Determine retrieval strategy: agentic (complex) vs deterministic (simple) ──
+  const useAgenticRag = isComplexQuery(userMessage.content, intentResult);
+  let relevantChunks: SearchResult[];
+  let lowConfidence: boolean;
+
+  if (useAgenticRag) {
+    // ═══ AGENTIC PATH: LLM decides what to search ═══
+    console.log(`[chat] Using AGENTIC RAG for complex query (intent=${intentResult.intent}, fz_type=${intentResult.fz_type})`);
+
+    const agenticCtx = createAgenticContext();
+    const ragTools = createRagTools(agenticCtx);
+
+    const agenticPrompt = `Ты — поисковый агент базы знаний Дирекции по закупкам СГК.
+Твоя задача — найти ВСЕ документы, необходимые для полного ответа на вопрос пользователя.
+
+ПРАВИЛА:
+1. Проанализируй вопрос и определи, какие документы нужны
+2. Вызывай инструменты поиска столько раз, сколько нужно для полного покрытия
+3. Если вопрос касается ОБОИХ режимов (223-ФЗ и вне 223-ФЗ) — обязательно ищи по каждому отдельно
+4. Если результатов мало — переформулируй запрос и попробуй снова
+5. Если упоминается конкретный пункт/раздел — используй lookup_section
+6. Если упоминается конкретный документ — используй lookup_document
+7. Когда собрал достаточно информации — просто ответь "Поиск завершён"
+
+ВОПРОС ПОЛЬЗОВАТЕЛЯ:
+${userMessage.content}
+
+КОНТЕКСТ КЛАССИФИКАЦИИ:
+- Интент: ${intentResult.intent}
+- Режим ФЗ: ${intentResult.fz_type}
+- Теги для поиска: ${intentResult.search_tags.join(", ") || "нет"}
+- Варианты запроса: ${intentResult.query_variants.join(" | ") || "нет"}`;
+
+    try {
+      await generateText({
+        model: google("gemini-3.1-lite-preview"),
+        prompt: agenticPrompt,
+        tools: ragTools,
+        maxSteps: 6,
+        temperature: 0,
+      });
+
+      console.log(`[chat] Agentic search complete: ${agenticCtx.searchCount} searches, ${agenticCtx.chunks.size} chunks collected`);
+
+      const filtered = await finalizeAgenticResults(agenticCtx, userMessage.content);
+      relevantChunks = filtered.results;
+      lowConfidence = filtered.lowConfidence;
+    } catch (agenticError) {
+      console.error("[chat] Agentic RAG failed, falling back to deterministic:", agenticError);
+      // Fallback: run a simple hybrid search
+      const fallbackResults = await hybridSearch(searchQuery, 20, searchHints);
+      const reranked = intentAwareRerank(fallbackResults, intentResult);
+      const llmReranked = await llmRerank(userMessage.content, reranked);
+      const filtered = filterByRelevance(llmReranked);
+      relevantChunks = filtered.results;
+      lowConfidence = filtered.lowConfidence;
+    }
+  } else {
+    // ═══ DETERMINISTIC PATH: fast fixed pipeline (existing logic) ═══
+    console.log(`[chat] Using DETERMINISTIC RAG (intent=${intentResult.intent})`);
+
   // Phase 2: Use intent query_variants in search for better coverage
   // Build search variants: original query + LLM-generated reformulations
   const searchVariants = new Set<string>([searchQuery]);
@@ -100,32 +188,6 @@ export async function POST(req: NextRequest) {
   const searchResults = Array.from(mergedSearch.values())
     .sort((a, b) => b.similarity - a.similarity);
 
-  // Off-topic: notify admin via TG but DO NOT block the user — let the model answer
-  if (offTopicResult.isOffTopic && !isAdminCode(invite.code)) {
-    const supabase = createServiceClient();
-    const inviteCodeId = invite.id.startsWith("admin-") ? null : invite.id;
-    const categoryLabel = CATEGORY_LABELS[offTopicResult.category as OffTopicCategory] ?? offTopicResult.category;
-
-    console.log(`[OffTopic] Detected off-topic query (not blocking): "${userMessage.content.slice(0, 80)}" (${offTopicResult.category})`);
-
-    // Fire-and-forget: log + notify, don't await
-    Promise.all([
-      supabase.from("off_topic_queries").insert({
-        invite_code_id: inviteCodeId,
-        user_name: invite.name,
-        organization: invite.organization ?? null,
-        category: offTopicResult.category,
-        query_text: userMessage.content.slice(0, 5000),
-      }).then(({ error }) => {
-        if (error) console.error("[OffTopic] DB insert error:", error.message);
-      }),
-      notifyOffTopic(invite.name, userMessage.content, offTopicResult.category, categoryLabel, invite.organization),
-    ]).catch((e) => console.error("[OffTopic] notify error:", e));
-  }
-
-  const contextMessages: { role: string; content: string }[] =
-    contextResult?.messages ?? [];
-
   // Merge section-lookup and document-lookup results with search results (dedup by id)
   let combinedResults = searchResults;
   const existingIds = new Set(searchResults.map((r) => r.id));
@@ -145,19 +207,13 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Intent-aware supplementary search ──
-  // After parallel tasks complete, use intent result to fill gaps:
-  // 1. Check fz_type coverage (223 / non-223 / both)
-  // 2. Use intent query_variants for broader search
-  // 3. Check source diversity (avoid single-source dominance)
   {
     const supplementSearches: Promise<SearchResult[]>[] = [];
 
-    // 1. FZ-type coverage: ensure both regimes are represented when relevant
     const count223 = combinedResults.filter((r) => r.tags.some((t) => t.toLowerCase() === "223-фз")).length;
     const countNon223 = combinedResults.filter((r) => r.tags.some((t) => t.toLowerCase() === "вне 223-фз")).length;
-    const MIN_REGIME_CHUNKS = 3; // minimum chunks per regime for comparative queries
+    const MIN_REGIME_CHUNKS = 3;
 
-    // Build search queries for regime-specific supplement: original + first variant
     const regimeSearchQueries = [searchQuery];
     if (intentResult.query_variants) {
       const firstVariant = intentResult.query_variants.find((v) => v.length > 5 && v !== searchQuery);
@@ -271,7 +327,11 @@ export async function POST(req: NextRequest) {
   // Rerank and filter
   const rerankedResults = intentAwareRerank(combinedResults, intentResult);
   const llmReranked = await llmRerank(userMessage.content, rerankedResults);
-  let { results: relevantChunks, lowConfidence } = filterByRelevance(llmReranked);
+  const filtered = filterByRelevance(llmReranked);
+  relevantChunks = filtered.results;
+  lowConfidence = filtered.lowConfidence;
+
+  } // end deterministic path
 
   // ── Ensure original source documents are included alongside denormalized files ──
   // Denormalized files store the original document name in the sources.content_preview
