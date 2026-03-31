@@ -3,7 +3,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import type { SearchResult } from "./retrieval";
 
-const RERANK_MODEL = "gemini-2.0-flash-001";
+const RERANK_MODEL = "gemini-3.1-lite-preview";
 const MAX_CHUNKS_TO_RERANK = 20;
 const MAX_CHUNK_PREVIEW = 1500; // chars per chunk in reranker prompt
 
