@@ -122,7 +122,7 @@ export async function autoTag(markdown: string, filename?: string, folderPath?: 
   const preview = markdown.slice(0, 5000);
   try {
     const { text } = await withGoogleApiLimit(() => generateText({
-      model: google("gemini-3.1-lite-preview"),
+      model: google("gemini-3.1-flash-lite-preview"),
       prompt: `Ты — классификатор документов RAG-базы знаний «СнабЧат» Дирекции по закупкам СГК (Сибирская генерирующая компания).
 Проанализируй текст документа и сгенерируй массив из 12-18 тегов на русском языке.
 ${filename ? `\nИмя файла: "${filename}"` : ""}
