@@ -221,7 +221,7 @@ export function extractSearchHints(query: string): string[] | null {
 
   // Organization hints (lowercase)
   if (/сибэм\b/i.test(lower)) hints.push("сибэм");
-  if (/нак\s*азот|нмгрэс/i.test(lower)) hints.push("нак азот");
+  if (/нак\s*азот|нмгрэс|новомосковск/i.test(lower)) hints.push("нак азот");
 
   // Return null if too few hints (don't filter, search everything)
   return hints.length > 0 ? hints : null;
