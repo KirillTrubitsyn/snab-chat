@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "@/app/lib/google-ai";
 import { streamText, type CoreMessage } from "ai";
 import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, type SearchResult } from "@/app/lib/retrieval";
+import { llmRerank } from "@/app/lib/reranker";
 import { classifyIntent, type QueryIntent } from "@/app/lib/intent-classifier";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
@@ -269,7 +270,8 @@ export async function POST(req: NextRequest) {
 
   // Rerank and filter
   const rerankedResults = intentAwareRerank(combinedResults, intentResult);
-  let { results: relevantChunks, lowConfidence } = filterByRelevance(rerankedResults);
+  const llmReranked = await llmRerank(userMessage.content, rerankedResults);
+  let { results: relevantChunks, lowConfidence } = filterByRelevance(llmReranked);
 
   // ── Ensure original source documents are included alongside denormalized files ──
   // Denormalized files store the original document name in the sources.content_preview
