@@ -27,6 +27,7 @@ interface MessageBubbleProps {
   onCreateInfographic?: (content: string) => void;
   onExportDocx?: (content: string) => void;
   onExportExcel?: (content: string) => void;
+  onFollowUpClick?: (text: string) => void;
 }
 
 function findSource(name: string, allSources: Source[]): Source | undefined {
@@ -100,6 +101,7 @@ export default function MessageBubble({
   onCreateInfographic,
   onExportDocx,
   onExportExcel,
+  onFollowUpClick,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
 
@@ -165,7 +167,24 @@ export default function MessageBubble({
     if (src) onViewSource(src);
   };
 
-  const processedContent = linkifyContent(message.content, allSources);
+  // Split follow-up questions from main content
+  const followUpMarker = "💡 **Вам также может быть полезно:**";
+  const followUpIdx = message.content.indexOf(followUpMarker);
+  const hasFollowUp = followUpIdx !== -1 && onFollowUpClick;
+
+  let mainContent = message.content;
+  let followUpQuestions: string[] = [];
+
+  if (hasFollowUp) {
+    mainContent = message.content.slice(0, followUpIdx).trimEnd();
+    const followUpBlock = message.content.slice(followUpIdx + followUpMarker.length);
+    followUpQuestions = followUpBlock
+      .split("\n")
+      .map((line) => line.replace(/^[\s]*[-•*]\s*/, "").trim())
+      .filter((line) => line.length > 0 && line.endsWith("?"));
+  }
+
+  const processedContent = linkifyContent(mainContent, allSources);
   const [expandedImg, setExpandedImg] = useState<string | null>(null);
 
   return (
@@ -209,6 +228,18 @@ export default function MessageBubble({
         >
           {processedContent}
         </ReactMarkdown>
+        {hasFollowUp && followUpQuestions.length > 0 && (
+          <div className="followup-section">
+            <div className="followup-label">💡 Вам также может быть полезно:</div>
+            <div className="followup-chips">
+              {followUpQuestions.map((q, i) => (
+                <button key={i} className="followup-chip" onClick={() => onFollowUpClick!(q)}>
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       {message.chunkImages && message.chunkImages.length > 0 && (
         <div className="message-screenshots">
