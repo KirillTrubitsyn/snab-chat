@@ -1,19 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
-import { embedTexts } from "@/app/lib/embeddings";
+import { embedDocuments } from "@/app/lib/embeddings";
 import { requireAdmin } from "@/app/lib/auth";
 import { logError } from "@/app/lib/error-logger";
 
 /**
  * POST /api/ingest-jsonl — батчевая загрузка денормализованных утверждений.
  *
+ * v2: поддержка parent_group_key + original_filename/original_file_url.
+ *
  * Принимает JSON body (НЕ formData), чтобы работать из browser console.
  * Батч по 15-20 утверждений за вызов (укладывается в таймаут Vercel).
  *
  * Body: {
- *   statements: Array<{ text, source_file, source_document, section, table_type? }>,
- *   sourceId?: string,     // передаём при повторных вызовах для того же source_file
- *   chunkOffset?: number   // смещение индекса чанка
+ *   statements: Array<{
+ *     text, source_file, source_document, section, table_type?,
+ *     table_name?, parent_group_key?, keywords?
+ *   }>,
+ *   sourceId?: string,
+ *   chunkOffset?: number,
+ *   original_filename?: string,   // имя исходного файла (до денормализации)
+ *   original_file_url?: string    // URL для скачивания оригинала
  * }
  *
  * Response: { sourceId, inserted, total }
@@ -28,35 +35,56 @@ interface JsonlStatement {
   table_name?: string;
   text: string;
   keywords?: string[];
+  /** Ключ Parent-Child группировки. Если не указан, генерируется автоматически. */
+  parent_group_key?: string;
 }
 
 function sectionToTags(section: string, tableType?: string): string[] {
   const tags: string[] = [];
-  const s = section.trim();
-
-  // «вне 223-ФЗ» должно проверяться ДО «223-ФЗ», иначе includes("223-ФЗ") перехватывает
-  if (s.includes("Законодательство")) tags.push("законодательство");
-  else if (s.includes("Положения")) tags.push("положения");
-  else if (s.includes("вне 223-ФЗ") || s === "04") tags.push("вне 223-ФЗ", "стандарт");
-  else if (s.includes("223-ФЗ") || s === "03") tags.push("223-ФЗ", "стандарт");
-  else if (s.includes("планирования") || s === "05") tags.push("планирование");
-  else if (s.includes("СМР") || s.includes("ПИР")) tags.push("СМР", "ПИР");
-  else if (s.includes("Ценообразование")) tags.push("ценообразование");
-  else if (s.includes("Договоры")) tags.push("договоры");
-  else if (s.includes("Инструкции")) tags.push("инструкции");
-  else if (s.includes("Методические")) tags.push("методика");
-  else if (s.includes("Справочники")) tags.push("справочники");
-  else if (s.includes("Лимиты") || s.includes("деблокирования")) tags.push("лимиты");
-  else if (s.includes("Нормативные сроки")) tags.push("нормативные сроки");
-
+  if (section.includes("Законодательство")) tags.push("законодательство");
+  else if (section.includes("Положения")) tags.push("положения");
+  else if (section.includes("223-ФЗ")) tags.push("223-ФЗ", "стандарт");
+  else if (section.includes("вне 223-ФЗ")) tags.push("вне 223-ФЗ", "стандарт");
+  else if (section.includes("планирования")) tags.push("планирование");
+  else if (section.includes("СМР") || section.includes("ПИР")) tags.push("СМР", "ПИР");
+  else if (section.includes("Ценообразование")) tags.push("ценообразование");
+  else if (section.includes("Договоры")) tags.push("договоры");
+  else if (section.includes("Инструкции")) tags.push("инструкции");
+  else if (section.includes("Методические")) tags.push("методика");
+  else if (section.includes("Справочники")) tags.push("справочники");
   if (tableType === "decision_matrix") tags.push("матрица полномочий");
   else if (tableType === "registry") tags.push("реестр");
   else if (tableType === "numeric") tags.push("числовые данные");
   else if (tableType === "form") tags.push("форма");
   else if (tableType === "reference") tags.push("справочник");
-
+  else if (tableType === "comparison") tags.push("сравнение");
   tags.push("денормализовано");
   return tags;
+}
+
+/**
+ * Генерирует parent_group_key из метаданных стейтмента.
+ * Формат: "{source_file_без_расширения}::{table_name_или_table_type}"
+ */
+function normalizeKeyPart(str: string, maxLen: number): string {
+  return str
+    .replace(/\s+/g, "_")
+    .replace(/[«»""]/g, "")
+    .replace(/[^а-яА-ЯёЁa-zA-Z0-9_\-]/g, "")
+    .substring(0, maxLen);
+}
+
+function generateParentGroupKey(stmt: JsonlStatement): string {
+  const fileKey = normalizeKeyPart(
+    stmt.source_file.replace(/\.\w+$/, ""),
+    60
+  );
+
+  const tableKey = stmt.table_name
+    ? normalizeKeyPart(stmt.table_name, 40)
+    : stmt.table_type ?? "общий";
+
+  return `${fileKey}::${tableKey}`;
 }
 
 export async function POST(req: NextRequest) {
@@ -68,6 +96,8 @@ export async function POST(req: NextRequest) {
     const statements: JsonlStatement[] = body.statements ?? [];
     let sourceId: string | null = body.sourceId ?? null;
     const chunkOffset: number = body.chunkOffset ?? 0;
+    const originalFilename: string | null = body.original_filename ?? null;
+    const originalFileUrl: string | null = body.original_file_url ?? null;
 
     if (statements.length === 0) {
       return NextResponse.json({ error: "Empty statements array" }, { status: 400 });
@@ -86,15 +116,25 @@ export async function POST(req: NextRequest) {
 
     // Create source if not provided
     if (!sourceId) {
+      const sourceRow: Record<string, unknown> = {
+        filename: firstStmt.source_file,
+        mime_type: "application/x-denormalized",
+        tags,
+        content_preview: `Денормализовано: ${firstStmt.source_document}`,
+        folder_path: firstStmt.section,
+      };
+
+      // Добавляем original_filename и original_file_url, если переданы
+      if (originalFilename) {
+        sourceRow.original_filename = originalFilename;
+      }
+      if (originalFileUrl) {
+        sourceRow.original_file_url = originalFileUrl;
+      }
+
       const { data: source, error: srcErr } = await supabase
         .from("sources")
-        .insert({
-          filename: firstStmt.source_file,
-          mime_type: "application/x-denormalized",
-          tags,
-          content_preview: `Денормализовано: ${firstStmt.source_document}`,
-          folder_path: firstStmt.section,
-        })
+        .insert(sourceRow)
         .select("id")
         .single();
 
@@ -109,12 +149,15 @@ export async function POST(req: NextRequest) {
 
     // Embed all texts in batch
     const texts = statements.map((s) => s.text);
-    const embeddings = await embedTexts(texts);
+    const embeddings = await embedDocuments(texts);
 
-    // Build rows
+    // Build rows with parent_group_key
     const rows = statements
       .map((stmt, j) => {
         if (!embeddings[j] || embeddings[j].length === 0) return null;
+
+        const parentGroupKey = stmt.parent_group_key ?? generateParentGroupKey(stmt);
+
         return {
           source_id: sourceId,
           source_filename: stmt.source_file,
@@ -122,6 +165,7 @@ export async function POST(req: NextRequest) {
           content: stmt.text,
           embedding: JSON.stringify(embeddings[j]),
           tags: sectionToTags(stmt.section, stmt.table_type),
+          parent_group_key: parentGroupKey,
         };
       })
       .filter((r): r is NonNullable<typeof r> => r !== null);
