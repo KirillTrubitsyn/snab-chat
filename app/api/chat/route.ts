@@ -206,14 +206,34 @@ export async function POST(req: NextRequest) {
     }
 
     // 2b. Training course coverage: for procedure/general/regulation questions,
-    // always try to include training materials if none are present
+    // ensure training materials from BOTH regimes are present (not just one)
     const trainingIntents = ["procedure", "general", "regulation", "authority", "pricing"];
     if (trainingIntents.includes(intentResult.intent)) {
-      const hasTraining = combinedResults.some((r) =>
+      const trainingChunks = combinedResults.filter((r) =>
         r.tags.some((t) => t.toLowerCase() === "обучение")
       );
-      if (!hasTraining) {
+
+      if (trainingChunks.length === 0) {
+        // No training at all — search broadly
         supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение"]));
+      }
+
+      // For comparative queries, ensure training from BOTH regimes
+      if (intentResult.fz_type === "both" || intentResult.fz_type === "unknown") {
+        const training223 = trainingChunks.some((r) =>
+          r.tags.some((t) => t.toLowerCase() === "223-фз") ||
+          r.source_filename.toLowerCase().includes("223")
+        );
+        const trainingNon223 = trainingChunks.some((r) =>
+          r.tags.some((t) => t.toLowerCase() === "вне 223-фз") ||
+          r.source_filename.toLowerCase().includes("вне")
+        );
+        if (!training223) {
+          supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение", "223-фз"]));
+        }
+        if (!trainingNon223) {
+          supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение", "вне 223-фз"]));
+        }
       }
     }
 
