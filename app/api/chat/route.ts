@@ -3,7 +3,7 @@ import { google } from "@/app/lib/google-ai";
 import { streamText, type CoreMessage } from "ai";
 import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, type SearchResult } from "@/app/lib/retrieval";
 import { llmRerank } from "@/app/lib/reranker";
-import { classifyIntent, type QueryIntent } from "@/app/lib/intent-classifier";
+import { classifyIntent } from "@/app/lib/intent-classifier";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
 import { createServiceClient } from "@/app/lib/supabase";
@@ -780,11 +780,7 @@ ${uploadedDocsContext}`;
     }
   }
 
-  // ── Model selection: Pro for complex queries, Flash for simple ones ──
-  const PRO_INTENTS: QueryIntent[] = ["procedure", "regulation", "pricing", "authority", "contract"];
-  const useProModel = hasAttachments || PRO_INTENTS.includes(intentResult.intent);
-  const modelId = useProModel ? "gemini-3.1-pro-preview" : "gemini-3-flash-preview";
-  console.log(`[chat] Model: ${modelId} (intent=${intentResult.intent}, attachments=${hasAttachments})`);
+  const modelId = "gemini-3-flash-preview";
 
   const result = streamText({
     model: google(modelId),
