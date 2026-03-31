@@ -432,7 +432,7 @@ async function ocrPdfWithGemini(
 
   const result = await withGoogleApiLimit(async () => {
     return client.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-lite-preview",
       contents: [
         {
           role: "user",
@@ -475,7 +475,7 @@ async function parseImageToMarkdown(
 
   const { text } = await withGoogleApiLimit(() =>
     generateText({
-      model: google("gemini-3-flash-preview"),
+      model: google("gemini-3.1-lite-preview"),
       messages: [
         {
           role: "user",
