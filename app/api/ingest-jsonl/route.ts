@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
-import { embedDocuments } from "@/app/lib/embeddings";
+import { embedTexts } from "@/app/lib/embeddings";
 import { requireAdmin } from "@/app/lib/auth";
 import { logError } from "@/app/lib/error-logger";
 
@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
 
     // Embed all texts in batch
     const texts = statements.map((s) => s.text);
-    const embeddings = await embedDocuments(texts);
+    const embeddings = await embedTexts(texts);
 
     // Build rows with parent_group_key
     const rows = statements
