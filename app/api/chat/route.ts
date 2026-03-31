@@ -130,7 +130,7 @@ ${userMessage.content}
 
     try {
       await generateText({
-        model: google("gemini-3.1-lite-preview"),
+        model: google("gemini-3.1-flash-lite-preview"),
         prompt: agenticPrompt,
         tools: ragTools,
         maxSteps: 6,
