@@ -150,6 +150,10 @@ export default function Chat() {
   const [activeView, setActiveView] = useState<"chat" | "knowledge-base">("chat");
   const [kbCategoryFilter, setKbCategoryFilter] = useState<string>("all");
 
+  // About modal state
+  const [showAboutModal, setShowAboutModal] = useState(false);
+  const [aboutTab, setAboutTab] = useState<"presentation" | "instructions">("presentation");
+
   // Support modal state
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [supportMessage, setSupportMessage] = useState("");
@@ -908,6 +912,17 @@ export default function Chat() {
                   </button>
                   <button
                     className="mobile-hamburger-item"
+                    onClick={() => { setMobileMenuOpen(false); setShowAboutModal(true); setAboutTab("presentation"); }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M12 16v-4" />
+                      <path d="M12 8h.01" />
+                    </svg>
+                    О проекте
+                  </button>
+                  <button
+                    className="mobile-hamburger-item"
                     onClick={() => { setMobileMenuOpen(false); setRightOpen((o) => !o); }}
                   >
                     <HistoryIcon />
@@ -1003,6 +1018,18 @@ export default function Chat() {
                 <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
               </svg>
               <span className="btn-label">База знаний</span>
+            </button>
+            <button
+              className="header-labeled-btn accent desktop-only"
+              onClick={() => { setShowAboutModal(true); setAboutTab("presentation"); }}
+              title="О проекте"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 16v-4" />
+                <path d="M12 8h.01" />
+              </svg>
+              <span className="btn-label">О проекте</span>
             </button>
             {isAdmin && (
               <a
@@ -1651,6 +1678,90 @@ export default function Chat() {
           onClose={() => setViewingSource(null)}
           inviteCode={inviteCodeRef.current}
         />
+      )}
+
+      {/* ── About Modal ── */}
+      {showAboutModal && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.5)", display: "flex",
+            alignItems: "center", justifyContent: "center", padding: 16,
+          }}
+          onClick={() => setShowAboutModal(false)}
+        >
+          <div
+            style={{
+              background: "var(--bg-primary, #fff)", borderRadius: 16,
+              width: "100%", maxWidth: 1100, height: "90vh",
+              display: "flex", flexDirection: "column",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{
+              padding: "12px 20px", borderBottom: "1px solid var(--border-color, #eee)",
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              flexShrink: 0,
+            }}>
+              <div style={{ display: "flex", gap: 0 }}>
+                <button
+                  onClick={() => setAboutTab("presentation")}
+                  style={{
+                    padding: "8px 20px", fontSize: 15, fontWeight: 600, cursor: "pointer",
+                    border: "none", borderBottom: aboutTab === "presentation" ? "2px solid #1976d2" : "2px solid transparent",
+                    background: "none", color: aboutTab === "presentation" ? "#1976d2" : "var(--text-muted, #888)",
+                    fontFamily: "inherit",
+                  }}
+                >Презентация</button>
+                <button
+                  onClick={() => setAboutTab("instructions")}
+                  style={{
+                    padding: "8px 20px", fontSize: 15, fontWeight: 600, cursor: "pointer",
+                    border: "none", borderBottom: aboutTab === "instructions" ? "2px solid #1976d2" : "2px solid transparent",
+                    background: "none", color: aboutTab === "instructions" ? "#1976d2" : "var(--text-muted, #888)",
+                    fontFamily: "inherit",
+                  }}
+                >Инструкция пользователя</button>
+              </div>
+              <button onClick={() => setShowAboutModal(false)} style={{
+                background: "none", border: "none", fontSize: 22, cursor: "pointer",
+                color: "var(--text-muted)", padding: 4,
+              }}>&times;</button>
+            </div>
+
+            {/* Content */}
+            <div style={{ flex: 1, overflow: "hidden" }}>
+              {aboutTab === "presentation" ? (
+                <iframe
+                  src="/presentation.html"
+                  style={{
+                    width: "100%", height: "100%", border: "none",
+                    borderRadius: "0 0 16px 16px",
+                  }}
+                  title="СнабЧат — Презентация"
+                />
+              ) : (
+                <div style={{
+                  display: "flex", flexDirection: "column", alignItems: "center",
+                  justifyContent: "center", height: "100%",
+                  color: "var(--text-muted, #888)", gap: 16, padding: 32,
+                }}>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                    <polyline points="10 9 9 9 8 9" />
+                  </svg>
+                  <span style={{ fontSize: 18, fontWeight: 600 }}>Раздел в разработке</span>
+                  <span style={{ fontSize: 14 }}>Инструкция пользователя будет доступна в ближайшее время</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Support Modal ── */}
