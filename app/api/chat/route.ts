@@ -16,6 +16,7 @@ import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgentic
 import { expandByRelationships } from "@/app/lib/relationships";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 const MAX_UPLOADED_DOC_CHARS = 50000;
 const MAX_CHUNK_IMAGES = 3; // Max images to include per chunk in prompt
