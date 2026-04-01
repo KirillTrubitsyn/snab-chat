@@ -133,7 +133,9 @@ ${userMessage.content}
 
     try {
       await generateText({
-        model: google("gemini-3.1-flash-lite-preview"),
+        // gemini-3.1-flash-lite-preview fails with tools (thought_signature error),
+        // use gemini-2.0-flash which has stable tool calling support
+        model: google("gemini-2.0-flash"),
         prompt: agenticPrompt,
         tools: ragTools,
         maxSteps: 6,
