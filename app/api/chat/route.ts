@@ -134,13 +134,16 @@ ${userMessage.content}
 
     try {
       await generateText({
-        // gemini-3.1-flash-lite-preview fails with tools (thought_signature error),
-        // use gemini-3-flash-preview which already works for the main chat
         model: google("gemini-3-flash-preview"),
         prompt: agenticPrompt,
         tools: ragTools,
         maxSteps: 6,
         temperature: 0,
+        // Disable thinking mode — Gemini 3.x requires thought_signature for tool calls
+        // when thinking is enabled, which AI SDK doesn't support yet
+        providerOptions: {
+          google: { thinkingConfig: { thinkingBudget: 0 } },
+        },
       });
 
       console.log(`[chat] Agentic search complete: ${agenticCtx.searchCount} searches, ${agenticCtx.chunks.size} chunks collected`);
