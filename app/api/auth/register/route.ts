@@ -5,6 +5,13 @@ import { registerSchema, parseBody } from "@/app/lib/validation";
 import { notifyNewUser } from "@/app/lib/telegram";
 
 export async function POST(req: NextRequest) {
+  // Self-registration is paused until further notice.
+  // Only administrators can create invite codes via the admin panel.
+  return NextResponse.json(
+    { error: "Регистрация временно приостановлена. Обратитесь к администратору для получения кода доступа." },
+    { status: 403 }
+  );
+
   try {
     const raw = await req.json();
     const { data: body, error: valError } = parseBody(raw, registerSchema);
