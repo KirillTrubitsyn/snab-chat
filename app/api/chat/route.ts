@@ -98,8 +98,11 @@ export async function POST(req: NextRequest) {
   const contextMessages: { role: string; content: string }[] =
     contextResult?.messages ?? [];
 
-  // ── Determine retrieval strategy: agentic (complex) vs deterministic (simple) ──
-  const useAgenticRag = isComplexQuery(userMessage.content, intentResult);
+  // ── Determine retrieval strategy ──
+  // Agentic RAG disabled: Gemini 3.x models require thought_signature for tool calling,
+  // which Vercel AI SDK doesn't support yet. All queries use deterministic pipeline.
+  // TODO: re-enable when @ai-sdk/google adds thought_signature support
+  const useAgenticRag = false;
   let relevantChunks: SearchResult[];
   let lowConfidence: boolean;
 
