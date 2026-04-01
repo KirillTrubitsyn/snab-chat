@@ -64,7 +64,10 @@ export async function POST(req: NextRequest) {
       ? saveMessage(conversationId, "user", userMessage.content)
       : Promise.resolve(),
     conversationId
-      ? loadConversationContext(conversationId)
+      ? loadConversationContext(conversationId).catch((e) => {
+          console.error("[chat] loadConversationContext failed (continuing without context):", e);
+          return null;
+        })
       : Promise.resolve(null),
     classifyIntent(searchQuery),
     classifyOffTopic(userMessage.content, messages.slice(0, -1)),
@@ -131,7 +134,9 @@ ${userMessage.content}
 
     try {
       await generateText({
-        model: google("gemini-3.1-flash-lite-preview"),
+        // gemini-3.1-flash-lite-preview fails with tools (thought_signature error),
+        // use gemini-3-flash-preview which already works for the main chat
+        model: google("gemini-3-flash-preview"),
         prompt: agenticPrompt,
         tools: ragTools,
         maxSteps: 6,
@@ -902,6 +907,14 @@ ${uploadedDocsContext}`;
       message: errMsg,
       endpoint: "/api/chat",
     }).catch(() => {});
+
+    // Return specific status codes so the frontend can show targeted messages
+    if (/429|too many requests|rate.?limit|quota/i.test(errMsg)) {
+      return NextResponse.json({ error: "Превышен лимит запросов к ИИ" }, { status: 429 });
+    }
+    if (/503|unavailable|overloaded/i.test(errMsg)) {
+      return NextResponse.json({ error: "Сервис ИИ временно недоступен" }, { status: 503 });
+    }
     return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
  }
 }

@@ -29,7 +29,31 @@ export async function GET(req: NextRequest) {
     query = query.eq("invite_code_id", invite.id);
   }
 
-  const { data, error } = await query;
+  let data = null;
+  let error = null;
+
+  for (let attempt = 0; attempt <= 1; attempt++) {
+    ({ data, error } = await query);
+    if (!error) break;
+    const msg = error.message ?? "";
+    if (attempt === 0 && /fetch|network|ECONNR|timeout|socket/i.test(msg)) {
+      console.warn("[conversations] GET transient error, retrying:", msg);
+      await new Promise((r) => setTimeout(r, 1000));
+      // Re-create query for retry
+      query = supabase
+        .from("conversations")
+        .select("id, title, created_at, updated_at, summary, invite_code_id")
+        .order("updated_at", { ascending: false })
+        .limit(50);
+      if (isAdminCode(invite.code)) {
+        query = query.eq("admin_name", invite.name);
+      } else {
+        query = query.eq("invite_code_id", invite.id);
+      }
+      continue;
+    }
+    break;
+  }
 
   if (error) {
     console.error("DB error:", error.message); return serverError();
@@ -68,19 +92,37 @@ export async function POST(req: NextRequest) {
     insertData.admin_name = invite.name;
   }
 
-  let { data, error } = await supabase
-    .from("conversations")
-    .insert(insertData)
-    .select("id, title, created_at, updated_at")
-    .single();
+  // Retry logic for transient Supabase errors (TypeError: fetch failed)
+  let data = null;
+  let error = null;
+  const MAX_RETRIES = 2;
 
-  // If admin_name column doesn't exist yet, retry without it
-  if (error && isAdmin && error.message?.includes("admin_name")) {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     ({ data, error } = await supabase
       .from("conversations")
-      .insert({ title, invite_code_id: inviteCodeId })
+      .insert(insertData)
       .select("id, title, created_at, updated_at")
       .single());
+
+    // If admin_name column doesn't exist yet, retry without it
+    if (error && isAdmin && error.message?.includes("admin_name")) {
+      ({ data, error } = await supabase
+        .from("conversations")
+        .insert({ title, invite_code_id: inviteCodeId })
+        .select("id, title, created_at, updated_at")
+        .single());
+    }
+
+    if (!error) break;
+
+    // Retry only on transient network errors
+    const msg = error.message ?? "";
+    if (attempt < MAX_RETRIES && /fetch|network|ECONNR|timeout|socket/i.test(msg)) {
+      console.warn(`[conversations] Transient DB error (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`, msg);
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+      continue;
+    }
+    break;
   }
 
   if (error) {

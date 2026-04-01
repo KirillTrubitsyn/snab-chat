@@ -393,27 +393,45 @@ export default function Chat() {
     return () => { cancelled = true; };
   }, [activeConvId, setMessages]);
 
-  /* ── Create conversation ── */
+  /* ── Create conversation (with retry for transient errors) ── */
   const createConversation = useCallback(
     async (title?: string) => {
-      const res = await fetch("/api/conversations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-        body: JSON.stringify({ title: title || "Новый диалог" }),
-      });
-      if (!res.ok) {
-        throw new Error(`Не удалось создать диалог: ${res.status}`);
+      const MAX_RETRIES = 2;
+      let lastError: Error | null = null;
+
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          const res = await fetch("/api/conversations", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+            body: JSON.stringify({ title: title || "Новый диалог" }),
+          });
+          if (!res.ok) {
+            // 401 is not retryable
+            if (res.status === 401) throw new Error(`Не удалось создать диалог: ${res.status}`);
+            throw new Error(`Не удалось создать диалог: ${res.status}`);
+          }
+          const conv = await res.json();
+          if (!conv.id) {
+            throw new Error("Сервер не вернул ID диалога");
+          }
+          setConversations((prev) => [conv, ...prev]);
+          setActiveConvId(conv.id);
+          convIdRef.current = conv.id;
+          setMessages([]);
+          setHasSummary(false);
+          return conv.id as string;
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          // Don't retry auth errors
+          if (lastError.message.includes("401")) throw lastError;
+          if (attempt < MAX_RETRIES) {
+            await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+            continue;
+          }
+        }
       }
-      const conv = await res.json();
-      if (!conv.id) {
-        throw new Error("Сервер не вернул ID диалога");
-      }
-      setConversations((prev) => [conv, ...prev]);
-      setActiveConvId(conv.id);
-      convIdRef.current = conv.id;
-      setMessages([]);
-      setHasSummary(false);
-      return conv.id as string;
+      throw lastError!;
     },
     [setMessages]
   );
@@ -653,6 +671,9 @@ export default function Chat() {
         ]);
 
         try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 90000);
+
           const res = await fetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
@@ -661,11 +682,18 @@ export default function Chat() {
               conversationId: newId,
               ...(attachedDocuments.length > 0 && { attachedDocuments }),
             }),
+            signal: controller.signal,
           });
+
+          clearTimeout(timeout);
 
           if (!res.ok || !res.body) {
             if (res.status === 401) {
               setChatError("Ошибка авторизации. Попробуйте перелогиниться.");
+            } else if (res.status === 429) {
+              setChatError("Слишком много запросов. Подождите немного и попробуйте снова.");
+            } else if (res.status >= 500) {
+              setChatError("Сервер временно недоступен. Попробуйте через несколько секунд.");
             } else {
               setChatError("Не удалось получить ответ от ИИ. Попробуйте ещё раз.");
             }
@@ -720,6 +748,9 @@ export default function Chat() {
             );
           }
         } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") {
+            setChatError("Запрос занял слишком много времени. Попробуйте переформулировать вопрос короче.");
+          }
           console.error("Manual stream error:", err);
         }
 
@@ -737,6 +768,9 @@ export default function Chat() {
       setInput("");
 
       try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 90000);
+
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
@@ -748,11 +782,18 @@ export default function Chat() {
             conversationId: convIdRef.current,
             ...(attachedDocuments.length > 0 && { attachedDocuments }),
           }),
+          signal: controller.signal,
         });
+
+        clearTimeout(timeout);
 
         if (!res.ok || !res.body) {
           if (res.status === 401) {
             setChatError("Ошибка авторизации. Попробуйте перелогиниться.");
+          } else if (res.status === 429) {
+            setChatError("Слишком много запросов. Подождите немного и попробуйте снова.");
+          } else if (res.status >= 500) {
+            setChatError("Сервер временно недоступен. Попробуйте через несколько секунд.");
           } else {
             setChatError("Не удалось получить ответ от ИИ. Попробуйте ещё раз.");
           }
@@ -807,6 +848,9 @@ export default function Chat() {
           );
         }
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          setChatError("Запрос занял слишком много времени. Попробуйте переформулировать вопрос короче.");
+        }
         console.error("Stream error:", err);
       } finally {
         setIsSending(false);
