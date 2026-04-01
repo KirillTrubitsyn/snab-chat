@@ -849,6 +849,9 @@ html, body {
     prev.style.transform = 'translateX(' + (-dir * 60) + 'px)';
 
     next.classList.add('active');
+    // Clear inline styles so .active class takes effect with transition
+    next.style.transform = '';
+    next.style.opacity = '';
 
     // Update dots
     dotsEl.children[current].classList.remove('active');
