@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1976D2">
+<title>СнабЧат — Презентация</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Source+Sans+3:wght@400;500;600;700&display=swap');
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --brand-snab: #003A7A;
+  --brand-chat: #0099CC;
+  --accent: #2563EB;
+  --bg-light: #FAFAFA;
+  --bg-white: #FFFFFF;
+  --text-dark: #1A1A1A;
+  --text-muted: #6B7280;
+  --card-shadow: 0 4px 20px rgba(0,0,0,0.08);
+  --card-radius: 10px;
+  --font-heading: 'Plus Jakarta Sans', sans-serif;
+  --font-body: 'Source Sans 3', sans-serif;
+}
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: var(--bg-light);
+  font-family: var(--font-body);
+  color: var(--text-dark);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Slide container ── */
+.deck {
+  position: relative;
+  width: 100%; height: 100%;
+  overflow: hidden;
+}
+
+.slide {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 48px 80px;
+  opacity: 0;
+  transform: translateX(60px);
+  pointer-events: none;
+  transition: opacity 0.5s ease, transform 0.5s ease;
+  overflow-y: auto;
+  background: var(--bg-light);
+}
+
+.slide.active {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.slide.exit-left {
+  opacity: 0;
+  transform: translateX(-60px);
+}
+
+/* ── Slide number ── */
+.slide-number {
+  position: absolute;
+  bottom: 20px;
+  right: 32px;
+  font-family: var(--font-heading);
+  font-size: 14px;
+  color: var(--text-muted);
+  z-index: 5;
+}
+
+/* ── Typography ── */
+.slide-title {
+  font-family: var(--font-heading);
+  font-size: clamp(28px, 4vw, 48px);
+  font-weight: 700;
+  color: var(--text-dark);
+  text-align: center;
+  margin-bottom: 40px;
+  line-height: 1.2;
+}
+
+.slide-subtitle {
+  font-family: var(--font-body);
+  font-size: clamp(18px, 2.5vw, 24px);
+  color: var(--text-muted);
+  text-align: center;
+  margin-bottom: 24px;
+  line-height: 1.5;
+}
+
+.brand-name {
+  font-family: Georgia, serif;
+  font-weight: 700;
+  font-size: inherit;
+}
+.brand-snab { color: var(--brand-snab); }
+.brand-chat { color: var(--brand-chat); }
+
+/* ── Logo ── */
+.logo { width: 120px; height: 120px; margin-bottom: 32px; }
+.logo-large { width: 180px; height: 180px; margin-bottom: 40px; }
+
+/* ── Cards grid ── */
+.cards {
+  display: grid;
+  gap: 24px;
+  width: 100%;
+  max-width: 1100px;
+}
+.cards-2 { grid-template-columns: repeat(2, 1fr); }
+.cards-3 { grid-template-columns: repeat(3, 1fr); }
+.cards-4 { grid-template-columns: repeat(4, 1fr); }
+.cards-6 { grid-template-columns: repeat(3, 1fr); }
+
+.card {
+  background: var(--bg-white);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  padding: 28px 24px;
+  text-align: center;
+  transition: transform 0.2s;
+}
+.card:hover { transform: translateY(-4px); }
+
+.card-icon {
+  font-size: 40px;
+  margin-bottom: 16px;
+  display: block;
+}
+
+.card-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: clamp(16px, 1.8vw, 20px);
+  margin-bottom: 8px;
+  color: var(--text-dark);
+}
+
+.card-text {
+  font-size: clamp(14px, 1.5vw, 18px);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* ── Feature list ── */
+.feature-list {
+  list-style: none;
+  max-width: 900px;
+  width: 100%;
+  text-align: left;
+}
+.feature-list li {
+  font-size: clamp(16px, 2vw, 22px);
+  padding: 14px 0;
+  border-bottom: 1px solid #E5E7EB;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  line-height: 1.5;
+}
+.feature-list li:last-child { border-bottom: none; }
+.feature-list .icon { font-size: 26px; flex-shrink: 0; }
+
+/* ── Pipeline ── */
+.pipeline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-bottom: 32px;
+  max-width: 1100px;
+}
+.pipe-box {
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: clamp(13px, 1.4vw, 17px);
+  padding: 14px 20px;
+  border-radius: var(--card-radius);
+  text-align: center;
+  white-space: nowrap;
+}
+.pipe-arrow {
+  font-size: 24px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ── Two-column search ── */
+.search-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  max-width: 900px;
+  width: 100%;
+  margin-bottom: 20px;
+}
+.search-col {
+  background: var(--bg-white);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  padding: 24px;
+}
+.search-col h3 {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: clamp(16px, 1.8vw, 20px);
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+.search-col p {
+  font-size: clamp(14px, 1.4vw, 17px);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.note {
+  font-size: clamp(14px, 1.5vw, 18px);
+  color: var(--text-muted);
+  text-align: center;
+  max-width: 800px;
+  margin-top: 12px;
+  line-height: 1.5;
+}
+.note strong { color: var(--text-dark); }
+.note.accent { color: var(--accent); font-weight: 600; }
+
+/* ── Dashboard numbers ── */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+  max-width: 1000px;
+  width: 100%;
+  margin-bottom: 32px;
+}
+.stat {
+  text-align: center;
+  background: var(--bg-white);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  padding: 32px 16px;
+}
+.stat-num {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: clamp(36px, 5vw, 64px);
+  color: var(--accent);
+  line-height: 1;
+  margin-bottom: 8px;
+}
+.stat-label {
+  font-size: clamp(14px, 1.5vw, 18px);
+  color: var(--text-muted);
+}
+
+/* ── Architecture diagram ── */
+.arch {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 1100px;
+}
+.arch-box {
+  background: var(--bg-white);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  padding: 20px 24px;
+  text-align: center;
+  min-width: 160px;
+}
+.arch-box.highlight {
+  background: var(--accent);
+  color: #fff;
+}
+.arch-box .arch-label {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: clamp(15px, 1.6vw, 19px);
+  margin-bottom: 4px;
+}
+.arch-box .arch-desc {
+  font-size: clamp(12px, 1.2vw, 15px);
+  opacity: 0.8;
+}
+.arch-arrow {
+  font-size: 28px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ── Price ── */
+.price-big {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: clamp(36px, 5vw, 64px);
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.price-sub {
+  font-size: clamp(14px, 1.5vw, 18px);
+  color: var(--text-muted);
+  margin-bottom: 32px;
+}
+
+/* ── Dots navigation ── */
+.dots {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  z-index: 100;
+}
+.dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: #D1D5DB;
+  cursor: pointer;
+  transition: background 0.3s, transform 0.3s;
+  border: none;
+}
+.dot.active {
+  background: var(--accent);
+  transform: scale(1.3);
+}
+
+/* ── Edge click zones ── */
+.nav-zone {
+  position: fixed;
+  top: 0;
+  width: 80px;
+  height: 100%;
+  z-index: 50;
+  cursor: pointer;
+}
+.nav-zone.left { left: 0; }
+.nav-zone.right { right: 0; }
+
+/* ── Fullscreen btn ── */
+.fs-btn {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 100;
+  background: rgba(0,0,0,0.06);
+  border: none;
+  border-radius: 8px;
+  width: 40px; height: 40px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: var(--text-muted);
+  transition: background 0.2s;
+}
+.fs-btn:hover { background: rgba(0,0,0,0.12); }
+
+/* ── Slide inner wrapper ── */
+.slide-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 1200px;
+}
+
+/* ── Formats badges ── */
+.badges {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 12px;
+}
+.badge {
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 14px;
+  padding: 6px 16px;
+  border-radius: 20px;
+}
+
+/* ── Stack badges (slide 11) ── */
+.stack-badges {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.stack-badge {
+  background: var(--bg-white);
+  border: 2px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: clamp(14px, 1.4vw, 17px);
+  padding: 8px 20px;
+  border-radius: 20px;
+}
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .slide { padding: 40px 24px 70px; }
+  .cards-3, .cards-4, .cards-6 { grid-template-columns: repeat(2, 1fr); }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .search-cols { grid-template-columns: 1fr; }
+  .pipeline { gap: 6px; }
+  .pipe-box { padding: 10px 14px; font-size: 13px; }
+  .arch { gap: 10px; }
+  .arch-box { min-width: 120px; padding: 14px 16px; }
+}
+
+@media (max-width: 600px) {
+  .slide { padding: 32px 16px 64px; }
+  .cards-2, .cards-3, .cards-4, .cards-6 { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .nav-zone { width: 50px; }
+  .slide-title { margin-bottom: 24px; }
+  .card { padding: 20px 16px; }
+  .pipeline { flex-direction: column; }
+  .pipe-arrow { transform: rotate(90deg); }
+  .arch { flex-direction: column; }
+  .arch-arrow { transform: rotate(90deg); }
+}
+</style>
+</head>
+<body>
+
+<div class="deck" id="deck">
+
+<!-- ═══════ Slide 1: Title ═══════ -->
+<div class="slide active" data-slide="0">
+  <div class="slide-inner">
+    <svg class="logo-large" viewBox="0 0 512 512" fill="none">
+      <rect width="512" height="512" rx="112" fill="#F0F4FA"/>
+      <rect x="120" y="100" width="200" height="260" rx="28" fill="#0D47A1"/>
+      <rect x="160" y="140" width="200" height="260" rx="28" fill="#1976D2"/>
+      <rect x="200" y="180" width="200" height="260" rx="28" fill="#42A5F5"/>
+      <rect x="328" y="368" width="52" height="40" rx="12" fill="#fff"/>
+      <polygon points="338,408 328,424 348,408" fill="#fff"/>
+    </svg>
+    <h1 class="slide-title">
+      <span class="brand-name brand-snab">Снаб</span><span class="brand-name brand-chat">Чат</span>
+      <br>ИИ-ассистент Дирекции по закупкам
+    </h1>
+    <p class="slide-subtitle">Презентация для коллег &middot; 2026</p>
+  </div>
+  <span class="slide-number">1 / 13</span>
+</div>
+
+<!-- ═══════ Slide 2: Problem ═══════ -->
+<div class="slide" data-slide="1">
+  <div class="slide-inner">
+    <h2 class="slide-title">Зачем нужен ИИ-ассистент?</h2>
+    <div class="cards cards-2">
+      <div class="card">
+        <span class="card-icon">📚</span>
+        <div class="card-title">Сотни документов</div>
+        <div class="card-text">Регламенты, инструкции, положения — объём растёт каждый месяц</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">🔍</span>
+        <div class="card-title">Долгий поиск</div>
+        <div class="card-text">Нужная информация разбросана по десяткам файлов и папок</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">⚠️</span>
+        <div class="card-title">Риск ошибок</div>
+        <div class="card-text">Ручной поиск приводит к неполным или устаревшим ответам</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">🧑‍💼</span>
+        <div class="card-title">Адаптация новичков</div>
+        <div class="card-text">Новые сотрудники долго входят в курс дела без наставника</div>
+      </div>
+    </div>
+  </div>
+  <span class="slide-number">2 / 13</span>
+</div>
+
+<!-- ═══════ Slide 3: Solution ═══════ -->
+<div class="slide" data-slide="2">
+  <div class="slide-inner">
+    <h2 class="slide-title">Что такое <span class="brand-name brand-snab">Снаб</span><span class="brand-name brand-chat">Чат</span>?</h2>
+    <ul class="feature-list">
+      <li><span class="icon">🤖</span> Умный помощник, который читает все документы за вас</li>
+      <li><span class="icon">📎</span> Отвечает строго по документам — не выдумывает</li>
+      <li><span class="icon">📌</span> Цитирует источники после каждого утверждения</li>
+      <li><span class="icon">🌐</span> Доступен 24/7 с любого устройства — без VPN, включая мобильные и планшеты</li>
+    </ul>
+  </div>
+  <span class="slide-number">3 / 13</span>
+</div>
+
+<!-- ═══════ Slide 4: Knowledge Base ═══════ -->
+<div class="slide" data-slide="3">
+  <div class="slide-inner">
+    <h2 class="slide-title">Как устроена база знаний</h2>
+    <div class="pipeline">
+      <div class="pipe-box">📄 Документ</div>
+      <span class="pipe-arrow">&rarr;</span>
+      <div class="pipe-box">✂️ Разбивка на фрагменты</div>
+      <span class="pipe-arrow">&rarr;</span>
+      <div class="pipe-box">🧬 Создание «отпечатков»</div>
+      <span class="pipe-arrow">&rarr;</span>
+      <div class="pipe-box">🎯 Умный поиск</div>
+    </div>
+    <div class="search-cols">
+      <div class="search-col">
+        <h3>📝 Текстовый (FTS)</h3>
+        <p>Находит точные слова и словоформы: закупка&nbsp;&rarr;&nbsp;закупок, закупки</p>
+      </div>
+      <div class="search-col">
+        <h3>🧠 Семантический</h3>
+        <p>Понимает смысл вопроса, даже если слова совсем другие</p>
+      </div>
+    </div>
+    <p class="note accent">Два вида поиска + ИИ-ранжирование = максимум точности</p>
+    <div class="badges">
+      <span class="badge">DOCX</span>
+      <span class="badge">PDF</span>
+      <span class="badge">XLSX</span>
+      <span class="badge">PPTX</span>
+    </div>
+    <p class="note" style="margin-top:16px">Всё построено в облаках — надёжное масштабируемое хранение</p>
+  </div>
+  <span class="slide-number">4 / 13</span>
+</div>
+
+<!-- ═══════ Slide 5: AI Models ═══════ -->
+<div class="slide" data-slide="4">
+  <div class="slide-inner">
+    <h2 class="slide-title">Три модели искусственного интеллекта</h2>
+    <div class="cards cards-3">
+      <div class="card">
+        <span class="card-icon">🧠</span>
+        <div class="card-title">Google Gemini 3 Flash</div>
+        <div class="card-text"><strong>«Мозг»</strong><br>Генерация ответов в чате</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">⚙️</span>
+        <div class="card-title">Gemini 3.1 Flash Lite</div>
+        <div class="card-text"><strong>«Рабочая лошадка»</strong><br>Классификация, ранжирование, суммаризация, автотеги</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">🔗</span>
+        <div class="card-title">Gemini Embedding 2</div>
+        <div class="card-text"><strong>«Понимание смысла»</strong><br>Векторные отпечатки документов</div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:32px">Как библиотекарь, который прочитал все книги и находит нужную страницу за секунды</p>
+  </div>
+  <span class="slide-number">5 / 13</span>
+</div>
+
+<!-- ═══════ Slide 6: Multimodal Input ═══════ -->
+<div class="slide" data-slide="5">
+  <div class="slide-inner">
+    <h2 class="slide-title">4 способа задать вопрос</h2>
+    <div class="cards cards-4">
+      <div class="card">
+        <span class="card-icon">⌨️</span>
+        <div class="card-title">Текст</div>
+        <div class="card-text">Обычный ввод вопроса</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">🎙️</span>
+        <div class="card-title">Голос</div>
+        <div class="card-text">Кнопка микрофона, распознавание речи на русском</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">📷</span>
+        <div class="card-title">Камера</div>
+        <div class="card-text">Фото документов с телефона для анализа</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">📁</span>
+        <div class="card-title">Файлы</div>
+        <div class="card-text">Загрузка документов прямо в чат</div>
+      </div>
+    </div>
+  </div>
+  <span class="slide-number">6 / 13</span>
+</div>
+
+<!-- ═══════ Slide 7: Features ═══════ -->
+<div class="slide" data-slide="6">
+  <div class="slide-inner">
+    <h2 class="slide-title">Умные функции</h2>
+    <ul class="feature-list">
+      <li><span class="icon">✅</span> Проверка документов на соответствие базе знаний</li>
+      <li><span class="icon">🚫</span> Обнаружение нецелевых запросов — офф-топ уведомляет админа через Telegram-бота</li>
+      <li><span class="icon">📤</span> Экспорт ответов в Word и Excel</li>
+      <li><span class="icon">📊</span> Генерация инфографики по запросу (8 стилей)</li>
+      <li><span class="icon">🎓</span> Раздел «Обучение» для новых сотрудников</li>
+    </ul>
+  </div>
+  <span class="slide-number">7 / 13</span>
+</div>
+
+<!-- ═══════ Slide 8: PWA ═══════ -->
+<div class="slide" data-slide="7">
+  <div class="slide-inner">
+    <h2 class="slide-title">Приложение на вашем устройстве</h2>
+    <div class="cards cards-2">
+      <div class="card">
+        <span class="card-icon">📱</span>
+        <div class="card-title">Как обычное приложение</div>
+        <div class="card-text">Работает на телефоне и планшете</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">⬇️</span>
+        <div class="card-title">Установка одной кнопкой</div>
+        <div class="card-text">Без магазина приложений</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">📶</span>
+        <div class="card-title">Работает офлайн</div>
+        <div class="card-text">Базовый кэш для быстрого старта</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">🖥️</span>
+        <div class="card-title">Адаптивный дизайн</div>
+        <div class="card-text">Для любого экрана — от телефона до проектора</div>
+      </div>
+    </div>
+  </div>
+  <span class="slide-number">8 / 13</span>
+</div>
+
+<!-- ═══════ Slide 9: Architecture ═══════ -->
+<div class="slide" data-slide="8">
+  <div class="slide-inner">
+    <h2 class="slide-title">Как это работает <span style="color:var(--text-muted);font-weight:400">(простым языком)</span></h2>
+    <div class="arch">
+      <div class="arch-box highlight">
+        <div class="arch-label">👤 Пользователь</div>
+      </div>
+      <span class="arch-arrow">&rarr;</span>
+      <div class="arch-box">
+        <div class="arch-label">Vercel</div>
+        <div class="arch-desc">Фронтенд + бэкенд<br>Серверные функции</div>
+      </div>
+      <span class="arch-arrow">&rarr;</span>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="arch-box">
+          <div class="arch-label">Google AI</div>
+          <div class="arch-desc">3 модели ИИ</div>
+        </div>
+        <div class="arch-box">
+          <div class="arch-label">Supabase</div>
+          <div class="arch-desc">БД + хранение<br>Облако Ирландия, EU</div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:24px">
+      <div class="arch-box" style="display:inline-block">
+        <div class="arch-label">GitHub</div>
+        <div class="arch-desc">Код, версионирование</div>
+      </div>
+    </div>
+  </div>
+  <span class="slide-number">9 / 13</span>
+</div>
+
+<!-- ═══════ Slide 10: Admin Panel ═══════ -->
+<div class="slide" data-slide="9">
+  <div class="slide-inner">
+    <h2 class="slide-title">Полный контроль</h2>
+    <div class="cards cards-6">
+      <div class="card">
+        <span class="card-icon">👥</span>
+        <div class="card-title">Пользователи</div>
+        <div class="card-text">Инвайт-коды, лимиты</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">📈</span>
+        <div class="card-title">Мониторинг</div>
+        <div class="card-text">Активность пользователей</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">📂</span>
+        <div class="card-title">База знаний</div>
+        <div class="card-text">Загрузка и удаление документов</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">🐛</span>
+        <div class="card-title">Ошибки</div>
+        <div class="card-text">Отслеживание и логирование</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">🚫</span>
+        <div class="card-title">Нецелевые запросы</div>
+        <div class="card-text">Фильтрация офф-топа</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">💬</span>
+        <div class="card-title">Поддержка</div>
+        <div class="card-text">Telegram-уведомления</div>
+      </div>
+    </div>
+  </div>
+  <span class="slide-number">10 / 13</span>
+</div>
+
+<!-- ═══════ Slide 11: Dev Stats ═══════ -->
+<div class="slide" data-slide="10">
+  <div class="slide-inner">
+    <h2 class="slide-title">Разработка</h2>
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-num">10</div>
+        <div class="stat-label">календарных дней</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num">1</div>
+        <div class="stat-label">разработчик</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num">37</div>
+        <div class="stat-label">API-эндпоинтов</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num">24</div>
+        <div class="stat-label">модуля бизнес-логики</div>
+      </div>
+    </div>
+    <div class="stack-badges">
+      <span class="stack-badge">Next.js 15</span>
+      <span class="stack-badge">React 19</span>
+      <span class="stack-badge">TypeScript</span>
+    </div>
+  </div>
+  <span class="slide-number">11 / 13</span>
+</div>
+
+<!-- ═══════ Slide 12: Cost ═══════ -->
+<div class="slide" data-slide="11">
+  <div class="slide-inner">
+    <h2 class="slide-title">Стоимость поддержки</h2>
+    <div class="price-big">~50 000 &#8381;/мес</div>
+    <p class="price-sub">при 350–400 запросах в сутки</p>
+    <div class="cards cards-3">
+      <div class="card">
+        <span class="card-icon">💰</span>
+        <div class="card-text">В сумму входят <strong>ВСЕ</strong> постоянные расходы (хостинг Vercel, БД Supabase) + переменные (токены Google&nbsp;AI)</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">📊</span>
+        <div class="card-text">При удвоении/утроении пользователей постоянные расходы <strong>НЕ растут</strong> — добавляется только оплата токенов</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">👤</span>
+        <div class="card-text">Дешевле одного дополнительного сотрудника</div>
+      </div>
+    </div>
+  </div>
+  <span class="slide-number">12 / 13</span>
+</div>
+
+<!-- ═══════ Slide 13: Final ═══════ -->
+<div class="slide" data-slide="12">
+  <div class="slide-inner">
+    <svg class="logo-large" viewBox="0 0 512 512" fill="none">
+      <rect width="512" height="512" rx="112" fill="#F0F4FA"/>
+      <rect x="120" y="100" width="200" height="260" rx="28" fill="#0D47A1"/>
+      <rect x="160" y="140" width="200" height="260" rx="28" fill="#1976D2"/>
+      <rect x="200" y="180" width="200" height="260" rx="28" fill="#42A5F5"/>
+      <rect x="328" y="368" width="52" height="40" rx="12" fill="#fff"/>
+      <polygon points="338,408 328,424 348,408" fill="#fff"/>
+    </svg>
+    <h2 class="slide-title">Спасибо за внимание!</h2>
+    <p class="slide-subtitle" style="font-size:clamp(24px,3vw,36px);color:var(--text-dark);font-weight:600;margin-bottom:32px">Вопросы?</p>
+    <p class="slide-subtitle">Трубицын Кирилл Андреевич</p>
+  </div>
+  <span class="slide-number">13 / 13</span>
+</div>
+
+</div><!-- /deck -->
+
+<!-- Dots -->
+<div class="dots" id="dots"></div>
+
+<!-- Click zones -->
+<div class="nav-zone left" id="navLeft"></div>
+<div class="nav-zone right" id="navRight"></div>
+
+<!-- Fullscreen button -->
+<button class="fs-btn" id="fsBtn" title="Полноэкранный режим">⛶</button>
+
+<script>
+(function() {
+  const TOTAL = 13;
+  let current = 0;
+  let isAnimating = false;
+
+  const slides = document.querySelectorAll('.slide');
+  const dotsEl = document.getElementById('dots');
+
+  // Build dots
+  for (let i = 0; i < TOTAL; i++) {
+    const d = document.createElement('button');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.setAttribute('aria-label', 'Слайд ' + (i + 1));
+    d.addEventListener('click', function() { goTo(i); });
+    dotsEl.appendChild(d);
+  }
+
+  function goTo(n) {
+    if (n === current || isAnimating || n < 0 || n >= TOTAL) return;
+    isAnimating = true;
+    const dir = n > current ? 1 : -1;
+    const prev = slides[current];
+    const next = slides[n];
+
+    // Set entry position
+    next.style.transition = 'none';
+    next.style.transform = 'translateX(' + (dir * 60) + 'px)';
+    next.style.opacity = '0';
+    // Force reflow
+    void next.offsetWidth;
+    next.style.transition = '';
+
+    prev.classList.remove('active');
+    prev.classList.add('exit-left');
+    prev.style.transform = 'translateX(' + (-dir * 60) + 'px)';
+
+    next.classList.add('active');
+
+    // Update dots
+    dotsEl.children[current].classList.remove('active');
+    dotsEl.children[n].classList.add('active');
+
+    current = n;
+
+    setTimeout(function() {
+      prev.classList.remove('exit-left');
+      prev.style.transform = '';
+      isAnimating = false;
+    }, 520);
+  }
+
+  function next() { goTo(current + 1); }
+  function prev() { goTo(current - 1); }
+
+  // Keyboard
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') { e.preventDefault(); next(); }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); prev(); }
+    if (e.key === 'Home') { e.preventDefault(); goTo(0); }
+    if (e.key === 'End') { e.preventDefault(); goTo(TOTAL - 1); }
+  });
+
+  // Click zones
+  document.getElementById('navLeft').addEventListener('click', prev);
+  document.getElementById('navRight').addEventListener('click', next);
+
+  // Touch / Swipe
+  let tx = 0, ty = 0;
+  document.addEventListener('touchstart', function(e) {
+    tx = e.touches[0].clientX;
+    ty = e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener('touchend', function(e) {
+    const dx = e.changedTouches[0].clientX - tx;
+    const dy = e.changedTouches[0].clientY - ty;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {
+      dx < 0 ? next() : prev();
+    }
+  }, { passive: true });
+
+  // Fullscreen
+  document.getElementById('fsBtn').addEventListener('click', function() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(function(){});
+    } else {
+      document.exitFullscreen();
+    }
+  });
+})();
+</script>
+</body>
+</html>
