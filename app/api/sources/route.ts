@@ -25,17 +25,25 @@ export async function GET() {
       from += PAGE;
     }
 
-    // Separate denormalized (technical) sources from user-visible documents
-    const visibleSources = allSources.filter(
-      (s: any) => s.mime_type !== "application/x-denormalized"
-    );
+    // Hide only "ugly" denormalized files (per-line tagged technical artifacts).
+    // Well-formatted denormalized .md files (table descriptions, matrices, etc.)
+    // remain visible — users find them useful for reading and downloading.
+    const HIDDEN_DENORM_FOLDERS = ["pricing", "instructions", "schemas"];
+
+    const visibleSources = allSources.filter((s: any) => {
+      if (s.mime_type !== "application/x-denormalized") return true;
+      // Denormalized file — show it unless it's in a technical folder
+      return !HIDDEN_DENORM_FOLDERS.includes(s.folder_path);
+    });
+
     const denormalizedSources = allSources.filter(
-      (s: any) => s.mime_type === "application/x-denormalized"
+      (s: any) =>
+        s.mime_type === "application/x-denormalized" &&
+        HIDDEN_DENORM_FOLDERS.includes(s.folder_path)
     );
 
     return NextResponse.json({
       sources: visibleSources,
-      // Admin panel can use this to see technical files if needed
       denormalized: denormalizedSources,
     });
   } catch (err: unknown) {

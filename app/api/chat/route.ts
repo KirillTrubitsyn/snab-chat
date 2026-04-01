@@ -815,14 +815,19 @@ ${uploadedDocsContext}`;
     }
   }
 
-  // Filter out denormalized .md files from displayed sources — they are technical
-  // artifacts for the search engine. Only show original documents to the user.
+  // Filter out only "ugly" denormalized files (per-line tagged technical artifacts)
+  // from source citations. Well-formatted denormalized .md files (table descriptions,
+  // matrices, etc.) remain visible — users can open and read them.
+  const HIDDEN_DENORM_TAGS = ["ценообразование", "инструкция", "индексы", "схемы"];
   const sourceFilenames = [...new Set(
     relevantChunks
-      .filter((r) =>
-        !r.source_filename.endsWith(".md") &&
-        !r.tags.some((t) => t.toLowerCase() === "денормализовано")
-      )
+      .filter((r) => {
+        const tags = r.tags.map((t: string) => t.toLowerCase());
+        const isDenorm = tags.includes("денормализовано");
+        if (!isDenorm) return true;
+        // Denormalized file — hide only if it has a technical-folder tag
+        return !tags.some((t: string) => HIDDEN_DENORM_TAGS.includes(t));
+      })
       .map((r) => r.source_filename)
   )];
 
