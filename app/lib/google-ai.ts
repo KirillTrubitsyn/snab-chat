@@ -39,10 +39,42 @@ class Semaphore {
 // Allow up to 5 concurrent Google API calls across all users
 export const googleApiSemaphore = new Semaphore(5);
 
+/**
+ * Check if an error is retryable (rate limit or transient server error).
+ */
+function isRetryableError(err: unknown): boolean {
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    // Google API rate limit (429) or server errors (500, 502, 503, 504)
+    if (/429|too many requests|rate.?limit|quota/i.test(msg)) return true;
+    if (/500|502|503|504|internal|unavailable|bad gateway|overloaded/i.test(msg)) return true;
+    if (/econnreset|econnrefused|etimedout|socket hang up|fetch failed/i.test(msg)) return true;
+  }
+  return false;
+}
+
+const MAX_RETRIES = 2;
+const BASE_DELAY_MS = 1000;
+
 export async function withGoogleApiLimit<T>(fn: () => Promise<T>): Promise<T> {
   await googleApiSemaphore.acquire();
   try {
-    return await fn();
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastError = err;
+        if (attempt < MAX_RETRIES && isRetryableError(err)) {
+          const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+          console.warn(`[GoogleAPI] Retryable error (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying in ${delay}ms:`, err instanceof Error ? err.message : err);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastError;
   } finally {
     googleApiSemaphore.release();
   }

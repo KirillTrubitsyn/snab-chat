@@ -653,6 +653,9 @@ export default function Chat() {
         ]);
 
         try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 90000);
+
           const res = await fetch("/api/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
@@ -661,11 +664,18 @@ export default function Chat() {
               conversationId: newId,
               ...(attachedDocuments.length > 0 && { attachedDocuments }),
             }),
+            signal: controller.signal,
           });
+
+          clearTimeout(timeout);
 
           if (!res.ok || !res.body) {
             if (res.status === 401) {
               setChatError("Ошибка авторизации. Попробуйте перелогиниться.");
+            } else if (res.status === 429) {
+              setChatError("Слишком много запросов. Подождите немного и попробуйте снова.");
+            } else if (res.status >= 500) {
+              setChatError("Сервер временно недоступен. Попробуйте через несколько секунд.");
             } else {
               setChatError("Не удалось получить ответ от ИИ. Попробуйте ещё раз.");
             }
@@ -720,6 +730,9 @@ export default function Chat() {
             );
           }
         } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") {
+            setChatError("Запрос занял слишком много времени. Попробуйте переформулировать вопрос короче.");
+          }
           console.error("Manual stream error:", err);
         }
 
@@ -737,6 +750,9 @@ export default function Chat() {
       setInput("");
 
       try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 90000);
+
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
@@ -748,11 +764,18 @@ export default function Chat() {
             conversationId: convIdRef.current,
             ...(attachedDocuments.length > 0 && { attachedDocuments }),
           }),
+          signal: controller.signal,
         });
+
+        clearTimeout(timeout);
 
         if (!res.ok || !res.body) {
           if (res.status === 401) {
             setChatError("Ошибка авторизации. Попробуйте перелогиниться.");
+          } else if (res.status === 429) {
+            setChatError("Слишком много запросов. Подождите немного и попробуйте снова.");
+          } else if (res.status >= 500) {
+            setChatError("Сервер временно недоступен. Попробуйте через несколько секунд.");
           } else {
             setChatError("Не удалось получить ответ от ИИ. Попробуйте ещё раз.");
           }
@@ -807,6 +830,9 @@ export default function Chat() {
           );
         }
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          setChatError("Запрос занял слишком много времени. Попробуйте переформулировать вопрос короче.");
+        }
         console.error("Stream error:", err);
       } finally {
         setIsSending(false);
