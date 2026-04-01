@@ -1220,7 +1220,12 @@ export default function Chat() {
                     {sources
                       .filter((s) => kbCategoryFilter === "all" || (s.folder_path || "standards") === kbCategoryFilter)
                       .map((doc) => {
-                        const ext = doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : "docx";
+                        const ext = doc.mime_type?.includes("x-denormalized") || doc.filename.endsWith(".md") ? "md"
+                          : doc.mime_type?.includes("pdf") ? "pdf"
+                          : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx"
+                          : doc.mime_type?.includes("presentationml") || doc.filename.endsWith(".pptx") ? "pptx"
+                          : doc.mime_type?.includes("html") || doc.filename.endsWith(".html") ? "html"
+                          : "docx";
                         const catLabel = [
                           { key: "npa", label: "НПА" },
                           { key: "standards", label: "Стандарты и Положения" },
@@ -1265,7 +1270,7 @@ export default function Chat() {
                               />
                             )}
                             <div className={`kb-row-icon ${ext}`}>
-                              {ext === "pdf" ? "PDF" : ext === "xlsx" ? "XLS" : "DOC"}
+                              {ext === "pdf" ? "PDF" : ext === "xlsx" ? "XLS" : ext === "pptx" ? "PPT" : ext === "html" ? "HTML" : ext === "md" ? "MD" : "DOC"}
                             </div>
                             <div className="kb-row-info">
                               <div className="kb-row-name">{doc.filename}</div>

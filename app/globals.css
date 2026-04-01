@@ -2844,6 +2844,9 @@ input, textarea {
 .kb-row-icon.pdf { background: #FEE2E2; color: #DC2626; }
 .kb-row-icon.docx { background: #DBEAFE; color: #2563EB; }
 .kb-row-icon.xlsx { background: #DCFCE7; color: #16A34A; }
+.kb-row-icon.pptx { background: #FEF3C7; color: #D97706; }
+.kb-row-icon.html { background: #F3E8FF; color: #7C3AED; }
+.kb-row-icon.md { background: #CCFBF1; color: #0D9488; }
 
 .kb-row-info {
   flex: 1;

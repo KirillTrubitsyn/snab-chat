@@ -25,7 +25,19 @@ export async function GET() {
       from += PAGE;
     }
 
-    return NextResponse.json({ sources: allSources });
+    // Separate denormalized (technical) sources from user-visible documents
+    const visibleSources = allSources.filter(
+      (s: any) => s.mime_type !== "application/x-denormalized"
+    );
+    const denormalizedSources = allSources.filter(
+      (s: any) => s.mime_type === "application/x-denormalized"
+    );
+
+    return NextResponse.json({
+      sources: visibleSources,
+      // Admin panel can use this to see technical files if needed
+      denormalized: denormalizedSources,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Internal server error";
     return NextResponse.json({ error: message }, { status: 500 });
