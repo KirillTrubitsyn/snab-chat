@@ -124,50 +124,33 @@ export function detectDocumentReference(query: string): DocumentReference | null
     }
   }
 
-  // 3. Organization-specific document references
-  // "положение о закупках СГК-Новосибирск" → hints: ["положен", "новосибирск"]
-  const orgPatterns: Array<{ re: RegExp; hints: string[] }> = [
-    { re: /(?:положени|стандарт|инструкци|регламент|порядок)\S*\s+.*?(сгк[\-\s]*новосибирск)/i, hints: ["новосибирск"] },
-    { re: /(?:положени|стандарт|инструкци|регламент|порядок)\S*\s+.*?(кузбасс)/i, hints: ["кузбасс"] },
-    { re: /(?:положени|стандарт|инструкци|регламент|порядок)\S*\s+.*?(енисей)/i, hints: ["енисей"] },
-    { re: /(?:положени|стандарт|инструкци|регламент|порядок)\S*\s+.*?(сгк[\-\s]*алтай)/i, hints: ["алтай"] },
-    { re: /(?:положени|стандарт|инструкци|регламент|порядок)\S*\s+.*?(нак[\-\s]*азот|новомосковск)/i, hints: ["нак", "азот"] },
-    { re: /(?:положени|стандарт|инструкци|регламент|порядок)\S*\s+.*?(сибэм)/i, hints: ["сибэм"] },
+  // 3. Detect ALL entity/organization mentions (collect every match, no break)
+  // This handles both "положение о закупках ЕТГК" and bare "ЕТГК, Кузбассэнерго и НТСК"
+  const entityPatterns: Array<{ re: RegExp; hint: string }> = [
+    { re: /\bнмгрэс\b/i, hint: "нмгрэс" },
+    { re: /\bнак[\-\s]*азот\b/i, hint: "нак" },
+    { re: /\bновомосковск/i, hint: "нмгрэс" },
+    { re: /\bсгк[\-\s]*новосибирск\b/i, hint: "новосибирск" },
+    { re: /\bновосибирск/i, hint: "новосибирск" },
+    { re: /\bсгк[\-\s]*алтай\b/i, hint: "алтай" },
+    { re: /\bбарнаул/i, hint: "алтай" },
+    { re: /\bенисейск\S*\s+тгк\b/i, hint: "енисей" },
+    { re: /\bетгк\b/i, hint: "етгк" },
+    { re: /\bкузбассэнерго\b/i, hint: "кузбасс" },
+    { re: /\bкэ\b(?!\s*-?\s*\d)/i, hint: "кузбасс" },
+    { re: /\bкемеров/i, hint: "кузбасс" },
+    { re: /\bсибэм\b/i, hint: "сибэм" },
+    { re: /\bнтск\b/i, hint: "нтск" },
+    { re: /\bкрасноярск/i, hint: "енисей" },
   ];
 
-  for (const op of orgPatterns) {
-    if (op.re.test(lower)) {
-      hints.push(...op.hints);
-      break;
+  const foundEntities = new Set<string>();
+  for (const ep of entityPatterns) {
+    if (ep.re.test(lower)) {
+      foundEntities.add(ep.hint);
     }
   }
-
-  // 3b. Direct entity/object mentions (without document type prefix)
-  // "срочная закупка на НМГРЭС" → hints: ["нмгрэс"]
-  const entityPatterns: Array<{ re: RegExp; hints: string[] }> = [
-    { re: /\bнмгрэс\b/i, hints: ["нмгрэс"] },
-    { re: /\bнак[\-\s]*азот\b/i, hints: ["нак", "азот"] },
-    { re: /\bсгк[\-\s]*новосибирск\b/i, hints: ["новосибирск"] },
-    { re: /\bсгк[\-\s]*алтай\b/i, hints: ["алтай"] },
-    { re: /\bенисейск\S*\s+тгк\b/i, hints: ["енисей"] },
-    { re: /\bкузбассэнерго\b/i, hints: ["кузбасс"] },
-    { re: /\bсибэм\b/i, hints: ["сибэм"] },
-    { re: /\bнтск\b/i, hints: ["нтск"] },
-    { re: /\bбарнаул/i, hints: ["алтай"] },
-    { re: /\bкрасноярск/i, hints: ["енисей"] },
-    { re: /\bкемеров/i, hints: ["кузбасс"] },
-    { re: /\bновосибирск/i, hints: ["новосибирск"] },
-    { re: /\bновомосковск/i, hints: ["нмгрэс"] },
-  ];
-
-  if (hints.length === 0) {
-    for (const ep of entityPatterns) {
-      if (ep.re.test(lower)) {
-        hints.push(...ep.hints);
-        break;
-      }
-    }
-  }
+  for (const h of foundEntities) hints.push(h);
 
   // 4. Generic document type + any distinguishing words
   // "положение о закупках ред 15" → ["положен", "ред_15" or "ред 15"]
