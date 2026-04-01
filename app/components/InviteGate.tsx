@@ -12,7 +12,9 @@ interface InviteGateProps {
   }) => void;
 }
 
-const ONE_TIME_PASSWORD = "СГК";
+// Self-registration via СГК code is paused until further notice.
+// Only administrators can create invite codes (via admin panel).
+const ONE_TIME_PASSWORD: string | null = null;
 
 export default function InviteGate({ onSuccess }: InviteGateProps) {
   const [step, setStep] = useState<"code" | "register">("code");
@@ -44,8 +46,8 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     setError("");
     const trimmed = code.trim().toUpperCase();
 
-    // Check if it's the one-time password for registration
-    if (trimmed === ONE_TIME_PASSWORD) {
+    // Check if it's the one-time password for registration (currently paused)
+    if (ONE_TIME_PASSWORD && trimmed === ONE_TIME_PASSWORD) {
       setStep("register");
       return;
     }
