@@ -168,7 +168,7 @@ ${userMessage.content}
   );
   const [sectionResults, docResults, ...variantResults] = await Promise.all([
     sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
-    docRef ? fetchChunksByDocument(docRef, 8, userMessage.content) : Promise.resolve([]),
+    docRef ? fetchChunksByDocument(docRef, docRef.filenameHints.length > 2 ? 15 : 8, userMessage.content) : Promise.resolve([]),
     ...searchPromises,
   ]);
 

@@ -424,23 +424,30 @@ export async function fetchChunksByDocument(
   const supabase = createServiceClient();
 
   // First, find matching source filenames
-  let sourceQuery = supabase
-    .from("sources")
-    .select("filename");
+  // Use OR logic: each hint matches independently, so multi-entity queries
+  // like ["етгк", "кузбасс", "нтск"] find files for each organization
+  const allFilenames = new Set<string>();
 
-  // Apply all hints as AND conditions (all must match)
   for (const hint of ref.filenameHints) {
-    sourceQuery = sourceQuery.ilike("filename", `%${hint}%`);
+    const { data: sources, error: srcError } = await supabase
+      .from("sources")
+      .select("filename")
+      .ilike("filename", `%${hint}%`)
+      .limit(3);
+
+    if (!srcError && sources) {
+      for (const s of sources) {
+        allFilenames.add((s as { filename: string }).filename);
+      }
+    }
   }
 
-  const { data: sources, error: srcError } = await sourceQuery.limit(5);
-
-  if (srcError || !sources || sources.length === 0) {
+  if (allFilenames.size === 0) {
     console.log("fetchChunksByDocument: no matching sources for hints", ref.filenameHints);
     return [];
   }
 
-  const filenames = sources.map((s: { filename: string }) => s.filename);
+  const filenames = Array.from(allFilenames);
   console.log("fetchChunksByDocument: matched sources:", filenames);
 
   // Fetch all chunks from matched documents
@@ -466,19 +473,88 @@ export async function fetchChunksByDocument(
 
   const typedChunks = chunks as DocChunkRow[];
 
-  // Select chunks based on query relevance or representative sampling
+  // Group chunks by document for fair distribution across multiple entities
+  const chunksByDoc = new Map<string, DocChunkRow[]>();
+  for (const chunk of typedChunks) {
+    const docChunks = chunksByDoc.get(chunk.source_filename) ?? [];
+    docChunks.push(chunk);
+    chunksByDoc.set(chunk.source_filename, docChunks);
+  }
+
+  const numDocs = chunksByDoc.size;
+
+  // Select chunks: distribute maxChunks evenly across documents
   let selected: DocChunkRow[];
   if (typedChunks.length <= maxChunks) {
     selected = typedChunks;
+  } else if (numDocs > 1) {
+    // Multi-document: allocate chunks per document proportionally
+    const perDoc = Math.max(2, Math.floor(maxChunks / numDocs));
+    selected = [];
+
+    for (const [docFilename, docChunks] of chunksByDoc) {
+      const docLimit = Math.min(perDoc, docChunks.length);
+
+      if (searchQuery) {
+        // Keyword scoring within this document
+        const keywords = searchQuery
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((w) => w.length > 3)
+          .map((w) => w.replace(/[.,!?;:()]/g, ""));
+
+        const scored = docChunks.map((chunk: DocChunkRow) => {
+          const lower = chunk.content.toLowerCase();
+          let score = 0;
+          for (const kw of keywords) {
+            const regex = new RegExp(kw, "gi");
+            const matches = lower.match(regex);
+            if (matches) score += matches.length;
+          }
+          return { chunk, score };
+        });
+        scored.sort((a, b) => b.score - a.score);
+
+        const firstChunk = docChunks[0];
+        const topChunks = scored
+          .filter((s) => s.score > 0 && s.chunk !== firstChunk)
+          .slice(0, docLimit - 1)
+          .map((s) => s.chunk);
+
+        selected.push(firstChunk, ...topChunks);
+
+        // Pad if needed
+        if (1 + topChunks.length < docLimit) {
+          const ids = new Set(selected.map((c) => c.id));
+          const step = Math.floor(docChunks.length / (docLimit - selected.length + 1)) || 1;
+          for (let i = step; i < docChunks.length && selected.length < selected.length + docLimit - 1 - topChunks.length; i += step) {
+            if (!ids.has(docChunks[i].id)) {
+              selected.push(docChunks[i]);
+              ids.add(docChunks[i].id);
+            }
+          }
+        }
+      } else {
+        // Representative sampling within document
+        selected.push(docChunks[0]);
+        if (docLimit > 1 && docChunks.length > 1) {
+          const step = Math.floor((docChunks.length - 1) / (docLimit - 1)) || 1;
+          for (let i = step; i < docChunks.length && selected.length < selected.length + docLimit - 1; i += step) {
+            selected.push(docChunks[i]);
+          }
+        }
+      }
+
+      console.log(`fetchChunksByDocument: ${docFilename} → ${Math.min(docLimit, docChunks.length)} chunks`);
+    }
   } else if (searchQuery) {
-    // Extract keywords from query for relevance scoring
+    // Single document with keyword scoring (original logic)
     const keywords = searchQuery
       .toLowerCase()
       .split(/\s+/)
       .filter((w) => w.length > 3)
       .map((w) => w.replace(/[.,!?;:()]/g, ""));
 
-    // Score each chunk by keyword matches
     const scored = typedChunks.map((chunk: DocChunkRow) => {
       const lower = chunk.content.toLowerCase();
       let score = 0;
@@ -490,10 +566,8 @@ export async function fetchChunksByDocument(
       return { chunk, score };
     });
 
-    // Sort by score descending, take top N
     scored.sort((a: { score: number }, b: { score: number }) => b.score - a.score);
 
-    // Always include first chunk (intro/TOC) + top scoring chunks
     const firstChunk = typedChunks[0];
     const topChunks = scored
       .filter((s: { chunk: DocChunkRow; score: number }) => s.score > 0 && s.chunk !== firstChunk)
@@ -502,7 +576,6 @@ export async function fetchChunksByDocument(
 
     selected = [firstChunk, ...topChunks];
 
-    // If not enough scored chunks, pad with evenly spaced
     if (selected.length < maxChunks) {
       const selectedIds = new Set(selected.map((c: DocChunkRow) => c.id));
       const step = Math.floor(typedChunks.length / (maxChunks - selected.length + 1));
@@ -515,7 +588,7 @@ export async function fetchChunksByDocument(
 
     console.log(`fetchChunksByDocument: keyword scoring found ${topChunks.length} relevant chunks`);
   } else {
-    // No query — representative sampling
+    // Single document, no query — representative sampling
     selected = [typedChunks[0]];
     const step = Math.floor((typedChunks.length - 1) / (maxChunks - 1));
     for (let i = step; i < typedChunks.length && selected.length < maxChunks; i += step) {
