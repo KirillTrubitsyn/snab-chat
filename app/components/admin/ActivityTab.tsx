@@ -29,6 +29,7 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
   const [dateFilter, setDateFilter] = useState<DateFilter>("today");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const headers = { "x-admin-code": encodeURIComponent(adminCode) };
 
@@ -154,7 +155,17 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
                         {a.type === "chat" ? "Чат" : "Инфографика"}
                       </span>
                     </td>
-                    <td className="admin-cell-title" title={a.content}>{a.content}</td>
+                    <td
+                      className={`admin-cell-title${expandedId === a.id ? " admin-cell-expanded" : ""}`}
+                      onClick={() => setExpandedId(expandedId === a.id ? null : a.id)}
+                      style={{ cursor: "pointer" }}
+                    >
+                      {expandedId === a.id
+                        ? a.content
+                        : a.content.length > 120
+                          ? a.content.slice(0, 120) + "…"
+                          : a.content}
+                    </td>
                     <td style={{ textAlign: "center" }}>
                       {a.model ? (
                         <span className={`admin-model-badge ${a.model.includes("pro") ? "admin-model-pro" : "admin-model-flash"}`}>
