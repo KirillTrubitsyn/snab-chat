@@ -193,6 +193,8 @@ export async function runAgenticSearch(
           tools: [{ functionDeclarations: toolDeclarations }],
           toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO } },
           temperature: 0,
+          // Disable thinking so thought_signature is not required for tool calls
+          thinkingConfig: { thinkingBudget: 0 },
         },
       })
     );
