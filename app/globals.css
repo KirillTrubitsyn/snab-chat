@@ -3883,6 +3883,18 @@ input, textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.admin-cell-title:hover {
+  color: var(--admin-primary, #3b82f6);
+}
+
+.admin-cell-title.admin-cell-expanded {
+  white-space: pre-wrap;
+  overflow: visible;
+  text-overflow: unset;
+  max-width: none;
 }
 
 .admin-cell-date {

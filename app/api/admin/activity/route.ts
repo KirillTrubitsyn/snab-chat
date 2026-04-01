@@ -278,7 +278,7 @@ export async function GET(req: NextRequest) {
         id: m.id,
         type: "chat" as const,
         ...resolveUser(m.conversation_id, convsMap, codesMap),
-        content: m.content.slice(0, 120) + (m.content.length > 120 ? "…" : ""),
+        content: m.content,
         model: (nextAsst?.metadata?.model as string) || null,
         created_at: m.created_at,
       };
