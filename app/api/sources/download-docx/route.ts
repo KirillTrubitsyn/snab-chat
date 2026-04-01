@@ -541,50 +541,26 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Build title page elements
-  const titleParagraphs: Paragraph[] = [
-    // Title
-    new Paragraph({
-      children: [
-        new TextRun({
-          text: docTitle,
-          bold: true,
-          size: 40,
-          color: BRAND_BLUE,
-          font: "Calibri",
-        }),
-      ],
-      spacing: { before: 200, after: 80 },
-      border: {
-        bottom: {
-          style: BorderStyle.SINGLE,
-          size: 8,
-          color: BRAND_LIGHT,
-          space: 8,
-        },
-      },
-    }),
-    // Date
-    new Paragraph({
-      children: [
-        new TextRun({
-          text: `Документ из базы знаний СнабЧат  •  ${new Date().toLocaleDateString("ru-RU", {
-            day: "2-digit",
-            month: "long",
-            year: "numeric",
-          })}`,
-          size: 18,
-          color: META_COLOR,
-          font: "Calibri",
-          italics: true,
-        }),
-      ],
-      spacing: { before: 40, after: 400 },
-    }),
-  ];
+  // Date subtitle only (no duplicate title — the markdown H1 serves as the title)
+  const subtitleParagraph = new Paragraph({
+    children: [
+      new TextRun({
+        text: `Документ из базы знаний СнабЧат  •  ${new Date().toLocaleDateString("ru-RU", {
+          day: "2-digit",
+          month: "long",
+          year: "numeric",
+        })}`,
+        size: 18,
+        color: META_COLOR,
+        font: "Calibri",
+        italics: true,
+      }),
+    ],
+    spacing: { before: 40, after: 300 },
+  });
 
   // Combine all content
-  const bodyParagraphs = [...titleParagraphs, ...buildDocxParagraphs(elements)];
+  const bodyParagraphs = [subtitleParagraph, ...buildDocxParagraphs(elements)];
 
   const doc = new Document({
     numbering: {
@@ -618,9 +594,40 @@ export async function GET(req: NextRequest) {
               left: 1418, // ~2.5cm
             },
           },
+          titlePage: true, // enable separate first-page header
         },
         headers: {
-          default: new Header({ children: headerChildren }),
+          first: new Header({ children: headerChildren }), // logo only on page 1
+          default: new Header({
+            children: [
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: "СнабЧат",
+                    font: "Calibri",
+                    bold: true,
+                    size: 16,
+                    color: BRAND_BLUE,
+                  }),
+                  new TextRun({
+                    text: "  |  База знаний Дирекции по закупкам",
+                    font: "Calibri",
+                    size: 14,
+                    color: META_COLOR,
+                  }),
+                ],
+                spacing: { after: 60 },
+                border: {
+                  bottom: {
+                    style: BorderStyle.SINGLE,
+                    size: 2,
+                    color: "E5E7EB",
+                    space: 4,
+                  },
+                },
+              }),
+            ],
+          }),
         },
         footers: {
           default: new Footer({
