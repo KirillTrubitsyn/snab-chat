@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { google } from "@/app/lib/google-ai";
-import { streamText, type CoreMessage } from "ai";
+import { type CoreMessage } from "ai";
+import { GoogleGenAI } from "@google/genai";
 import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, type SearchResult } from "@/app/lib/retrieval";
 import { llmRerank } from "@/app/lib/reranker";
 import { classifyIntent } from "@/app/lib/intent-classifier";
@@ -862,35 +862,93 @@ ${uploadedDocsContext}`;
     }
   }
 
-  const modelId = "gemini-2.5-flash-preview";
+  // ── Generate response via @google/genai directly ──
+  // @ai-sdk/google cannot parse thought_signature tokens from Gemini 3.x,
+  // so we call @google/genai SDK and stream using the AI SDK data protocol.
+  const modelId = "gemini-3-flash-preview";
+  const genaiClient = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
 
-  const result = streamText({
-    model: google(modelId),
-    system: systemPrompt,
-    messages: modelMessages,
-    temperature: 0,
-    async onFinish({ text }) {
-      if (conversationId) {
-        const metadata: Record<string, unknown> = { model: modelId };
-        if (sourceFilenames.length > 0) metadata.sources = sourceFilenames;
-        if (lowConfidence) metadata.lowConfidence = true;
-        if (totalImagesIncluded > 0) metadata.imagesUsed = totalImagesIncluded;
-        if (chunkImageUrls.length > 0) metadata.chunkImages = chunkImageUrls;
-        await saveMessage(conversationId, "assistant", text,
-          Object.keys(metadata).length > 0 ? metadata : undefined
-        );
+  // Convert CoreMessage[] → @google/genai Content format
+  type GenAIPart = { text: string } | { inlineData: { mimeType: string; data: string } };
+  const genaiContents: Array<{ role: string; parts: GenAIPart[] }> = [];
+  for (const msg of modelMessages) {
+    const role = msg.role === "assistant" ? "model" : "user";
+    if (typeof msg.content === "string") {
+      genaiContents.push({ role, parts: [{ text: msg.content }] });
+    } else if (Array.isArray(msg.content)) {
+      const parts: GenAIPart[] = [];
+      for (const part of msg.content as Array<{ type: string; text?: string; image?: string }>) {
+        if (part.type === "text" && part.text) {
+          parts.push({ text: part.text });
+        } else if (part.type === "image" && part.image) {
+          const m = (part.image as string).match(/^data:([^;]+);base64,(.+)$/);
+          if (m) {
+            parts.push({ inlineData: { mimeType: m[1], data: m[2] } });
+          }
+        }
+      }
+      if (parts.length > 0) genaiContents.push({ role, parts });
+    }
+  }
+
+  const genaiStream = await genaiClient.models.generateContentStream({
+    model: modelId,
+    contents: genaiContents,
+    config: {
+      systemInstruction: systemPrompt,
+      temperature: 0,
+    },
+  });
+
+  // Pipe @google/genai stream → AI SDK data stream protocol
+  // Protocol: "0:" prefix = text delta (JSON-encoded), "e:" = finish step, "d:" = finish message
+  let fullText = "";
+  const encoder = new TextEncoder();
+  const readable = new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const chunk of genaiStream) {
+          const text = chunk.text ?? "";
+          if (text) {
+            fullText += text;
+            controller.enqueue(encoder.encode(`0:${JSON.stringify(text)}\n`));
+          }
+        }
+        // Finish signals expected by useChat on the frontend
+        const finish = JSON.stringify({ finishReason: "stop", usage: { promptTokens: 0, completionTokens: 0 }, isContinued: false });
+        controller.enqueue(encoder.encode(`e:${finish}\n`));
+        controller.enqueue(encoder.encode(`d:${finish}\n`));
+        controller.close();
+
+        // Save assistant message to DB (fire-and-forget)
+        if (conversationId) {
+          const metadata: Record<string, unknown> = { model: modelId };
+          if (sourceFilenames.length > 0) metadata.sources = sourceFilenames;
+          if (lowConfidence) metadata.lowConfidence = true;
+          if (totalImagesIncluded > 0) metadata.imagesUsed = totalImagesIncluded;
+          if (chunkImageUrls.length > 0) metadata.chunkImages = chunkImageUrls;
+          saveMessage(conversationId, "assistant", fullText,
+            Object.keys(metadata).length > 0 ? metadata : undefined
+          ).catch((e) => console.error("[chat] Failed to save assistant message:", e));
+        }
+      } catch (err) {
+        console.error("[chat] Generation stream error:", err);
+        const errStr = err instanceof Error ? err.message : String(err);
+        controller.enqueue(encoder.encode(`3:${JSON.stringify(errStr)}\n`));
+        controller.close();
       }
     },
   });
 
   const responseHeaders: Record<string, string> = {
+    "Content-Type": "text/plain; charset=utf-8",
     "X-Sources": encodeURIComponent(JSON.stringify(sourceFilenames)),
   };
   if (chunkImageUrls.length > 0) {
     responseHeaders["X-Chunk-Images"] = encodeURIComponent(JSON.stringify(chunkImageUrls));
   }
 
-  return result.toDataStreamResponse({ headers: responseHeaders });
+  return new Response(readable, { headers: responseHeaders });
  } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
     logError({
