@@ -466,8 +466,15 @@ ${userMessage.content}
 
             const arrayBuffer = await data.arrayBuffer();
             const base64 = Buffer.from(arrayBuffer).toString("base64");
-            const ext = path.split(".").pop() || "png";
+            const ext = (path.split(".").pop() || "png").toLowerCase();
             const mimeType = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : `image/${ext}`;
+
+            // Gemini only supports: png, jpeg, webp, gif, heic, heif
+            const SUPPORTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "image/heic", "image/heif"]);
+            if (!SUPPORTED_IMAGE_TYPES.has(mimeType)) {
+              console.warn(`[chat] Skipping unsupported image format: ${mimeType} (${path})`);
+              continue;
+            }
 
             imageBase64.push({ base64, mimeType });
             totalImagesIncluded++;
