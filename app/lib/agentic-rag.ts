@@ -16,7 +16,7 @@ import type { IntentResult } from "./intent-classifier";
  */
 
 const client = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
-const AGENTIC_MODEL = "gemini-3.1-flash-lite-preview";
+const AGENTIC_MODEL = "gemini-2.5-flash";
 
 /** Accumulated chunks from all tool calls within one request */
 export interface AgenticContext {
@@ -193,8 +193,6 @@ export async function runAgenticSearch(
           tools: [{ functionDeclarations: toolDeclarations }],
           toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO } },
           temperature: 0,
-          // Disable thinking so thought_signature is not required for tool calls
-          thinkingConfig: { thinkingBudget: 0 },
         },
       })
     );
