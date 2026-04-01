@@ -626,6 +626,7 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
     sections: [
       {
         properties: {
+          titlePage: true,
           page: {
             margin: {
               top: 1134, // 2cm
@@ -636,8 +637,11 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
           },
         },
         headers: {
-          default: new Header({
+          first: new Header({
             children: headerChildren,
+          }),
+          default: new Header({
+            children: [],
           }),
         },
         footers: {
