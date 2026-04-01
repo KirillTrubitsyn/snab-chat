@@ -393,27 +393,45 @@ export default function Chat() {
     return () => { cancelled = true; };
   }, [activeConvId, setMessages]);
 
-  /* ── Create conversation ── */
+  /* ── Create conversation (with retry for transient errors) ── */
   const createConversation = useCallback(
     async (title?: string) => {
-      const res = await fetch("/api/conversations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-        body: JSON.stringify({ title: title || "Новый диалог" }),
-      });
-      if (!res.ok) {
-        throw new Error(`Не удалось создать диалог: ${res.status}`);
+      const MAX_RETRIES = 2;
+      let lastError: Error | null = null;
+
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          const res = await fetch("/api/conversations", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+            body: JSON.stringify({ title: title || "Новый диалог" }),
+          });
+          if (!res.ok) {
+            // 401 is not retryable
+            if (res.status === 401) throw new Error(`Не удалось создать диалог: ${res.status}`);
+            throw new Error(`Не удалось создать диалог: ${res.status}`);
+          }
+          const conv = await res.json();
+          if (!conv.id) {
+            throw new Error("Сервер не вернул ID диалога");
+          }
+          setConversations((prev) => [conv, ...prev]);
+          setActiveConvId(conv.id);
+          convIdRef.current = conv.id;
+          setMessages([]);
+          setHasSummary(false);
+          return conv.id as string;
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          // Don't retry auth errors
+          if (lastError.message.includes("401")) throw lastError;
+          if (attempt < MAX_RETRIES) {
+            await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+            continue;
+          }
+        }
       }
-      const conv = await res.json();
-      if (!conv.id) {
-        throw new Error("Сервер не вернул ID диалога");
-      }
-      setConversations((prev) => [conv, ...prev]);
-      setActiveConvId(conv.id);
-      convIdRef.current = conv.id;
-      setMessages([]);
-      setHasSummary(false);
-      return conv.id as string;
+      throw lastError!;
     },
     [setMessages]
   );
