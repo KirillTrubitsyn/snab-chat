@@ -59,50 +59,27 @@ export async function loadConversationContext(
     totalTokens += estimateTokens(conv.summary);
   }
 
-  // If over threshold, summarize old messages
+  // If over threshold, summarize old messages — but do it in background
+  // so it doesn't block the current request or cause it to fail
   if (totalTokens > SUMMARIZE_THRESHOLD && messages.length > RECENT_MESSAGES_KEEP) {
-    const oldMessages = messages.slice(0, -RECENT_MESSAGES_KEEP);
     const recentMessages = messages.slice(-RECENT_MESSAGES_KEEP);
 
-    const oldText = oldMessages
-      .map((m) => `${m.role}: ${m.content}`)
-      .join("\n\n");
-
-    const contextForSummary = conv?.summary
-      ? `Предыдущее резюме:\n${conv.summary}\n\nНовые сообщения:\n${oldText}`
-      : oldText;
-
-    const { text: summary } = await withGoogleApiLimit(() => generateText({
-      model: google("gemini-3.1-flash-lite-preview"),
-      prompt: `Кратко суммаризируй этот диалог, сохранив ключевые факты, решения и контекст. Пиши на русском, компактно (до 500 слов):\n\n${contextForSummary}`,
-    }));
-
-    // Save summary and delete old messages
-    await supabase
-      .from("conversations")
-      .update({ summary })
-      .eq("id", conversationId);
-
-    const { data: allMsgs } = await supabase
-      .from("messages")
-      .select("id")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true });
-
-    if (allMsgs && allMsgs.length > RECENT_MESSAGES_KEEP) {
-      const idsToDelete = allMsgs
-        .slice(0, -RECENT_MESSAGES_KEEP)
-        .map((m) => m.id);
-      await supabase.from("messages").delete().in("id", idsToDelete);
-    }
-
-    const result: Message[] = [];
-    result.push({
-      role: "system",
-      content: `Резюме предыдущей части диалога:\n${summary}`,
+    // Fire-and-forget: summarize and clean up old messages in background
+    const oldMessages = messages.slice(0, -RECENT_MESSAGES_KEEP);
+    scheduleSummarization(conversationId, conv?.summary ?? null, oldMessages).catch((e) => {
+      console.error("[memory] Background summarization failed (non-fatal):", e);
     });
+
+    // Return recent messages immediately with existing summary if available
+    const result: Message[] = [];
+    if (conv?.summary) {
+      result.push({
+        role: "system",
+        content: `Резюме предыдущей части диалога:\n${conv.summary}`,
+      });
+    }
     result.push(...recentMessages);
-    return { messages: result, hasSummary: true };
+    return { messages: result, hasSummary };
   }
 
   // Under threshold: return with summary prefix if exists
@@ -115,6 +92,53 @@ export async function loadConversationContext(
   }
   result.push(...messages);
   return { messages: result, hasSummary };
+}
+
+/**
+ * Runs summarization in background — does not block the chat request.
+ * If it fails, the next request will retry.
+ */
+async function scheduleSummarization(
+  conversationId: string,
+  existingSummary: string | null,
+  oldMessages: Message[]
+): Promise<void> {
+  const supabase = createServiceClient();
+
+  const oldText = oldMessages
+    .map((m) => `${m.role}: ${m.content}`)
+    .join("\n\n");
+
+  const contextForSummary = existingSummary
+    ? `Предыдущее резюме:\n${existingSummary}\n\nНовые сообщения:\n${oldText}`
+    : oldText;
+
+  const { text: summary } = await withGoogleApiLimit(() => generateText({
+    model: google("gemini-3.1-flash-lite-preview"),
+    prompt: `Кратко суммаризируй этот диалог, сохранив ключевые факты, решения и контекст. Пиши на русском, компактно (до 500 слов):\n\n${contextForSummary}`,
+  }));
+
+  // Save summary
+  await supabase
+    .from("conversations")
+    .update({ summary })
+    .eq("id", conversationId);
+
+  // Delete old messages
+  const { data: allMsgs } = await supabase
+    .from("messages")
+    .select("id")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: true });
+
+  if (allMsgs && allMsgs.length > RECENT_MESSAGES_KEEP) {
+    const idsToDelete = allMsgs
+      .slice(0, -RECENT_MESSAGES_KEEP)
+      .map((m) => m.id);
+    await supabase.from("messages").delete().in("id", idsToDelete);
+  }
+
+  console.log(`[memory] Background summarization complete for conversation ${conversationId}`);
 }
 
 export async function saveMessage(

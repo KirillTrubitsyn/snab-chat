@@ -63,7 +63,10 @@ export async function POST(req: NextRequest) {
       ? saveMessage(conversationId, "user", userMessage.content)
       : Promise.resolve(),
     conversationId
-      ? loadConversationContext(conversationId)
+      ? loadConversationContext(conversationId).catch((e) => {
+          console.error("[chat] loadConversationContext failed (continuing without context):", e);
+          return null;
+        })
       : Promise.resolve(null),
     classifyIntent(searchQuery),
     classifyOffTopic(userMessage.content, messages.slice(0, -1)),
@@ -206,64 +209,110 @@ ${userMessage.content}
     console.log(`[chat] Document lookup added ${newDocResults.length} new chunks`);
   }
 
-  // ── Intent-aware supplementary search (capped at MAX_SUPPLEMENT to limit latency) ──
+  // ── Intent-aware supplementary search ──
   {
-    const MAX_SUPPLEMENT = 4;
     const supplementSearches: Promise<SearchResult[]>[] = [];
 
     const count223 = combinedResults.filter((r) => r.tags.some((t) => t.toLowerCase() === "223-фз")).length;
     const countNon223 = combinedResults.filter((r) => r.tags.some((t) => t.toLowerCase() === "вне 223-фз")).length;
+    const MIN_REGIME_CHUNKS = 3;
 
-    // 1. Regime coverage — one search per missing regime (using only the main query)
+    const regimeSearchQueries = [searchQuery];
+    if (intentResult.query_variants) {
+      const firstVariant = intentResult.query_variants.find((v) => v.length > 5 && v !== searchQuery);
+      if (firstVariant) regimeSearchQueries.push(firstVariant);
+    }
+
+    const addRegimeSearches = (tags: string[]) => {
+      for (const q of regimeSearchQueries) {
+        supplementSearches.push(hybridSearch(q, 10, tags));
+      }
+    };
+
     if (intentResult.fz_type === "223" && count223 === 0) {
-      supplementSearches.push(hybridSearch(searchQuery, 10, ["223-фз"]));
+      addRegimeSearches(["223-фз"]);
     } else if (intentResult.fz_type === "non-223" && countNon223 === 0) {
-      supplementSearches.push(hybridSearch(searchQuery, 10, ["вне 223-фз"]));
+      addRegimeSearches(["вне 223-фз"]);
     } else if (intentResult.fz_type === "both") {
-      if (count223 < 2) supplementSearches.push(hybridSearch(searchQuery, 10, ["223-фз"]));
-      if (countNon223 < 2) supplementSearches.push(hybridSearch(searchQuery, 10, ["вне 223-фз"]));
+      if (count223 < MIN_REGIME_CHUNKS) addRegimeSearches(["223-фз"]);
+      if (countNon223 < MIN_REGIME_CHUNKS) addRegimeSearches(["вне 223-фз"]);
     } else if (intentResult.fz_type === "unknown" && intentResult.confidence >= 0.4) {
-      if (count223 === 0) supplementSearches.push(hybridSearch(searchQuery, 10, ["223-фз"]));
-      if (countNon223 === 0 && supplementSearches.length < MAX_SUPPLEMENT) {
-        supplementSearches.push(hybridSearch(searchQuery, 10, ["вне 223-фз"]));
+      if (count223 === 0 && countNon223 === 0) {
+        addRegimeSearches(["223-фз"]);
+        addRegimeSearches(["вне 223-фз"]);
+      } else if (countNon223 === 0) {
+        addRegimeSearches(["вне 223-фз"]);
+      } else if (count223 === 0) {
+        addRegimeSearches(["223-фз"]);
       }
     }
 
-    // 2. Intent-specific tag coverage (only if we have budget)
-    if (supplementSearches.length < MAX_SUPPLEMENT) {
-      const intentTagMap: Record<string, string[]> = {
-        pricing: ["ценообразование"],
-        authority: ["матрица полномочий"],
-        regulation: ["законодательство"],
-        contract: ["договоры"],
-        system: ["инструкции"],
-      };
-      const intentTags = intentTagMap[intentResult.intent];
-      if (intentTags && intentResult.confidence >= 0.5) {
-        const hasIntentTag = combinedResults.some((r) =>
-          r.tags.some((t) => intentTags.includes(t.toLowerCase()))
+    // 2. Intent-specific tag coverage
+    const intentTagMap: Record<string, string[]> = {
+      pricing: ["ценообразование"],
+      authority: ["матрица полномочий"],
+      regulation: ["законодательство"],
+      contract: ["договоры"],
+      system: ["инструкции"],
+    };
+    const intentTags = intentTagMap[intentResult.intent];
+    if (intentTags && intentResult.confidence >= 0.5) {
+      const hasIntentTag = combinedResults.some((r) =>
+        r.tags.some((t) => intentTags.includes(t.toLowerCase()))
+      );
+      if (!hasIntentTag) {
+        supplementSearches.push(hybridSearch(searchQuery, 10, intentTags));
+      }
+    }
+
+    // 2b. Training course coverage: for procedure/general/regulation questions,
+    // ensure training materials from BOTH regimes are present (not just one)
+    const trainingIntents = ["procedure", "general", "regulation", "authority", "pricing"];
+    if (trainingIntents.includes(intentResult.intent)) {
+      const trainingChunks = combinedResults.filter((r) =>
+        r.tags.some((t) => t.toLowerCase() === "обучение")
+      );
+
+      if (trainingChunks.length === 0) {
+        // No training at all — search broadly
+        supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение"]));
+      }
+
+      // For comparative queries, ensure training from BOTH regimes
+      if (intentResult.fz_type === "both" || intentResult.fz_type === "unknown") {
+        const training223 = trainingChunks.some((r) =>
+          r.tags.some((t) => t.toLowerCase() === "223-фз") ||
+          r.source_filename.toLowerCase().includes("223")
         );
-        if (!hasIntentTag) {
-          supplementSearches.push(hybridSearch(searchQuery, 10, intentTags));
+        const trainingNon223 = trainingChunks.some((r) =>
+          r.tags.some((t) => t.toLowerCase() === "вне 223-фз") ||
+          r.source_filename.toLowerCase().includes("вне")
+        );
+        if (!training223) {
+          supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение", "223-фз"]));
+        }
+        if (!trainingNon223) {
+          supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение", "вне 223-фз"]));
         }
       }
     }
 
-    // 3. Training course coverage (only if budget remains, single search)
-    if (supplementSearches.length < MAX_SUPPLEMENT) {
-      const trainingIntents = ["procedure", "general", "regulation", "authority", "pricing"];
-      if (trainingIntents.includes(intentResult.intent)) {
-        const hasTraining = combinedResults.some((r) =>
-          r.tags.some((t) => t.toLowerCase() === "обучение")
-        );
-        if (!hasTraining) {
-          supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение"]));
+    // 3. Use intent query_variants (broader semantic coverage)
+    if (intentResult.query_variants.length > 0) {
+      for (const variant of intentResult.query_variants.slice(0, 2)) {
+        if (variant !== searchQuery && variant.length > 5) {
+          supplementSearches.push(hybridSearch(variant, 10, null));
         }
       }
+    }
+
+    // 4. Source diversity check: if all results come from ≤2 sources, broaden search
+    const uniqueSources = new Set(combinedResults.map((r) => r.source_filename));
+    if (uniqueSources.size <= 2 && combinedResults.length >= 5 && intentResult.search_tags.length > 0) {
+      supplementSearches.push(hybridSearch(searchQuery, 10, intentResult.search_tags));
     }
 
     if (supplementSearches.length > 0) {
-      console.log(`[chat] Running ${supplementSearches.length} supplementary searches (max ${MAX_SUPPLEMENT})`);
       const allSupplementary = await Promise.all(supplementSearches);
       let addedCount = 0;
       for (const results of allSupplementary) {
