@@ -202,19 +202,21 @@ export default function ChatDocumentViewer({
             <button
               className="btn-primary"
               style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13 }}
-              onClick={() =>
+              onClick={() => {
+                const isMd = source.filename.endsWith(".md") || source.mime_type === "application/x-denormalized";
+                const endpoint = !hasOriginal && isMd ? "download-docx" : "download";
                 window.open(
-                  `/api/sources/download?id=${source.id}&action=download${inviteCode ? `&token=${encodeURIComponent(inviteCode)}` : ""}`,
+                  `/api/sources/${endpoint}?id=${source.id}&action=download${inviteCode ? `&token=${encodeURIComponent(inviteCode)}` : ""}`,
                   "_blank"
-                )
-              }
+                );
+              }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              {hasOriginal ? `Скачать (${source.filename.split('.').pop()?.toUpperCase()})` : "Скачать (.md)"}
+              {hasOriginal ? `Скачать (${source.filename.split('.').pop()?.toUpperCase()})` : "Скачать (.docx)"}
             </button>
             <button className="btn-secondary" onClick={onClose}>
               Закрыть
