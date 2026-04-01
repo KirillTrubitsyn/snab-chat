@@ -12,6 +12,10 @@
     "app/api/sources/upload-original/route.ts": {
       "maxDuration": 120,
       "memory": 1024
+    },
+    "app/api/chat/route.ts": {
+      "maxDuration": 120,
+      "memory": 1024
     }
   }
 }
