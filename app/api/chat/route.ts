@@ -13,6 +13,7 @@ import { notifyOffTopic } from "@/app/lib/telegram";
 import { logError } from "@/app/lib/error-logger";
 import { extractSearchHints, detectSectionReference, detectDocumentReference } from "@/app/lib/query-analyzer";
 import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgenticResults } from "@/app/lib/agentic-rag";
+import { expandByRelationships } from "@/app/lib/relationships";
 
 export const runtime = "nodejs";
 
@@ -418,6 +419,17 @@ ${userMessage.content}
         }
       }
     }
+  }
+
+  // ── Expand results by document relationships (parent ↔ children) ──
+  try {
+    relevantChunks = await expandByRelationships(
+      relevantChunks,
+      userMessage.content,
+      6
+    );
+  } catch (relErr) {
+    console.error("[chat] Relationship expansion failed (non-fatal):", relErr);
   }
 
   // ── Load chunk images from Supabase Storage ──
