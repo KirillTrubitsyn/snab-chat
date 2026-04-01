@@ -133,16 +133,11 @@ ${userMessage.content}
 
     try {
       await generateText({
-        model: google("gemini-3-flash-preview"),
+        model: google("gemini-2.0-flash"),
         prompt: agenticPrompt,
         tools: ragTools,
         maxSteps: 6,
         temperature: 0,
-        // Disable thinking mode — Gemini 3.x requires thought_signature for tool calls
-        // when thinking is enabled, which AI SDK doesn't support yet
-        providerOptions: {
-          google: { thinkingConfig: { thinkingBudget: 0 } },
-        },
       });
 
       console.log(`[chat] Agentic search complete: ${agenticCtx.searchCount} searches, ${agenticCtx.chunks.size} chunks collected`);
