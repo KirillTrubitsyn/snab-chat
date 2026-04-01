@@ -150,11 +150,8 @@ export default function Chat() {
   const [activeView, setActiveView] = useState<"chat" | "knowledge-base">("chat");
   const [kbCategoryFilter, setKbCategoryFilter] = useState<string>("all");
 
-  // About project modal state
-  const [showAboutModal, setShowAboutModal] = useState(false);
-  const [aboutActiveTab, setAboutActiveTab] = useState<"presentation" | "support" | "instructions">("support");
-
-  // Support state
+  // Support modal state
+  const [showSupportModal, setShowSupportModal] = useState(false);
   const [supportMessage, setSupportMessage] = useState("");
   const [supportSending, setSupportSending] = useState(false);
   const [supportHistory, setSupportHistory] = useState<{ id: string; message: string; admin_reply: string | null; admin_number: number | null; status: string; created_at: string; replied_at: string | null }[]>([]);
@@ -314,15 +311,14 @@ export default function Chat() {
     loadSupportHistory();
   }, [loadSupportHistory]);
 
-  // Polling: every 15s when support tab is open, every 60s in background (for badge)
+  // Polling: every 15s when modal is open, every 60s in background (for badge)
   useEffect(() => {
     if (!inviteCode) return;
-    const isSupportVisible = showAboutModal && aboutActiveTab === "support";
     const interval = setInterval(() => {
       loadSupportHistory();
-    }, isSupportVisible ? 15000 : 60000);
+    }, showSupportModal ? 15000 : 60000);
     return () => clearInterval(interval);
-  }, [inviteCode, showAboutModal, aboutActiveTab, loadSupportHistory]);
+  }, [inviteCode, showSupportModal, loadSupportHistory]);
 
   const sendSupportMessage = async () => {
     if (!supportMessage.trim() || supportSending) return;
@@ -343,18 +339,12 @@ export default function Chat() {
     setSupportSending(false);
   };
 
-  const openAboutModal = (tab?: "presentation" | "support" | "instructions") => {
-    if (tab === "presentation") {
-      window.open("/presentation.html", "_blank");
-      return;
-    }
-    setAboutActiveTab(tab ?? "support");
-    setShowAboutModal(true);
-    if (!tab || tab === "support") {
-      loadSupportHistory();
-      localStorage.setItem("supportLastSeen", String(Date.now()));
-      setUnreadSupportCount(0);
-    }
+  const openSupportModal = () => {
+    setShowSupportModal(true);
+    loadSupportHistory();
+    // Mark as seen
+    localStorage.setItem("supportLastSeen", String(Date.now()));
+    setUnreadSupportCount(0);
   };
 
   /* ── Switch conversation ── */
@@ -889,15 +879,12 @@ export default function Chat() {
                   </a>
                   <button
                     className="mobile-hamburger-item"
-                    onClick={() => { setMobileMenuOpen(false); openAboutModal(); }}
-                    style={{ position: "relative" }}
+                    onClick={() => { setMobileMenuOpen(false); openSupportModal(); }}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10" />
-                      <path d="M12 16v-4" />
-                      <path d="M12 8h.01" />
+                      <path d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
                     </svg>
-                    О проекте
+                    Поддержка
                     {unreadSupportCount > 0 && (
                       <span className="mobile-hamburger-item-badge">{unreadSupportCount}</span>
                     )}
@@ -981,16 +968,14 @@ export default function Chat() {
             </a>
             <button
               className="header-labeled-btn accent desktop-only"
-              onClick={() => openAboutModal()}
-              title="О проекте"
+              onClick={openSupportModal}
+              title="Поддержка"
               style={{ position: "relative" }}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 16v-4" />
-                <path d="M12 8h.01" />
+                <path d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
               </svg>
-              <span className="btn-label">О проекте</span>
+              <span className="btn-label">Поддержка</span>
               {unreadSupportCount > 0 && (
                 <span style={{
                   position: "absolute", top: -4, right: -4,
@@ -1668,20 +1653,20 @@ export default function Chat() {
         />
       )}
 
-      {/* ── About Project Modal ── */}
-      {showAboutModal && (
+      {/* ── Support Modal ── */}
+      {showSupportModal && (
         <div
           style={{
             position: "fixed", inset: 0, zIndex: 9999,
             background: "rgba(0,0,0,0.5)", display: "flex",
             alignItems: "center", justifyContent: "center", padding: 16,
           }}
-          onClick={() => { setShowAboutModal(false); }}
+          onClick={() => setShowSupportModal(false)}
         >
           <div
             style={{
               background: "var(--bg-primary, #fff)", borderRadius: 16,
-              width: "100%", maxWidth: 720, height: "85vh",
+              width: "100%", maxWidth: 520, maxHeight: "80vh",
               display: "flex", flexDirection: "column",
               boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
             }}
@@ -1692,147 +1677,76 @@ export default function Chat() {
               padding: "16px 20px", borderBottom: "1px solid var(--border-color, #eee)",
               display: "flex", justifyContent: "space-between", alignItems: "center",
             }}>
-              <h3 style={{ margin: 0, fontSize: 18 }}>О проекте</h3>
-              <button onClick={() => { setShowAboutModal(false); }} style={{
+              <h3 style={{ margin: 0, fontSize: 18 }}>Поддержка</h3>
+              <button onClick={() => setShowSupportModal(false)} style={{
                 background: "none", border: "none", fontSize: 22, cursor: "pointer",
                 color: "var(--text-muted)", padding: 4,
               }}>&times;</button>
             </div>
 
-            {/* Tabs */}
+            {/* Messages history */}
             <div style={{
-              display: "flex", borderBottom: "1px solid var(--border-color, #eee)",
-              padding: "0 20px", gap: 0,
+              flex: 1, overflowY: "auto", padding: 16,
+              display: "flex", flexDirection: "column", gap: 12,
             }}>
-              {([
-                { key: "presentation" as const, label: "Презентация" },
-                { key: "support" as const, label: "Поддержка" },
-                { key: "instructions" as const, label: "Инструкция" },
-              ]).map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => {
-                    if (tab.key === "presentation") {
-                      window.open("/presentation.html", "_blank");
-                      return;
-                    }
-                    setAboutActiveTab(tab.key);
-                    if (tab.key === "support") {
-                      loadSupportHistory();
-                      localStorage.setItem("supportLastSeen", String(Date.now()));
-                      setUnreadSupportCount(0);
-                    }
-                  }}
-                  style={{
-                    padding: "10px 18px", fontSize: 14, fontWeight: 600,
-                    background: "none", border: "none", cursor: "pointer",
-                    borderBottom: aboutActiveTab === tab.key ? "2px solid #1976d2" : "2px solid transparent",
-                    color: aboutActiveTab === tab.key ? "#1976d2" : "var(--text-muted, #666)",
-                    position: "relative",
-                  }}
-                >
-                  {tab.label}
-                  {tab.key === "support" && unreadSupportCount > 0 && (
-                    <span style={{
-                      position: "absolute", top: 4, right: 0,
-                      background: "#e53935", color: "#fff", borderRadius: "50%",
-                      width: 16, height: 16, fontSize: 10, fontWeight: 700,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                    }}>{unreadSupportCount}</span>
+              {supportHistory.length === 0 && (
+                <div style={{ textAlign: "center", color: "var(--text-muted)", padding: 24, fontSize: 14 }}>
+                  Здесь будут ваши обращения в поддержку
+                </div>
+              )}
+              {supportHistory.map((m) => (
+                <div key={m.id}>
+                  {/* User message */}
+                  <div style={{
+                    background: "var(--bg-secondary, #f5f5f5)", borderRadius: 12,
+                    padding: 12, marginBottom: m.admin_reply ? 8 : 0, fontSize: 14,
+                  }}>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>
+                      {new Date(m.created_at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })}
+                    </div>
+                    {m.message}
+                  </div>
+                  {/* Admin reply */}
+                  {m.admin_reply && (
+                    <div style={{
+                      background: "#e8f4fd", borderRadius: 12, padding: 12,
+                      borderLeft: "3px solid #1976d2", fontSize: 14, marginLeft: 24,
+                    }}>
+                      <div style={{ fontSize: 11, color: "#1976d2", marginBottom: 4 }}>
+                        Администратор {m.admin_number ?? ""} · {m.replied_at ? new Date(m.replied_at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) : ""}
+                      </div>
+                      {m.admin_reply}
+                    </div>
                   )}
-                </button>
+                </div>
               ))}
             </div>
 
-            {/* Tab Content */}
-            <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
-              {/* Поддержка */}
-              {aboutActiveTab === "support" && (
-                <>
-                  <div style={{
-                    flex: 1, overflowY: "auto", padding: 16,
-                    display: "flex", flexDirection: "column", gap: 12,
-                  }}>
-                    {supportHistory.length === 0 && (
-                      <div style={{ textAlign: "center", color: "var(--text-muted)", padding: 24, fontSize: 14 }}>
-                        Здесь будут ваши обращения в поддержку
-                      </div>
-                    )}
-                    {supportHistory.map((m) => (
-                      <div key={m.id}>
-                        <div style={{
-                          background: "var(--bg-secondary, #f5f5f5)", borderRadius: 12,
-                          padding: 12, marginBottom: m.admin_reply ? 8 : 0, fontSize: 14,
-                        }}>
-                          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>
-                            {new Date(m.created_at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })}
-                          </div>
-                          {m.message}
-                        </div>
-                        {m.admin_reply && (
-                          <div style={{
-                            background: "#e8f4fd", borderRadius: 12, padding: 12,
-                            borderLeft: "3px solid #1976d2", fontSize: 14, marginLeft: 24,
-                          }}>
-                            <div style={{ fontSize: 11, color: "#1976d2", marginBottom: 4 }}>
-                              Администратор {m.admin_number ?? ""} · {m.replied_at ? new Date(m.replied_at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) : ""}
-                            </div>
-                            {m.admin_reply}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ padding: 16, borderTop: "1px solid var(--border-color, #eee)" }}>
-                    <textarea
-                      value={supportMessage}
-                      onChange={(e) => setSupportMessage(e.target.value)}
-                      placeholder="Опишите вашу проблему или вопрос..."
-                      rows={3}
-                      style={{
-                        width: "100%", borderRadius: 10, border: "1px solid var(--border-color, #ddd)",
-                        padding: 12, fontSize: 14, resize: "none", fontFamily: "inherit",
-                        background: "var(--bg-primary, #fff)", color: "var(--text-primary, #333)",
-                      }}
-                    />
-                    <button
-                      onClick={sendSupportMessage}
-                      disabled={supportSending || !supportMessage.trim()}
-                      style={{
-                        marginTop: 8, width: "100%", padding: "10px 16px",
-                        borderRadius: 10, border: "none", fontSize: 14, fontWeight: 600,
-                        background: supportSending || !supportMessage.trim() ? "#ccc" : "#1976d2",
-                        color: "#fff", cursor: supportSending ? "wait" : "pointer",
-                      }}
-                    >
-                      {supportSending ? "Отправка..." : "Отправить"}
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {/* Инструкция пользователя */}
-              {aboutActiveTab === "instructions" && (
-                <div style={{
-                  flex: 1, overflowY: "auto", padding: 32,
-                  display: "flex", flexDirection: "column", alignItems: "center",
-                  justifyContent: "center", textAlign: "center",
-                }}>
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted, #999)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                    <line x1="16" y1="13" x2="8" y2="13" />
-                    <line x1="16" y1="17" x2="8" y2="17" />
-                    <polyline points="10 9 9 9 8 9" />
-                  </svg>
-                  <h4 style={{ margin: "16px 0 8px", fontSize: 16, color: "var(--text-primary, #333)" }}>
-                    Инструкция пользователя
-                  </h4>
-                  <p style={{ fontSize: 14, color: "var(--text-muted, #999)", maxWidth: 320 }}>
-                    Раздел находится в разработке. Скоро здесь появится подробная инструкция по использованию СнабЧат.
-                  </p>
-                </div>
-              )}
+            {/* Input */}
+            <div style={{ padding: 16, borderTop: "1px solid var(--border-color, #eee)" }}>
+              <textarea
+                value={supportMessage}
+                onChange={(e) => setSupportMessage(e.target.value)}
+                placeholder="Опишите вашу проблему или вопрос..."
+                rows={3}
+                style={{
+                  width: "100%", borderRadius: 10, border: "1px solid var(--border-color, #ddd)",
+                  padding: 12, fontSize: 14, resize: "none", fontFamily: "inherit",
+                  background: "var(--bg-primary, #fff)", color: "var(--text-primary, #333)",
+                }}
+              />
+              <button
+                onClick={sendSupportMessage}
+                disabled={supportSending || !supportMessage.trim()}
+                style={{
+                  marginTop: 8, width: "100%", padding: "10px 16px",
+                  borderRadius: 10, border: "none", fontSize: 14, fontWeight: 600,
+                  background: supportSending || !supportMessage.trim() ? "#ccc" : "#1976d2",
+                  color: "#fff", cursor: supportSending ? "wait" : "pointer",
+                }}
+              >
+                {supportSending ? "Отправка..." : "Отправить"}
+              </button>
             </div>
           </div>
         </div>
