@@ -134,8 +134,8 @@ ${userMessage.content}
     try {
       await generateText({
         // gemini-3.1-flash-lite-preview fails with tools (thought_signature error),
-        // use gemini-2.0-flash which has stable tool calling support
-        model: google("gemini-2.0-flash"),
+        // use gemini-3-flash-preview which already works for the main chat
+        model: google("gemini-3-flash-preview"),
         prompt: agenticPrompt,
         tools: ragTools,
         maxSteps: 6,
