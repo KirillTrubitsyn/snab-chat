@@ -6,6 +6,8 @@ import { requireAdmin } from "@/app/lib/auth";
 import { logError } from "@/app/lib/error-logger";
 import { parseToMarkdown } from "@/app/lib/parser";
 import type { ExtractedImage } from "@/app/lib/parser";
+import { parseRelationshipHints, resolveParentByHint } from "@/app/lib/relationships";
+import type { DocumentRelationship } from "@/app/lib/relationships";
 
 let bucketReady = false;
 let imageBucketReady = false;
@@ -122,6 +124,20 @@ export async function POST(req: NextRequest) {
       imageBucketReady = true;
     }
 
+    // Parse document relationships from metadata headers
+    const { parentHint, type: relType } = parseRelationshipHints(markdown, filename);
+    let relationships: DocumentRelationship | null = null;
+
+    if (parentHint) {
+      const parentId = await resolveParentByHint(parentHint);
+      relationships = {
+        parent_hint: parentHint,
+        ...(parentId ? { parent_id: parentId } : {}),
+        ...(relType ? { type: relType } : {}),
+      };
+      console.log(`[ingest] Relationship detected: "${filename}" → parent hint "${parentHint}" (resolved ID: ${parentId ?? "none"})`);
+    }
+
     // Create source entry
     const { data: source, error: sourceError } = await supabase
       .from("sources")
@@ -132,6 +148,7 @@ export async function POST(req: NextRequest) {
         content_preview: markdown.slice(0, 500),
         storage_path: storagePath,
         folder_path: folderPath,
+        ...(relationships ? { relationships } : {}),
       })
       .select("id")
       .single();
@@ -142,6 +159,32 @@ export async function POST(req: NextRequest) {
         { error: "Failed to create source" },
         { status: 500 }
       );
+    }
+
+    // Bidirectional linking: update parent's children_ids to include this new source
+    if (relationships?.parent_id && source.id) {
+      try {
+        const { data: parentSource } = await supabase
+          .from("sources")
+          .select("relationships")
+          .eq("id", relationships.parent_id)
+          .single();
+
+        if (parentSource) {
+          const parentRel = (parentSource.relationships as DocumentRelationship) || {};
+          const childrenIds = parentRel.children_ids || [];
+          if (!childrenIds.includes(source.id)) {
+            childrenIds.push(source.id);
+            await supabase
+              .from("sources")
+              .update({ relationships: { ...parentRel, children_ids: childrenIds } })
+              .eq("id", relationships.parent_id);
+            console.log(`[ingest] Updated parent ${relationships.parent_id} with child ${source.id}`);
+          }
+        }
+      } catch (e) {
+        console.error("[ingest] Failed to update parent relationship:", e);
+      }
     }
 
     // Chunk with images
