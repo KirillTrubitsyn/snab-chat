@@ -1740,14 +1740,43 @@ export default function Chat() {
             <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
               {/* Презентация */}
               {aboutActiveTab === "presentation" && (
-                <iframe
-                  src="/presentation.html"
-                  style={{
-                    width: "100%", border: "none",
-                    flex: 1, minHeight: 400, height: "100%",
-                  }}
-                  title="Презентация СнабЧат"
-                />
+                <div style={{
+                  flex: 1, display: "flex", flexDirection: "column",
+                  alignItems: "center", justifyContent: "center",
+                  padding: 32, gap: 24,
+                }}>
+                  <div style={{
+                    width: "100%", maxWidth: 480, aspectRatio: "16/9",
+                    borderRadius: 12, overflow: "hidden",
+                    boxShadow: "0 4px 24px rgba(0,0,0,0.12)",
+                    border: "1px solid var(--border-color, #eee)",
+                  }}>
+                    <iframe
+                      src="/presentation.html"
+                      style={{ width: "100%", height: "100%", border: "none", pointerEvents: "none" }}
+                      title="Превью презентации"
+                      tabIndex={-1}
+                    />
+                  </div>
+                  <button
+                    onClick={() => window.open("/presentation.html", "_blank")}
+                    style={{
+                      padding: "14px 32px", borderRadius: 12, border: "none",
+                      fontSize: 16, fontWeight: 600, cursor: "pointer",
+                      background: "#1976d2", color: "#fff",
+                      display: "flex", alignItems: "center", gap: 10,
+                      boxShadow: "0 2px 8px rgba(25,118,210,0.3)",
+                    }}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="5 3 19 12 5 21 5 3" />
+                    </svg>
+                    Открыть презентацию
+                  </button>
+                  <p style={{ fontSize: 13, color: "var(--text-muted, #999)", textAlign: "center" }}>
+                    Презентация откроется на весь экран в новой вкладке
+                  </p>
+                </div>
               )}
 
               {/* Поддержка */}
