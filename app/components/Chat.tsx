@@ -360,6 +360,9 @@ export default function Chat() {
   // Load messages after activeConvId changes (ensures useChat has re-initialized with new id)
   useEffect(() => {
     if (!activeConvId) return;
+    // Skip loading from server if we're about to submit a new message
+    // (createConversation sets activeConvId before the message is sent)
+    if (pendingSubmitRef.current) return;
     let cancelled = false;
     (async () => {
       try {
