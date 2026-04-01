@@ -156,8 +156,8 @@ export async function expandByRelationships(
 
   if (!foundSources || foundSources.length === 0) return chunks;
 
-  // Collect IDs of related documents to fetch
-  const relatedIds = new Set<number>();
+  // Collect IDs of candidate related documents
+  const candidateIds = new Set<number>();
   const existingSourceIds = new Set(
     (foundSources as { id: number }[]).map((s) => s.id)
   );
@@ -170,25 +170,25 @@ export async function expandByRelationships(
     const rel = src.relationships;
     if (!rel) continue;
 
-    // Add parent
+    // Always add parent (1 document, always relevant)
     if (rel.parent_id && !existingSourceIds.has(rel.parent_id)) {
-      relatedIds.add(rel.parent_id);
+      candidateIds.add(rel.parent_id);
     }
 
-    // Add children
+    // Add children (may be many, will be filtered below)
     if (rel.children_ids) {
       for (const childId of rel.children_ids) {
         if (!existingSourceIds.has(childId)) {
-          relatedIds.add(childId);
+          candidateIds.add(childId);
         }
       }
     }
 
-    // Add related
+    // Add related (explicitly linked, always relevant)
     if (rel.related_ids) {
       for (const relId of rel.related_ids) {
         if (!existingSourceIds.has(relId)) {
-          relatedIds.add(relId);
+          candidateIds.add(relId);
         }
       }
     }
@@ -197,50 +197,118 @@ export async function expandByRelationships(
   // Also check reverse: find sources that list our found sources as parent
   const foundSourceIds = [...existingSourceIds];
   if (foundSourceIds.length > 0) {
-    // Search for children that reference our found documents as parent
-    // Using containedBy/contains operators via raw filter
     for (const srcId of foundSourceIds) {
       const { data: children } = await supabase
         .from("sources")
         .select("id")
         .filter("relationships->>parent_id", "eq", String(srcId))
-        .limit(10);
+        .limit(20);
 
       if (children) {
         for (const child of children as { id: number }[]) {
           if (!existingSourceIds.has(child.id)) {
-            relatedIds.add(child.id);
+            candidateIds.add(child.id);
           }
         }
       }
     }
   }
 
-  if (relatedIds.size === 0) {
+  if (candidateIds.size === 0) {
     console.log("[relationships] No related documents to expand");
     return chunks;
   }
 
+  // ── Pre-filter: score candidate sources by relevance BEFORE loading chunks ──
+  // This prevents loading chunks from all 20 appendices when only 1-2 are relevant.
+  const { data: candidateSources } = await supabase
+    .from("sources")
+    .select("id, filename, tags")
+    .in("id", [...candidateIds]);
+
+  if (!candidateSources || candidateSources.length === 0) return chunks;
+
+  // Build query keywords for source-level filtering
+  const queryLower = searchQuery.toLowerCase();
+  const queryKeywords = queryLower
+    .split(/\s+/)
+    .filter((w) => w.length > 3)
+    .map((w) => w.replace(/[.,!?;:()]/g, ""));
+
+  // Score each candidate source by: filename keywords + tag overlap with query
+  interface CandidateSource {
+    id: number;
+    filename: string;
+    tags: string[] | null;
+    relevanceScore: number;
+  }
+
+  const scoredSources: CandidateSource[] = (
+    candidateSources as { id: number; filename: string; tags: string[] | null }[]
+  ).map((src) => {
+    let score = 0;
+    const fnLower = src.filename.toLowerCase().replace(/_/g, " ");
+    const tagsLower = (src.tags || []).map((t) => t.toLowerCase());
+
+    // Score by query keyword matches in filename
+    for (const kw of queryKeywords) {
+      if (fnLower.includes(kw)) score += 2;
+    }
+
+    // Score by tag matches with query
+    for (const tag of tagsLower) {
+      if (queryLower.includes(tag)) score += 3;
+      for (const kw of queryKeywords) {
+        if (tag.includes(kw) || kw.includes(tag)) score += 1;
+      }
+    }
+
+    // Bonus: parent documents always get a base score (context is important)
+    const isParent = foundSources.some((fs: { id: number; relationships: DocumentRelationship | null }) =>
+      fs.relationships?.parent_id === src.id
+    );
+    if (isParent) score += 5;
+
+    // Bonus: explicitly linked via related_ids (manual curation)
+    const isExplicitlyRelated = foundSources.some(
+      (fs: { id: number; relationships: DocumentRelationship | null }) =>
+        fs.relationships?.related_ids?.includes(src.id)
+    );
+    if (isExplicitlyRelated) score += 4;
+
+    return { ...src, relevanceScore: score };
+  });
+
+  // Sort by relevance, take top sources (max 4 sources to keep chunk count manageable)
+  scoredSources.sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+  const MAX_RELATED_SOURCES = 4;
+  const relevantSources = scoredSources
+    .filter((s) => s.relevanceScore > 0)
+    .slice(0, MAX_RELATED_SOURCES);
+
+  if (relevantSources.length === 0) {
+    console.log(
+      `[relationships] ${candidateIds.size} candidates found but none relevant to query "${searchQuery.slice(0, 60)}"`
+    );
+    return chunks;
+  }
+
+  const filteredIds = relevantSources.map((s) => s.id);
   console.log(
-    `[relationships] Expanding with ${relatedIds.size} related documents: [${[...relatedIds].join(", ")}]`
+    `[relationships] Pre-filtered ${candidateIds.size} candidates → ${relevantSources.length} relevant: ${relevantSources.map((s) => `${s.id}(score=${s.relevanceScore})`).join(", ")}`
   );
 
-  // Fetch chunks from related documents
+  // ── Fetch chunks only from pre-filtered relevant sources ──
   const { data: relatedChunks } = await supabase
     .from("chunks")
     .select("id, content, source_filename, chunk_index, tags, image_paths")
-    .in("source_id", [...relatedIds])
+    .in("source_id", filteredIds)
     .order("chunk_index", { ascending: true });
 
   if (!relatedChunks || relatedChunks.length === 0) return chunks;
 
   // Score related chunks by keyword relevance to the search query
-  const keywords = searchQuery
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((w) => w.length > 3)
-    .map((w) => w.replace(/[.,!?;:()]/g, ""));
-
   interface RelChunkRow {
     id: string;
     content: string;
@@ -253,7 +321,7 @@ export async function expandByRelationships(
   const scored = (relatedChunks as RelChunkRow[]).map((chunk) => {
     const lower = chunk.content.toLowerCase();
     let score = 0;
-    for (const kw of keywords) {
+    for (const kw of queryKeywords) {
       if (lower.includes(kw)) score++;
     }
     return { chunk, score };
@@ -267,7 +335,7 @@ export async function expandByRelationships(
   const seenSources = new Set<string>();
   const existingChunkIds = new Set(chunks.map((c) => c.id));
 
-  // First pass: one chunk per related source (intro/context)
+  // First pass: one best chunk per related source
   for (const { chunk } of scored) {
     if (existingChunkIds.has(chunk.id)) continue;
     if (seenSources.has(chunk.source_filename)) continue;
@@ -300,7 +368,7 @@ export async function expandByRelationships(
   }));
 
   console.log(
-    `[relationships] Added ${expansionResults.length} chunks from related documents: ${[...new Set(expansionResults.map((r) => r.source_filename))].join(", ")}`
+    `[relationships] Added ${expansionResults.length} chunks from ${seenSources.size} related documents: ${[...seenSources].join(", ")}`
   );
 
   return [...chunks, ...expansionResults];
