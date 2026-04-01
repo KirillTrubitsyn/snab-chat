@@ -815,7 +815,16 @@ ${uploadedDocsContext}`;
     }
   }
 
-  const sourceFilenames = [...new Set(relevantChunks.map((r) => r.source_filename))];
+  // Filter out denormalized .md files from displayed sources — they are technical
+  // artifacts for the search engine. Only show original documents to the user.
+  const sourceFilenames = [...new Set(
+    relevantChunks
+      .filter((r) =>
+        !r.source_filename.endsWith(".md") &&
+        !r.tags.some((t) => t.toLowerCase() === "денормализовано")
+      )
+      .map((r) => r.source_filename)
+  )];
 
   // ── Build proxy URLs for chunk images to pass to frontend ──
   interface ChunkImageUrl {
