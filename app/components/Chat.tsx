@@ -1677,7 +1677,7 @@ export default function Chat() {
           <div
             style={{
               background: "var(--bg-primary, #fff)", borderRadius: 16,
-              width: "100%", maxWidth: 720, maxHeight: "85vh",
+              width: "100%", maxWidth: 720, height: "85vh",
               display: "flex", flexDirection: "column",
               boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
             }}
@@ -1737,14 +1737,14 @@ export default function Chat() {
             </div>
 
             {/* Tab Content */}
-            <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
               {/* Презентация */}
               {aboutActiveTab === "presentation" && (
                 <iframe
                   src="/presentation.html"
                   style={{
-                    flex: 1, width: "100%", border: "none",
-                    minHeight: 400,
+                    width: "100%", border: "none",
+                    flex: 1, minHeight: 400, height: "100%",
                   }}
                   title="Презентация СнабЧат"
                 />
