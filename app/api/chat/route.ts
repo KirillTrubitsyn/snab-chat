@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "@/app/lib/google-ai";
-import { streamText, generateText, type CoreMessage } from "ai";
+import { streamText, type CoreMessage } from "ai";
 import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, type SearchResult } from "@/app/lib/retrieval";
 import { llmRerank } from "@/app/lib/reranker";
 import { classifyIntent } from "@/app/lib/intent-classifier";
@@ -12,7 +12,7 @@ import { classifyOffTopic, CATEGORY_LABELS, type OffTopicCategory } from "@/app/
 import { notifyOffTopic } from "@/app/lib/telegram";
 import { logError } from "@/app/lib/error-logger";
 import { extractSearchHints, detectSectionReference, detectDocumentReference } from "@/app/lib/query-analyzer";
-import { isComplexQuery, createAgenticContext, createRagTools, finalizeAgenticResults } from "@/app/lib/agentic-rag";
+import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgenticResults } from "@/app/lib/agentic-rag";
 import { expandByRelationships } from "@/app/lib/relationships";
 
 export const runtime = "nodejs";
@@ -105,11 +105,10 @@ export async function POST(req: NextRequest) {
   let lowConfidence: boolean;
 
   if (useAgenticRag) {
-    // ═══ AGENTIC PATH: LLM decides what to search ═══
+    // ═══ AGENTIC PATH: LLM decides what to search (via @google/genai) ═══
     console.log(`[chat] Using AGENTIC RAG for complex query (intent=${intentResult.intent}, fz_type=${intentResult.fz_type})`);
 
     const agenticCtx = createAgenticContext();
-    const ragTools = createRagTools(agenticCtx);
 
     const agenticPrompt = `Ты — поисковый агент базы знаний Дирекции по закупкам СГК.
 Твоя задача — найти ВСЕ документы, необходимые для полного ответа на вопрос пользователя.
@@ -133,13 +132,7 @@ ${userMessage.content}
 - Варианты запроса: ${intentResult.query_variants.join(" | ") || "нет"}`;
 
     try {
-      await generateText({
-        model: google("gemini-2.0-flash"),
-        prompt: agenticPrompt,
-        tools: ragTools,
-        maxSteps: 6,
-        temperature: 0,
-      });
+      await runAgenticSearch(agenticCtx, agenticPrompt, 6);
 
       console.log(`[chat] Agentic search complete: ${agenticCtx.searchCount} searches, ${agenticCtx.chunks.size} chunks collected`);
 
