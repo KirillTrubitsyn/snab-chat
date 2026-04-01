@@ -156,8 +156,10 @@ export async function expandByRelationships(
 
   if (!foundSources || foundSources.length === 0) return chunks;
 
-  // Collect IDs of candidate related documents
-  const candidateIds = new Set<number>();
+  // Collect IDs of candidate related documents, separated by relationship type
+  const parentIds = new Set<number>(); // direct parents — always highest priority
+  const childIds = new Set<number>(); // children of found docs
+  const relatedIds = new Set<number>(); // explicitly linked
   const existingSourceIds = new Set(
     (foundSources as { id: number }[]).map((s) => s.id)
   );
@@ -170,16 +172,17 @@ export async function expandByRelationships(
     const rel = src.relationships;
     if (!rel) continue;
 
-    // Always add parent (1 document, always relevant)
+    // Always add parent (1 document, always relevant context)
     if (rel.parent_id && !existingSourceIds.has(rel.parent_id)) {
-      candidateIds.add(rel.parent_id);
+      parentIds.add(rel.parent_id);
     }
 
-    // Add children (may be many, will be filtered below)
-    if (rel.children_ids) {
+    // Add children only from documents that are actual parents (have children_ids)
+    // This avoids pulling children from documents found by keyword coincidence
+    if (rel.children_ids && rel.children_ids.length > 0) {
       for (const childId of rel.children_ids) {
         if (!existingSourceIds.has(childId)) {
-          candidateIds.add(childId);
+          childIds.add(childId);
         }
       }
     }
@@ -188,31 +191,13 @@ export async function expandByRelationships(
     if (rel.related_ids) {
       for (const relId of rel.related_ids) {
         if (!existingSourceIds.has(relId)) {
-          candidateIds.add(relId);
+          relatedIds.add(relId);
         }
       }
     }
   }
 
-  // Also check reverse: find sources that list our found sources as parent
-  const foundSourceIds = [...existingSourceIds];
-  if (foundSourceIds.length > 0) {
-    for (const srcId of foundSourceIds) {
-      const { data: children } = await supabase
-        .from("sources")
-        .select("id")
-        .filter("relationships->>parent_id", "eq", String(srcId))
-        .limit(20);
-
-      if (children) {
-        for (const child of children as { id: number }[]) {
-          if (!existingSourceIds.has(child.id)) {
-            candidateIds.add(child.id);
-          }
-        }
-      }
-    }
-  }
+  const candidateIds = new Set([...parentIds, ...childIds, ...relatedIds]);
 
   if (candidateIds.size === 0) {
     console.log("[relationships] No related documents to expand");
@@ -263,29 +248,32 @@ export async function expandByRelationships(
       }
     }
 
-    // Bonus: parent documents always get a base score (context is important)
-    const isParent = foundSources.some((fs: { id: number; relationships: DocumentRelationship | null }) =>
-      fs.relationships?.parent_id === src.id
-    );
-    if (isParent) score += 5;
+    // Parent documents get a very high bonus — they provide essential context
+    // for any appendix found in search. Must outweigh keyword matches from
+    // unrelated children (which can score 8-10 on generic terms like "схема").
+    const isParent = parentIds.has(src.id);
+    if (isParent) score += 20;
 
-    // Bonus: explicitly linked via related_ids (manual curation)
-    const isExplicitlyRelated = foundSources.some(
-      (fs: { id: number; relationships: DocumentRelationship | null }) =>
-        fs.relationships?.related_ids?.includes(src.id)
-    );
-    if (isExplicitlyRelated) score += 4;
+    // Explicitly linked via related_ids (manual curation)
+    const isExplicitlyRelated = relatedIds.has(src.id);
+    if (isExplicitlyRelated) score += 10;
 
     return { ...src, relevanceScore: score };
   });
 
-  // Sort by relevance, take top sources (max 4 sources to keep chunk count manageable)
+  // Sort by relevance, take top sources.
+  // Parents always get guaranteed slots, remaining filled by score.
   scoredSources.sort((a, b) => b.relevanceScore - a.relevanceScore);
 
   const MAX_RELATED_SOURCES = 4;
-  const relevantSources = scoredSources
-    .filter((s) => s.relevanceScore > 0)
-    .slice(0, MAX_RELATED_SOURCES);
+  const guaranteedParents = scoredSources.filter((s) => parentIds.has(s.id));
+  const otherCandidates = scoredSources
+    .filter((s) => !parentIds.has(s.id) && s.relevanceScore > 0)
+    .slice(0, MAX_RELATED_SOURCES - guaranteedParents.length);
+  const relevantSources = [...guaranteedParents, ...otherCandidates].slice(
+    0,
+    MAX_RELATED_SOURCES
+  );
 
   if (relevantSources.length === 0) {
     console.log(
