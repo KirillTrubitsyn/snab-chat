@@ -63,6 +63,13 @@ export async function parseToMarkdown(
     return parseDocxWithImages(buffer);
   }
 
+  if (
+    mimeType === "application/msword" ||
+    filename.endsWith(".doc")
+  ) {
+    return parseDocxWithImages(buffer);
+  }
+
   if (mimeType === "application/pdf" || filename.endsWith(".pdf")) {
     validateMagicBytes(buffer, [PDF_MAGIC], "PDF");
     const pdfParse = (await import("pdf-parse")).default;
