@@ -23,7 +23,10 @@ export default function EmptyState({ onChipClick }: { onChipClick?: (text: strin
           <button className="welcome-chip" type="button" onClick={() => onChipClick?.("Каков порядок проведения аварийной закупки?")}>Порядок аварийной закупки</button>
         </div>
         <div className="welcome-chips-row">
-          <button className="welcome-chip" type="button" onClick={() => onChipClick?.("Какие этапы согласования договора на закупку?")}>Этапы согласования договора</button>
+          <button className="welcome-chip" type="button" onClick={() => onChipClick?.("Какие требования предъявляются к участникам закупки?")}>Требования к участникам закупки</button>
+          <button className="welcome-chip" type="button" onClick={() => onChipClick?.("Какие критерии оценки предложений участников?")}>Критерии оценки предложений</button>
+        </div>
+        <div className="welcome-chips-row">
           <button className="welcome-chip" type="button" onClick={() => onChipClick?.("Когда проводится переторжка?")}>Когда проводится переторжка</button>
         </div>
       </div>
