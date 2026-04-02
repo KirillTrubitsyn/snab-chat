@@ -35,6 +35,13 @@ const IMAGE_MIMES = [
   "image/webp",
 ];
 
+const AUDIO_MIMES = [
+  "audio/mpeg",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/wave",
+];
+
 /* ── Exported image type ── */
 export interface ExtractedImage {
   data: Buffer;
@@ -109,6 +116,15 @@ export async function parseToMarkdown(
   ) {
     validateMagicBytes(buffer, [ZIP_MAGIC], "PPTX");
     return parsePptxWithImages(buffer);
+  }
+
+  // Audio transcription via Gemini
+  if (
+    AUDIO_MIMES.includes(mimeType) ||
+    /\.(mp3|wav)$/i.test(filename)
+  ) {
+    const md = await transcribeAudioWithGemini(buffer, mimeType, filename);
+    return { markdown: md, images: [] };
   }
 
   // Image OCR via Gemini Vision
@@ -477,6 +493,52 @@ async function ocrPdfWithGemini(
   const extractedText = result.text ?? "";
   console.log(
     `[parser] Gemini OCR extracted ${extractedText.length} chars from "${filename}"`
+  );
+  return extractedText;
+}
+
+async function transcribeAudioWithGemini(
+  buffer: Buffer,
+  mimeType: string,
+  filename: string
+): Promise<string> {
+  const { GoogleGenAI } = await import("@google/genai");
+  const client = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
+
+  const base64 = buffer.toString("base64");
+  const audioMime = /\.wav$/i.test(filename) ? "audio/wav" : "audio/mpeg";
+
+  const result = await withGoogleApiLimit(async () => {
+    return client.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              inlineData: {
+                mimeType: audioMime,
+                data: base64,
+              },
+            },
+            {
+              text: `Транскрибируй эту аудиозапись. Файл называется "${filename}".
+Правила:
+- Запиши весь произнесённый текст дословно
+- Если есть несколько говорящих — отмечай смену спикера
+- Сохраняй структуру: абзацы для пауз, списки если перечисляют
+- Не добавляй ничего от себя, только то, что сказано в записи
+- Результат верни в формате markdown`,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  const extractedText = result.text ?? "";
+  console.log(
+    `[parser] Gemini transcribed ${extractedText.length} chars from audio "${filename}"`
   );
   return extractedText;
 }
