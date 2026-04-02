@@ -198,10 +198,16 @@ ${userMessage.content}
   }
 
   if (docResults.length > 0) {
-    const newDocResults = docResults.filter((r) => !existingIds.has(r.id));
-    for (const r of newDocResults) existingIds.add(r.id);
-    combinedResults = [...combinedResults, ...newDocResults];
-    console.log(`[chat] Document lookup added ${newDocResults.length} new chunks`);
+    // Boost targeted document results so they survive reranking/filtering.
+    // These are specifically matched by document type + organization name,
+    // so they should outrank generic hybrid search results.
+    const boostedDocResults = docResults
+      .filter((r) => !existingIds.has(r.id))
+      .map((r) => ({ ...r, similarity: Math.max(r.similarity, 0.92) }));
+    for (const r of boostedDocResults) existingIds.add(r.id);
+    // Prepend (not append) so they appear before generic search results
+    combinedResults = [...boostedDocResults, ...combinedResults];
+    console.log(`[chat] Document lookup added ${boostedDocResults.length} new chunks (boosted to 0.92)`);
   }
 
   // ── Intent-aware supplementary search ──
