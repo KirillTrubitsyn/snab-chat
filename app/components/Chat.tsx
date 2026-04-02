@@ -460,7 +460,7 @@ export default function Chat() {
   const MAX_CHAT_FILES = 5;
   const MAX_CHAT_PHOTOS = 10;
   const MAX_CHAT_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
-  const ACCEPTED_CHAT_TYPES = ".pdf,.doc,.docx,.xlsx,.xls,.pptx,.jpg,.jpeg,.png,.gif,.bmp,.webp";
+  const ACCEPTED_CHAT_TYPES = ".pdf,.doc,.docx,.xlsx,.xls,.pptx,.txt,.md,.mp3,.wav,.jpg,.jpeg,.png,.gif,.bmp,.webp";
   const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "bmp", "webp"];
 
   const parseFileViaApi = useCallback(async (file: File, fileId: string, isPhoto: boolean) => {
@@ -520,8 +520,8 @@ export default function Chat() {
         }
 
         // Documents
-        if (!["pdf", "doc", "docx", "xlsx", "xls", "pptx"].includes(ext)) {
-          alert(`Формат .${ext} не поддерживается. Допустимые: PDF, DOC, DOCX, XLSX, PPTX, изображения`);
+        if (!["pdf", "doc", "docx", "xlsx", "xls", "pptx", "txt", "md", "mp3", "wav"].includes(ext)) {
+          alert(`Формат .${ext} не поддерживается. Допустимые: PDF, DOC, DOCX, XLSX, PPTX, TXT, MD, MP3, WAV, изображения`);
           continue;
         }
         if (chatFiles.length >= MAX_CHAT_FILES) {
