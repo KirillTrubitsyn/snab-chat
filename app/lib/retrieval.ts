@@ -427,8 +427,29 @@ export async function fetchChunksByDocument(
   // Use OR logic: each hint matches independently, so multi-entity queries
   // like ["етгк", "кузбасс", "нтск"] find files for each organization
   const allFilenames = new Set<string>();
+  const docTypeHint = ref.documentTypeHint;
 
   for (const hint of ref.filenameHints) {
+    // When we have a document type hint (e.g. "критерии") AND entity hints,
+    // first try to find files matching BOTH type+entity (targeted search).
+    // If that fails, fall back to entity-only search.
+    if (docTypeHint && docTypeHint !== hint) {
+      const { data: targeted } = await supabase
+        .from("sources")
+        .select("filename")
+        .ilike("filename", `%${docTypeHint}%`)
+        .ilike("filename", `%${hint}%`)
+        .limit(3);
+
+      if (targeted && targeted.length > 0) {
+        for (const s of targeted) {
+          allFilenames.add((s as { filename: string }).filename);
+        }
+        continue; // found targeted matches, skip generic search for this hint
+      }
+    }
+
+    // Fallback: entity-only search
     const { data: sources, error: srcError } = await supabase
       .from("sources")
       .select("filename")
@@ -443,12 +464,12 @@ export async function fetchChunksByDocument(
   }
 
   if (allFilenames.size === 0) {
-    console.log("fetchChunksByDocument: no matching sources for hints", ref.filenameHints);
+    console.log("fetchChunksByDocument: no matching sources for hints", ref.filenameHints, "typeHint:", docTypeHint);
     return [];
   }
 
   const filenames = Array.from(allFilenames);
-  console.log("fetchChunksByDocument: matched sources:", filenames);
+  console.log("fetchChunksByDocument: matched sources:", filenames, "typeHint:", docTypeHint);
 
   // Fetch all chunks from matched documents
   const { data: chunks, error: chunkError } = await supabase

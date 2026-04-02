@@ -48,6 +48,8 @@ export function detectSectionReference(query: string): SectionReference | null {
 export interface DocumentReference {
   /** Filename substring hints for ILIKE matching */
   filenameHints: string[];
+  /** Optional document type hint (e.g. "критерии", "положен", "стандарт") for targeted search */
+  documentTypeHint?: string;
 }
 
 /**
@@ -77,10 +79,18 @@ function extractDocumentHint(lower: string): string | null {
     { re: /стандарт[аеуом]?\s+закуп/i, hint: "стандарт" },
     { re: /стандарт[аеуом]?\s+планиров/i, hint: "стандарт" },
     { re: /стандарт[аеуом]?\s/i, hint: "стандарт" },
+    { re: /критери[яиейюём]\S*\s+(?:выбор|определени|способ)/i, hint: "критерии" },
+    { re: /способ[аеуом]?\s+закупк/i, hint: "критерии" },
     { re: /инструкци[яиейюём]/i, hint: "инструкци" },
     { re: /методик[аиейу]/i, hint: "методик" },
     { re: /регламент[аеуом]?/i, hint: "регламент" },
     { re: /порядк[аеуом]?/i, hint: "порядок" },
+    { re: /перечен[ьией]\S*\s+единственн/i, hint: "перечень_единственных" },
+    { re: /единственн\S+\s+источник/i, hint: "перечень_единственных" },
+    { re: /схем[аеуыой]\s+взаимодейств/i, hint: "schema_vzaimodeistviya" },
+    { re: /вид[аеыов]\S*\s+работ/i, hint: "виды_работ" },
+    { re: /матриц[аеуыой]\s+полномоч/i, hint: "матрица_полномочий" },
+    { re: /обоснован\S+\s+(?:нмц|начальн)/i, hint: "обоснование_нмцд" },
   ];
 
   for (const dp of docPatterns) {
@@ -162,7 +172,10 @@ export function detectDocumentReference(query: string): DocumentReference | null
 
   if (hints.length === 0) return null;
 
-  return { filenameHints: hints };
+  // 5. Extract document type hint for targeted search when entities are present
+  const docTypeHint = foundEntities.size > 0 ? extractDocumentHint(lower) : undefined;
+
+  return { filenameHints: hints, documentTypeHint: docTypeHint ?? undefined };
 }
 
 /**
