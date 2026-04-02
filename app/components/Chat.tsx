@@ -279,7 +279,7 @@ export default function Chat() {
   /* ── Load sources ── */
   const loadSources = useCallback(async () => {
     try {
-      const res = await fetch("/api/sources");
+      const res = await fetch("/api/sources?view=chat");
       const data = await res.json();
       if (data.sources) setSources(data.sources);
     } catch {

@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { requireDocumentAdmin } from "@/app/lib/auth";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url);
+    const view = searchParams.get("view"); // "chat" = regular user view
+
     const supabase = createServiceClient();
     const PAGE = 1000;
     let allSources: any[] = [];
@@ -25,21 +28,27 @@ export async function GET() {
       from += PAGE;
     }
 
-    // Hide only "ugly" denormalized files (per-line tagged technical artifacts).
-    // Well-formatted denormalized .md files (table descriptions, matrices, etc.)
-    // remain visible — users find them useful for reading and downloading.
-    const HIDDEN_DENORM_FOLDERS = ["pricing", "instructions", "schemas"];
+    // For chat view (regular users): hide ALL denormalized .md files
+    // except those in "contractor-cards" folder.
+    // For admin view: hide only denormalized files in technical folders.
+    const HIDDEN_DENORM_FOLDERS_ADMIN = ["pricing", "instructions", "schemas"];
 
     const visibleSources = allSources.filter((s: any) => {
       if (s.mime_type !== "application/x-denormalized") return true;
-      // Denormalized file — show it unless it's in a technical folder
-      return !HIDDEN_DENORM_FOLDERS.includes(s.folder_path);
+      if (view === "chat") {
+        // Regular users see only contractor-cards denormalized files
+        return s.folder_path === "contractor-cards";
+      }
+      // Admin view — hide only technical folders
+      return !HIDDEN_DENORM_FOLDERS_ADMIN.includes(s.folder_path);
     });
 
     const denormalizedSources = allSources.filter(
       (s: any) =>
         s.mime_type === "application/x-denormalized" &&
-        HIDDEN_DENORM_FOLDERS.includes(s.folder_path)
+        (view === "chat"
+          ? s.folder_path !== "contractor-cards"
+          : HIDDEN_DENORM_FOLDERS_ADMIN.includes(s.folder_path))
     );
 
     return NextResponse.json({
