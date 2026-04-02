@@ -632,7 +632,7 @@ export async function fetchChunksByDocument(
     content: chunk.content,
     source_filename: chunk.source_filename,
     chunk_index: chunk.chunk_index,
-    similarity: 0.80, // synthetic score — above threshold, slightly below section lookup
+    similarity: docTypeHint ? 0.90 : 0.80, // targeted matches get higher score to survive reranking
     tags: chunk.tags ?? [],
     image_paths: chunk.image_paths ?? [],
   }));
