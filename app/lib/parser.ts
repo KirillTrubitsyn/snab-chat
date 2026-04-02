@@ -67,7 +67,15 @@ export async function parseToMarkdown(
     mimeType === "application/msword" ||
     filename.endsWith(".doc")
   ) {
-    return parseDocxWithImages(buffer);
+    // Mammoth не поддерживает бинарный .doc (Word 97-2003) полноценно.
+    // Пробуем mammoth, при ошибке — Gemini OCR.
+    try {
+      return await parseDocxWithImages(buffer);
+    } catch {
+      console.log(`[parser] mammoth failed for "${filename}", falling back to Gemini OCR`);
+      const markdown = await ocrDocWithGemini(buffer, filename);
+      return { markdown, images: [] };
+    }
   }
 
   if (mimeType === "application/pdf" || filename.endsWith(".pdf")) {
@@ -469,6 +477,50 @@ async function ocrPdfWithGemini(
   const extractedText = result.text ?? "";
   console.log(
     `[parser] Gemini OCR extracted ${extractedText.length} chars from "${filename}"`
+  );
+  return extractedText;
+}
+
+async function ocrDocWithGemini(
+  buffer: Buffer,
+  filename: string
+): Promise<string> {
+  const { GoogleGenAI } = await import("@google/genai");
+  const client = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
+
+  const base64 = buffer.toString("base64");
+
+  const result = await withGoogleApiLimit(async () => {
+    return client.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              inlineData: {
+                mimeType: "application/msword",
+                data: base64,
+              },
+            },
+            {
+              text: `Извлеки весь текст из этого документа Word (.doc). Документ называется "${filename}".
+Правила:
+- Сохраняй структуру документа: заголовки, абзацы, списки, таблицы
+- Таблицы форматируй в markdown-формате
+- Если документ содержит приказ, положение или другой нормативный документ — сохрани нумерацию пунктов
+- Не добавляй ничего от себя, извлекай только то, что есть в документе
+- Результат верни в формате markdown`,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  const extractedText = result.text ?? "";
+  console.log(
+    `[parser] Gemini OCR extracted ${extractedText.length} chars from DOC "${filename}"`
   );
   return extractedText;
 }
