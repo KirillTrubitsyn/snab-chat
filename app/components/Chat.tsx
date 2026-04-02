@@ -151,6 +151,10 @@ export default function Chat() {
   const [activeView, setActiveView] = useState<"chat" | "knowledge-base">("chat");
   const [kbCategoryFilter, setKbCategoryFilter] = useState<string>("all");
 
+  // .doc format warning modal
+  const [showDocFormatModal, setShowDocFormatModal] = useState(false);
+  const [docFormatFileName, setDocFormatFileName] = useState("");
+
   // Support modal state
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [supportMessage, setSupportMessage] = useState("");
@@ -522,6 +526,13 @@ export default function Chat() {
         // Documents
         if (!["pdf", "doc", "docx", "xlsx", "xls", "pptx", "txt", "md", "mp3", "wav"].includes(ext)) {
           alert(`Формат .${ext} не поддерживается. Допустимые: PDF, DOC, DOCX, XLSX, PPTX, TXT, MD, MP3, WAV, изображения`);
+          continue;
+        }
+
+        // Legacy .doc format — show modal with resave instruction
+        if (ext === "doc") {
+          setDocFormatFileName(file.name);
+          setShowDocFormatModal(true);
           continue;
         }
         if (chatFiles.length >= MAX_CHAT_FILES) {
@@ -1699,6 +1710,33 @@ export default function Chat() {
       )}
 
       {/* ── Support Modal ── */}
+      {/* .doc format warning modal */}
+      {showDocFormatModal && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setShowDocFormatModal(false)}>
+          <div className="modal-card doc-format-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="doc-format-modal-icon">⚠️</div>
+            <h3 className="doc-format-modal-title">Устаревший формат файла</h3>
+            <p className="doc-format-modal-filename">{docFormatFileName}</p>
+            <p className="doc-format-modal-text">
+              Этот файл сохранён в формате <strong>.doc</strong> (Word 97–2003), который не поддерживается чатом.
+              Пересохраните его в современном формате <strong>.docx</strong>:
+            </p>
+            <ol className="doc-format-modal-steps">
+              <li>Откройте файл в Microsoft Word</li>
+              <li>Нажмите <strong>Файл → Сохранить как</strong></li>
+              <li>В поле «Тип файла» выберите <strong>Документ Word (.docx)</strong></li>
+              <li>Нажмите <strong>Сохранить</strong> и загрузите новый файл в чат</li>
+            </ol>
+            <button
+              className="doc-format-modal-btn"
+              onClick={() => setShowDocFormatModal(false)}
+            >
+              Понятно
+            </button>
+          </div>
+        </div>
+      )}
+
       {showSupportModal && (
         <div
           style={{

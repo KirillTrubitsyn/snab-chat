@@ -38,6 +38,10 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
   const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // .doc format warning
+  const [showDocFormatModal, setShowDocFormatModal] = useState(false);
+  const [docFormatFileName, setDocFormatFileName] = useState("");
+
   const headers = { "x-admin-code": encodeURIComponent(adminCode) };
 
   const loadSources = useCallback(async () => {
@@ -130,11 +134,24 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
   const handleFilesSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const fileArray = Array.from(files);
-    setUploadFiles(fileArray);
+
+    // Check for legacy .doc files
+    const docFile = fileArray.find((f) => f.name.toLowerCase().endsWith(".doc") && !f.name.toLowerCase().endsWith(".docx"));
+    if (docFile) {
+      setDocFormatFileName(docFile.name);
+      setShowDocFormatModal(true);
+      // Filter out .doc files, continue with the rest
+      const filtered = fileArray.filter((f) => !(f.name.toLowerCase().endsWith(".doc") && !f.name.toLowerCase().endsWith(".docx")));
+      if (filtered.length === 0) return;
+    }
+
+    const safeFiles = fileArray.filter((f) => !(f.name.toLowerCase().endsWith(".doc") && !f.name.toLowerCase().endsWith(".docx")));
+    if (safeFiles.length === 0) return;
+    setUploadFiles(safeFiles);
     setUploadStage("parsing");
     setParsedFiles([]);
     const parsed: ParsedFile[] = [];
-    for (const file of fileArray) {
+    for (const file of safeFiles) {
       try {
         const formData = new FormData();
 
@@ -607,6 +624,30 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
         )}
       </div>
       {viewingSource && <DocumentViewer source={viewingSource} onClose={() => setViewingSource(null)} authCode={adminCode} />}
+
+      {/* .doc format warning modal */}
+      {showDocFormatModal && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setShowDocFormatModal(false)}>
+          <div className="modal-card doc-format-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="doc-format-modal-icon">⚠️</div>
+            <h3 className="doc-format-modal-title">Устаревший формат файла</h3>
+            <p className="doc-format-modal-filename">{docFormatFileName}</p>
+            <p className="doc-format-modal-text">
+              Этот файл сохранён в формате <strong>.doc</strong> (Word 97–2003), который не поддерживается.
+              Пересохраните его в современном формате <strong>.docx</strong>:
+            </p>
+            <ol className="doc-format-modal-steps">
+              <li>Откройте файл в Microsoft Word</li>
+              <li>Нажмите <strong>Файл → Сохранить как</strong></li>
+              <li>В поле «Тип файла» выберите <strong>Документ Word (.docx)</strong></li>
+              <li>Нажмите <strong>Сохранить</strong> и загрузите новый файл</li>
+            </ol>
+            <button className="doc-format-modal-btn" onClick={() => setShowDocFormatModal(false)}>
+              Понятно
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

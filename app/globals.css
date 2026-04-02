@@ -1428,6 +1428,72 @@ input, textarea {
   animation: scaleIn 200ms ease-out;
 }
 
+/* ── .doc format warning modal ── */
+
+.doc-format-modal {
+  text-align: center;
+  max-width: 460px;
+}
+
+.doc-format-modal-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+}
+
+.doc-format-modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+
+.doc-format-modal-filename {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 16px;
+  word-break: break-all;
+}
+
+.doc-format-modal-text {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  margin: 0 0 16px;
+  text-align: left;
+}
+
+.doc-format-modal-steps {
+  text-align: left;
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.7;
+  margin: 0 0 24px;
+  padding-left: 20px;
+}
+
+.doc-format-modal-steps li {
+  margin-bottom: 4px;
+}
+
+.doc-format-modal-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 32px;
+  border-radius: 10px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.doc-format-modal-btn:hover {
+  background: var(--accent-dark, #1a6bba);
+}
+
 /* ── Drop zone ── */
 
 .drop-zone {
