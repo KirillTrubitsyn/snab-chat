@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
-import { requireAdmin } from "@/app/lib/auth";
+import { requireDocumentAdmin } from "@/app/lib/auth";
 
 export async function GET() {
   try {
@@ -53,7 +53,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
-  const adminCheck = requireAdmin(req);
+  const adminCheck = requireDocumentAdmin(req);
   if (adminCheck instanceof NextResponse) return adminCheck;
 
   try {
@@ -97,7 +97,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const adminCheck = requireAdmin(req);
+  const adminCheck = requireDocumentAdmin(req);
   if (adminCheck instanceof NextResponse) return adminCheck;
 
   try {

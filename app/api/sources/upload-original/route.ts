@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
-import { requireAdmin } from "@/app/lib/auth";
+import { requireDocumentAdmin } from "@/app/lib/auth";
 
 /**
  * POST /api/sources/upload-original
@@ -11,7 +11,7 @@ import { requireAdmin } from "@/app/lib/auth";
  *   - filename: имя файла для сопоставления с денормализованным источником
  */
 export async function POST(req: NextRequest) {
-  const adminCheck = requireAdmin(req);
+  const adminCheck = requireDocumentAdmin(req);
   if (adminCheck instanceof NextResponse) return adminCheck;
 
   try {

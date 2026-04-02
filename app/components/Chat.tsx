@@ -58,6 +58,7 @@ export default function Chat() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const isAdmin = typeof window !== "undefined" && localStorage.getItem("snabchat_is_admin") === "true";
+  const isDocAdmin = typeof window !== "undefined" && (localStorage.getItem("snabchat_admin_code") || "").toUpperCase() === "КИРИЛЛ-АДМИН";
 
   /* ── Keep inviteCodeRef in sync ── */
   useEffect(() => {
@@ -1157,7 +1158,7 @@ export default function Chat() {
                 <div className="kb-header">
                   <h2 className="kb-title">База знаний</h2>
                   <span className="kb-badge">{sources.length}</span>
-                  {isAdmin && sources.length > 0 && (
+                  {isDocAdmin && sources.length > 0 && (
                     <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
                       {!bulkSelectMode ? (
                         <button

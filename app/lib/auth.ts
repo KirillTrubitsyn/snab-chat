@@ -33,6 +33,13 @@ export function isAdminCode(code: string): boolean {
   return code.toUpperCase() in ADMIN_CODES;
 }
 
+/**
+ * Только КИРИЛЛ-АДМИН может загружать/удалять документы в базу знаний
+ */
+export function isDocumentAdmin(code: string): boolean {
+  return code.toUpperCase() === "КИРИЛЛ-АДМИН";
+}
+
 export function getAdminName(code: string): string | null {
   return ADMIN_CODES[code.toUpperCase()] ?? null;
 }
@@ -199,6 +206,20 @@ export function requireAdmin(
     return adminRequiredResponse();
   }
   return { adminName: name };
+}
+
+/**
+ * Проверяет, что запрос от КИРИЛЛ-АДМИН (единственный кто может управлять документами)
+ */
+export function requireDocumentAdmin(
+  req: NextRequest
+): { adminName: string } | NextResponse {
+  const rawCode = req.headers.get("x-admin-code") ?? "";
+  const code = decodeURIComponent(rawCode);
+  if (!isDocumentAdmin(code)) {
+    return adminRequiredResponse();
+  }
+  return { adminName: getAdminName(code)! };
 }
 
 /**

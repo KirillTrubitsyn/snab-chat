@@ -15,6 +15,7 @@ import type { Source, ParsedFile } from "./types";
 const DOC_CATEGORIES = DOCUMENT_CATEGORIES;
 
 export default function DocumentsTab({ adminCode }: { adminCode: string }) {
+  const isDocAdmin = adminCode.toUpperCase() === "КИРИЛЛ-АДМИН";
   const [sources, setSources] = useState<Source[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(false);
   const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);
@@ -281,14 +282,16 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
           <div className="admin-card-actions">
             {!bulkSelectMode ? (
               <>
-                {sources.length > 0 && (
+                {isDocAdmin && sources.length > 0 && (
                   <button className="admin-btn-secondary" onClick={() => setBulkSelectMode(true)}>
                     <span className="material-symbols-outlined">checklist</span>Выбрать
                   </button>
                 )}
-                <button className="admin-btn-primary" onClick={() => setShowUpload(true)}>
-                  <span className="material-symbols-outlined">add</span>Загрузить документ
-                </button>
+                {isDocAdmin && (
+                  <button className="admin-btn-primary" onClick={() => setShowUpload(true)}>
+                    <span className="material-symbols-outlined">add</span>Загрузить документ
+                  </button>
+                )}
               </>
             ) : (
               <>
@@ -451,7 +454,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
                     <a href={`/api/sources/download?id=${doc.id}&action=download&token=${encodeURIComponent(adminCode)}`} className="admin-doc-action-btn" title="Скачать" onClick={(e) => e.stopPropagation()}>
                       <span className="material-symbols-outlined">download</span>
                     </a>
-                    <div style={{ position: "relative" }}>
+                    {isDocAdmin && <div style={{ position: "relative" }}>
                       <button className="admin-doc-action-btn" onClick={(e) => { e.stopPropagation(); setOpenMenuId(isMenuOpen ? null : doc.id); }} title="Действия">
                         <span className="material-symbols-outlined">more_vert</span>
                       </button>
@@ -492,7 +495,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
                           </button>
                         </div>
                       )}
-                    </div>
+                    </div>}
                   </div>
                 </div>
                 {expandedSourceId === doc.id && (
