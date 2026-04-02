@@ -143,6 +143,8 @@ export default function Chat() {
   const [viewingSource, setViewingSource] = useState<Source | null>(null);
   const [chatFiles, setChatFiles] = useState<ChatFile[]>([]);
   const [chatPhotos, setChatPhotos] = useState<ChatPhoto[]>([]);
+  // Phase 2: Session documents — keep uploaded document content across messages in the same conversation
+  const sessionDocsRef = useRef<Array<{ filename: string; markdown: string }>>([]);
   const [selectedSourceIds, setSelectedSourceIds] = useState<Set<number>>(new Set());
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
@@ -358,6 +360,8 @@ export default function Chat() {
       setActiveConvId(convId);
       convIdRef.current = convId;
       setRightOpen(false);
+      // Phase 2: Clear session documents when switching conversations
+      sessionDocsRef.current = [];
     },
     []
   );
@@ -656,6 +660,12 @@ export default function Chat() {
       ];
       const messageText = text || (attachmentNames.length > 0 ? `Проверь ${attachmentNames.length === 1 ? "документ" : "документы"}: ${attachmentNames.join(", ")}` : "");
 
+      // Phase 2: Save newly attached documents to session for future messages
+      if (attachedDocuments.length > 0) {
+        // Replace session docs (don't accumulate infinitely; keep latest upload set)
+        sessionDocsRef.current = attachedDocuments.map((d) => ({ filename: d.filename, markdown: d.markdown }));
+      }
+
       // Clear files, photos and input immediately
       setChatFiles([]);
       // Revoke photo preview URLs before clearing
@@ -695,6 +705,8 @@ export default function Chat() {
               messages: [{ role: "user", content: messageText }],
               conversationId: newId,
               ...(attachedDocuments.length > 0 && { attachedDocuments }),
+              // Phase 2: Send session docs for follow-up context (only if no new attachments)
+              ...(attachedDocuments.length === 0 && sessionDocsRef.current.length > 0 && { sessionDocuments: sessionDocsRef.current }),
             }),
             signal: controller.signal,
           });
@@ -795,6 +807,8 @@ export default function Chat() {
             })),
             conversationId: convIdRef.current,
             ...(attachedDocuments.length > 0 && { attachedDocuments }),
+            // Phase 2: Send session docs for follow-up context (only if no new attachments)
+            ...(attachedDocuments.length === 0 && sessionDocsRef.current.length > 0 && { sessionDocuments: sessionDocsRef.current }),
           }),
           signal: controller.signal,
         });
@@ -995,6 +1009,7 @@ export default function Chat() {
                 setChatKey(`new-${Date.now()}`);
                 setMessages([]);
                 setHasSummary(false);
+                sessionDocsRef.current = [];
               }}
               title="На главную"
             >
@@ -1565,6 +1580,7 @@ export default function Chat() {
                       setChatKey(`new-${Date.now()}`);
                       setMessages([]);
                       setHasSummary(false);
+                      sessionDocsRef.current = [];
                     }}
                     title="Новый диалог"
                     style={{ fontSize: 16, color: "var(--text-secondary)", lineHeight: 1 }}

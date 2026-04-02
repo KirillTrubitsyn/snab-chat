@@ -15,6 +15,7 @@ import { extractSearchHints, detectSectionReference, detectDocumentReference } f
 import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgenticResults } from "@/app/lib/agentic-rag";
 import { expandByRelationships } from "@/app/lib/relationships";
 import { generateRegistryPromptBlock, findEntity } from "@/app/lib/sgk-registry";
+import { classifyDocumentIntent, getDocumentIntentPrompt } from "@/app/lib/document-intent";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -30,7 +31,12 @@ export async function POST(req: NextRequest) {
     return unauthorizedResponse();
   }
 
-  const { messages, conversationId, attachedDocuments } = await req.json();
+  const body = await req.json();
+  const { messages, conversationId } = body;
+  const sessionDocuments: Array<{ filename: string; markdown: string }> | undefined = body.sessionDocuments;
+
+  // Mutable array: current attachments + possibly merged session docs
+  const allAttachedDocuments: Array<{ filename: string; markdown: string }> = Array.isArray(body.attachedDocuments) ? [...body.attachedDocuments] : [];
 
   if (conversationId && !isAdminCode(invite.code)) {
     const supabase = createServiceClient();
@@ -46,14 +52,34 @@ export async function POST(req: NextRequest) {
   }
 
   const userMessage = messages[messages.length - 1];
-  const hasAttachments = Array.isArray(attachedDocuments) && attachedDocuments.length > 0;
+  const hasNewAttachments = allAttachedDocuments.length > 0;
 
+  // ── Phase 2: Merge session documents (from prior turns) with current attachments ──
+  const hasSessionDocs = Array.isArray(sessionDocuments) && sessionDocuments.length > 0;
+  if (hasSessionDocs && !hasNewAttachments) {
+    // User is asking a follow-up about previously uploaded documents
+    allAttachedDocuments.push(...sessionDocuments);
+    console.log(`[chat] Phase 2: Merged ${sessionDocuments.length} session document(s) for follow-up context`);
+  }
+  const effectiveHasAttachments = allAttachedDocuments.length > 0;
+
+  // ── Classify document intent (Phase 1) ──
+  const docIntent = classifyDocumentIntent(userMessage.content, effectiveHasAttachments);
+  if (effectiveHasAttachments) {
+    console.log(`[chat] Document intent: ${docIntent.intent} (confidence=${docIntent.confidence.toFixed(2)})`);
+  }
+
+  // ── Enrich search query with document content (Phase 3: always enrich when attachments present) ──
   let searchQuery = userMessage.content;
-  if (hasAttachments && searchQuery.length < 60) {
-    const docPreview = attachedDocuments
-      .map((d: { filename: string; markdown: string }) => d.markdown.slice(0, 300))
+  if (effectiveHasAttachments) {
+    const docPreview = allAttachedDocuments
+      .map((d: { filename: string; markdown: string }) => d.markdown.slice(0, 500))
       .join(" ");
-    searchQuery = `${searchQuery} ${docPreview}`.slice(0, 1000);
+    // Use filenames + first 500 chars of each doc for KB search
+    const filenameHints = allAttachedDocuments
+      .map((d: { filename: string; markdown: string }) => d.filename.replace(/\.[^.]+$/, ""))
+      .join(" ");
+    searchQuery = `${searchQuery} ${filenameHints} ${docPreview}`.slice(0, 1500);
   }
 
   let searchHints = extractSearchHints(userMessage.content);
@@ -597,15 +623,20 @@ ${userMessage.content}
         .join("\n")}\n</documents>`
     : "";
 
-  // Uploaded documents context (unchanged)
+  // ── Phase 5: Uploaded documents context with truncation tracking ──
   let uploadedDocsContext = "";
-  if (hasAttachments) {
-    const docs = attachedDocuments.map(
+  const truncatedDocs: string[] = [];
+  if (effectiveHasAttachments) {
+    const docs = allAttachedDocuments.map(
       (d: { filename: string; markdown: string }, i: number) => {
-        const content = d.markdown.length > MAX_UPLOADED_DOC_CHARS
-          ? d.markdown.slice(0, MAX_UPLOADED_DOC_CHARS) + "\n\n[... документ обрезан ...]"
+        const wasTruncated = d.markdown.length > MAX_UPLOADED_DOC_CHARS;
+        if (wasTruncated) {
+          truncatedDocs.push(d.filename);
+        }
+        const content = wasTruncated
+          ? d.markdown.slice(0, MAX_UPLOADED_DOC_CHARS) + `\n\n[... документ обрезан: показано ${MAX_UPLOADED_DOC_CHARS} из ${d.markdown.length} символов. Для работы с оставшейся частью попросите пользователя уточнить конкретный раздел ...]`
           : d.markdown;
-        return `<uploaded_document id="${i + 1}" filename="${d.filename}">\n${content}\n</uploaded_document>`;
+        return `<uploaded_document id="${i + 1}" filename="${d.filename}" total_chars="${d.markdown.length}" truncated="${wasTruncated}">\n${content}\n</uploaded_document>`;
       }
     );
     uploadedDocsContext = `<uploaded_documents>\n${docs.join("\n")}\n</uploaded_documents>`;
@@ -633,30 +664,16 @@ ${userMessage.content}
     ? `\n\n🏢 ОПРЕДЕЛЕНА ОРГАНИЗАЦИЯ: ${detectedEntity.name} — режим: ${detectedEntity.regime === "223-fz" ? "ПО 223-ФЗ" : "ВНЕ 223-ФЗ"}${detectedEntity.parentEntity ? ` (${detectedEntity.type} ${detectedEntity.parentEntity})` : ""}${detectedEntity.thresholdKRub ? `, порог закупки: ${detectedEntity.thresholdKRub} тыс. руб. без НДС` : ""}. Отвечай ТОЛЬКО по документам этого режима.`
     : "";
 
-  const uploadedDocsInstructions = hasAttachments
-    ? `
+  // ── Phase 1: Adaptive system prompt based on document intent ──
+  let uploadedDocsInstructions = "";
+  if (effectiveHasAttachments) {
+    uploadedDocsInstructions = getDocumentIntentPrompt(docIntent.intent, allAttachedDocuments.length);
 
-РЕЖИМ ПРОВЕРКИ ДОКУМЕНТОВ:
-Пользователь загрузил ${attachedDocuments.length} документ(ов) для проверки. Эти документы находятся в секции <uploaded_documents>.
-Регламенты, стандарты и нормативные документы из базы знаний находятся в секции <documents>.
-
-ТВОЯ ЗАДАЧА:
-1. Тщательно проанализировать загруженные документы (<uploaded_documents>)
-2. Сравнить их содержание с регламентами и стандартами из базы знаний (<documents>)
-3. Выявить:
-   - Соответствия и несоответствия требованиям регламентов
-   - Отсутствующие обязательные пункты или разделы
-   - Нарушения процедур, сроков, форматов
-   - Возможные противоречия с законодательством (если применимо)
-4. Ссылайся на конкретные пункты/разделы как загруженного документа, так и регламентов из базы знаний
-5. Если в базе знаний не найдено подходящих регламентов — сообщи об этом явно
-6. Структурируй ответ: сначала общая оценка, затем детальный анализ по пунктам
-
-ФОРМАТ ОТВЕТА ПРИ ПРОВЕРКЕ:
-- Начни с краткого резюме (соответствует / частично соответствует / не соответствует)
-- Используй разделы: "Соответствия", "Несоответствия", "Рекомендации"
-- Приводи дословные цитаты из обоих источников для обоснования`
-    : "";
+    // Phase 5: Add truncation warning to prompt
+    if (truncatedDocs.length > 0) {
+      uploadedDocsInstructions += `\n\nВНИМАНИЕ: Следующие документы были обрезаны из-за большого размера: ${truncatedDocs.join(", ")}. Ты работаешь только с первыми ${MAX_UPLOADED_DOC_CHARS} символами каждого документа. Если пользователь спрашивает о содержимом, которого нет в видимой части, сообщи ему, что документ слишком большой и предложи уточнить конкретный раздел или диапазон страниц.`;
+    }
+  }
 
   // ── NEW: Screenshot instructions for the model ──
   const screenshotInstructions = totalImagesIncluded > 0
@@ -669,16 +686,23 @@ ${userMessage.content}
 - Не описывай скриншоты, если они не относятся к вопросу пользователя`
     : "";
 
+  // ── Phase 1 + Phase 4: Adjust core rules based on document intent ──
+  const isCreativeDocMode = effectiveHasAttachments && (docIntent.intent === "improve" || docIntent.intent === "write");
+
   const systemPrompt = `Ты СнабЧат — ИИ-ассистент Дирекции по закупкам. Ты помогаешь сотрудникам с вопросами о закупках, снабжении, договорах, нормативных документах и внутренних процедурах.
 
 КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА (ОБЯЗАТЕЛЬНЫ К ИСПОЛНЕНИЮ):
-1. Ты ДОЛЖЕН отвечать ИСКЛЮЧИТЕЛЬНО на основе предоставленных ниже документов (<documents>). Это твой ЕДИНСТВЕННЫЙ источник информации.
+${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФОРМАЦИЕЙ (суммы, сроки, нормы, процедуры) — используй ТОЛЬКО данные из <documents> и <uploaded_documents>.
+2. При улучшении текста, стилистике, структуре и составлении документов — ты МОЖЕШЬ использовать свои знания русского языка, делового стиля и юридической техники.
+3. Чётко разделяй: что взято из базы знаний (цитируй), а что является твоей рекомендацией по стилю/структуре (обозначай как рекомендацию).
+4. При цитировании — приводи ДОСЛОВНЫЕ цитаты из документов.
+5. НЕ вставляй ссылки на источники вида [doc:N] в текст ответа. Источники отображаются отдельно в интерфейсе.` : `1. Ты ДОЛЖЕН отвечать ИСКЛЮЧИТЕЛЬНО на основе предоставленных ниже документов (<documents>). Это твой ЕДИНСТВЕННЫЙ источник информации.
 2. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать свои общие знания, обучающие данные или делать предположения для дополнения ответа. Даже если ты "знаешь" что-то по теме — НЕ используй это.
 3. Если информации в документах НЕДОСТАТОЧНО — прямо укажи это. НЕ пытайся заполнить пробелы.
 4. Если вопрос частично покрыт документами — ответь только на покрытую часть и явно укажи, что остальное в документах отсутствует.
 5. При цитировании — приводи ДОСЛОВНЫЕ цитаты из документов.
 6. Перед каждым утверждением мысленно проверь: есть ли для него ПРЯМОЕ подтверждение в <documents>? Если нет — НЕ включай его в ответ.
-7. НЕ вставляй ссылки на источники вида [doc:N] в текст ответа. Источники отображаются отдельно в интерфейсе.
+7. НЕ вставляй ссылки на источники вида [doc:N] в текст ответа. Источники отображаются отдельно в интерфейсе.`}
 
 УТОЧНЯЮЩИЕ ВОПРОСЫ:
 Если запрос пользователя слишком общий, неоднозначный или может относиться к нескольким темам — ЗАДАЙ уточняющий вопрос, прежде чем давать ответ. Примеры ситуаций:
