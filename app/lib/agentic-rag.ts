@@ -68,12 +68,14 @@ const toolDeclarations: FunctionDeclaration[] = [
     description:
       "Получить содержимое конкретного документа по названию. " +
       "Используй когда пользователь упоминает конкретный документ ('Положение о закупках', 'Стандарт СГК') " +
-      "или когда нужно загрузить весь документ, а не отдельные фрагменты.",
+      "или когда нужно загрузить весь документ, а не отдельные фрагменты. " +
+      "ВАЖНО: document_type_hint сужает поиск до конкретного типа документа (например 'критерии' для критериев выбора способа закупки, 'стандарт' для стандарта закупок).",
     parameters: {
       type: Type.OBJECT,
       properties: {
         filename_hints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Части названия файла для поиска, например ['положение', 'закупк'] или ['стандарт', 'СГК']" },
         query: { type: Type.STRING, description: "Запрос для ранжирования чанков внутри документа" },
+        document_type_hint: { type: Type.STRING, description: "Тип документа для сужения поиска: 'критерии', 'стандарт', 'положен', 'инструкци', 'методик', 'регламент', 'перечень_единственных', 'матрица_полномочий' и т.д." },
       },
       required: ["filename_hints"],
     },
@@ -146,7 +148,8 @@ async function executeTool(
     case "lookup_document": {
       const filenameHints = args.filename_hints as string[];
       const query = (args.query as string) ?? undefined;
-      const ref: DocumentReference = { filenameHints };
+      const documentTypeHint = (args.document_type_hint as string) ?? undefined;
+      const ref: DocumentReference = { filenameHints, documentTypeHint };
       const results = await fetchChunksByDocument(ref, 8, query);
 
       let added = 0;

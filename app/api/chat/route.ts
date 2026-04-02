@@ -111,6 +111,38 @@ export async function POST(req: NextRequest) {
 
     const agenticCtx = createAgenticContext();
 
+    // ── Pre-seed: fetch targeted documents for ALL detected entities ──
+    // This guarantees coverage regardless of what the LLM agent decides to search.
+    // Without this, the agent often finds documents for only one organization in comparative queries.
+    let preSeededEntities: string[] = [];
+    if (docRef && docRef.filenameHints.length > 0) {
+      console.log(`[chat] Pre-seeding agentic context: hints=${docRef.filenameHints.join(",")} docType=${docRef.documentTypeHint ?? "none"}`);
+      try {
+        const maxChunks = docRef.filenameHints.length > 2 ? 15 : 8;
+        const preResults = await fetchChunksByDocument(docRef, maxChunks, userMessage.content);
+        let preAdded = 0;
+        for (const r of preResults) {
+          if (!agenticCtx.chunks.has(r.id)) {
+            // Boost pre-seeded results so they survive reranking
+            agenticCtx.chunks.set(r.id, { ...r, similarity: Math.max(r.similarity, 0.92) });
+            preAdded++;
+          }
+        }
+        preSeededEntities = docRef.filenameHints;
+        console.log(`[chat] Pre-seeded ${preAdded} chunks from targeted document lookup (${[...new Set(preResults.map(r => r.source_filename))].join(", ")})`);
+      } catch (preError) {
+        console.error("[chat] Pre-seed failed (non-fatal):", preError);
+      }
+    }
+
+    // Build entity-aware prompt section for comparative queries
+    const entityBlock = preSeededEntities.length > 1
+      ? `\nОБНАРУЖЕННЫЕ ОРГАНИЗАЦИИ В ЗАПРОСЕ: ${preSeededEntities.join(", ")}
+ВАЖНО: Вопрос пользователя касается НЕСКОЛЬКИХ организаций. Ты ОБЯЗАН найти документы по КАЖДОЙ из них отдельно.
+Для каждой организации вызови lookup_document или search_knowledge_base с названием этой организации.
+НЕ делай выводов об одной организации на основе документов другой. Если документ по организации не найден — скажи об этом.\n`
+      : "";
+
     const agenticPrompt = `Ты — поисковый агент базы знаний Дирекции по закупкам СГК.
 Твоя задача — найти ВСЕ документы, необходимые для полного ответа на вопрос пользователя.
 
@@ -118,11 +150,12 @@ export async function POST(req: NextRequest) {
 1. Проанализируй вопрос и определи, какие документы нужны
 2. Вызывай инструменты поиска столько раз, сколько нужно для полного покрытия
 3. Если вопрос касается ОБОИХ режимов (223-ФЗ и вне 223-ФЗ) — обязательно ищи по каждому отдельно
-4. Если результатов мало — переформулируй запрос и попробуй снова
-5. Если упоминается конкретный пункт/раздел — используй lookup_section
-6. Если упоминается конкретный документ — используй lookup_document
-7. Когда собрал достаточно информации — просто ответь "Поиск завершён"
-
+4. Если вопрос касается НЕСКОЛЬКИХ организаций — обязательно ищи документы ПО КАЖДОЙ организации отдельно
+5. Если результатов мало — переформулируй запрос и попробуй снова
+6. Если упоминается конкретный пункт/раздел — используй lookup_section
+7. Если упоминается конкретный документ — используй lookup_document с параметром document_type_hint для точного поиска
+8. Когда собрал достаточно информации — просто ответь "Поиск завершён"
+${entityBlock}
 ВОПРОС ПОЛЬЗОВАТЕЛЯ:
 ${userMessage.content}
 
