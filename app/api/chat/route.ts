@@ -170,7 +170,7 @@ ${userMessage.content}
 
       console.log(`[chat] Agentic search complete: ${agenticCtx.searchCount} searches, ${agenticCtx.chunks.size} chunks collected`);
 
-      const filtered = await finalizeAgenticResults(agenticCtx, userMessage.content);
+      const filtered = await finalizeAgenticResults(agenticCtx, userMessage.content, preSeededEntities.length >= 2 ? preSeededEntities : undefined);
       relevantChunks = filtered.results;
       lowConfidence = filtered.lowConfidence;
     } catch (agenticError) {
