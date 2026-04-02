@@ -107,6 +107,8 @@ RULES:
 - Do NOT confuse professional/work queries with personal topics
 - Questions about the system itself (what documents are loaded, capabilities) → procurement
 - Requests to prepare/draft/compose any document → procurement
+- NEVER classify business terms like "затраты" (expenses), "расходы" (costs), "сводка" (summary), "калькуляция" (calculation), "расценки" (rates) as food_cooking — these are procurement/financial terms, NOT cooking
+- Queries about "работы" (works) and "услуги" (services) with cost/expense context → ALWAYS procurement
 
 You MUST respond with EXACTLY ONE word from the list above. Nothing else. No explanations.`;
 
@@ -152,7 +154,10 @@ function keywordClassify(text: string): OffTopicCategory {
     /(?<![а-яёА-ЯЁ])кс-2(?![а-яёА-ЯЁ])/i, /(?<![а-яёА-ЯЁ])кс-3(?![а-яёА-ЯЁ])/i,
     /дефектн.*ведомост/i, /дефектн.*акт/i, /сметн/i,
     /объём.*работ/i, /объем.*работ/i, /перечень.*работ/i, /перечень.*услуг/i,
-    /стоимост.*работ/i, /стоимост.*услуг/i,
+    /стоимост.*работ/i, /стоимост.*услуг/i, /стоимост.*ремонт/i,
+    /расход.*работ/i, /расход.*подряд/i, /расход.*услуг/i, /расход.*ремонт/i,
+    /подрядн/i, /сводн.*таблиц/i, /сводн.*затрат/i, /сводн.*расход/i,
+    /ремонтн.*работ/i, /работ.*ремонт/i, /стоят.*работ/i,
     /(?<![а-яёА-ЯЁ])гпд(?![а-яёА-ЯЁ])/i, /гражданско.*правов/i,
     /реестр/i, /справк/i, /выписк/i, /протокол/i, /заключен/i,
     /отчёт/i, /отчет/i, /служебн.*записк/i, /пояснительн.*записк/i,
