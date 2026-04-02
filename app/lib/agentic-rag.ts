@@ -270,10 +270,15 @@ export function isComplexQuery(
 /**
  * After the agentic loop finishes, finalize the accumulated chunks:
  * rerank and filter for relevance.
+ *
+ * When entityHints are provided (multi-entity comparative queries),
+ * ensures balanced representation: each entity gets a minimum share
+ * of the final chunk budget, preventing one entity from dominating.
  */
 export async function finalizeAgenticResults(
   ctx: AgenticContext,
-  query: string
+  query: string,
+  entityHints?: string[]
 ): Promise<{ results: SearchResult[]; lowConfidence: boolean }> {
   const allChunks = Array.from(ctx.chunks.values());
 
@@ -282,5 +287,72 @@ export async function finalizeAgenticResults(
   }
 
   const reranked = await llmRerank(query, allChunks);
+
+  // ── Entity-balanced selection for multi-entity queries ──
+  // Without balancing, one entity can dominate the top-N results,
+  // leaving the other entity with zero or minimal representation.
+  if (entityHints && entityHints.length >= 2) {
+    const MAX_BALANCED = 12;
+    const minPerEntity = Math.max(2, Math.floor(MAX_BALANCED / entityHints.length));
+    const sorted = [...reranked].sort((a, b) => b.similarity - a.similarity);
+
+    // Classify each chunk by entity (based on source_filename)
+    const entityChunks = new Map<string, SearchResult[]>();
+    const unclassified: SearchResult[] = [];
+
+    for (const chunk of sorted) {
+      const fname = (chunk.source_filename ?? "").toLowerCase();
+      let matched = false;
+      for (const hint of entityHints) {
+        if (fname.includes(hint.toLowerCase())) {
+          if (!entityChunks.has(hint)) entityChunks.set(hint, []);
+          entityChunks.get(hint)!.push(chunk);
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) unclassified.push(chunk);
+    }
+
+    // Build balanced result: guaranteed minimum per entity, then fill with best remaining
+    const selectedIds = new Set<string>();
+    const balanced: SearchResult[] = [];
+
+    // Phase 1: guarantee minimum per entity
+    for (const hint of entityHints) {
+      const chunks = entityChunks.get(hint) ?? [];
+      let added = 0;
+      for (const c of chunks) {
+        if (added >= minPerEntity) break;
+        if (!selectedIds.has(c.id)) {
+          balanced.push(c);
+          selectedIds.add(c.id);
+          added++;
+        }
+      }
+    }
+
+    // Phase 2: fill remaining budget with highest-scoring unselected chunks
+    const remaining = sorted.filter((c) => !selectedIds.has(c.id));
+    for (const c of remaining) {
+      if (balanced.length >= MAX_BALANCED) break;
+      balanced.push(c);
+    }
+
+    // Re-sort by similarity for consistent ordering
+    balanced.sort((a, b) => b.similarity - a.similarity);
+
+    console.log(`[agentic] Entity-balanced: ${entityHints.map(h => {
+      const count = balanced.filter(c => (c.source_filename ?? "").toLowerCase().includes(h.toLowerCase())).length;
+      return `${h}=${count}`;
+    }).join(", ")}, unclassified=${balanced.filter(c => {
+      const fname = (c.source_filename ?? "").toLowerCase();
+      return !entityHints.some(h => fname.includes(h.toLowerCase()));
+    }).length}, total=${balanced.length}`);
+
+    const lowConfidence = balanced.length === 0 || balanced[0].similarity < 0.35;
+    return { results: balanced, lowConfidence };
+  }
+
   return filterByRelevance(reranked);
 }
