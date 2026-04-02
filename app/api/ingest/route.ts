@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { chunkMarkdown } from "@/app/lib/chunking";
 import { embedDocuments } from "@/app/lib/embeddings";
-import { requireAdmin } from "@/app/lib/auth";
+import { requireDocumentAdmin } from "@/app/lib/auth";
 import { logError } from "@/app/lib/error-logger";
 import { parseToMarkdown } from "@/app/lib/parser";
 import type { ExtractedImage } from "@/app/lib/parser";
@@ -13,7 +13,7 @@ let bucketReady = false;
 let imageBucketReady = false;
 
 export async function POST(req: NextRequest) {
-  const adminCheck = requireAdmin(req);
+  const adminCheck = requireDocumentAdmin(req);
   if (adminCheck instanceof NextResponse) return adminCheck;
 
   try {

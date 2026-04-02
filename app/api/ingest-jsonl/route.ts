@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { embedTexts } from "@/app/lib/embeddings";
-import { requireAdmin } from "@/app/lib/auth";
+import { requireDocumentAdmin } from "@/app/lib/auth";
 import { logError } from "@/app/lib/error-logger";
 
 /**
@@ -88,7 +88,7 @@ function generateParentGroupKey(stmt: JsonlStatement): string {
 }
 
 export async function POST(req: NextRequest) {
-  const adminCheck = requireAdmin(req);
+  const adminCheck = requireDocumentAdmin(req);
   if (adminCheck instanceof NextResponse) return adminCheck;
 
   try {
@@ -199,7 +199,7 @@ export async function POST(req: NextRequest) {
  * DELETE /api/ingest-jsonl — удаляет все денормализованные данные.
  */
 export async function DELETE(req: NextRequest) {
-  const adminCheck = requireAdmin(req);
+  const adminCheck = requireDocumentAdmin(req);
   if (adminCheck instanceof NextResponse) return adminCheck;
 
   const supabase = createServiceClient();
