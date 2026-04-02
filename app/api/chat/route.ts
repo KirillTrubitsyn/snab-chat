@@ -55,9 +55,9 @@ export async function POST(req: NextRequest) {
     searchQuery = `${searchQuery} ${docPreview}`.slice(0, 1000);
   }
 
-  const searchHints = extractSearchHints(userMessage.content);
+  let searchHints = extractSearchHints(userMessage.content);
   const sectionRef = detectSectionReference(userMessage.content);
-  const docRef = detectDocumentReference(userMessage.content);
+  let docRef = detectDocumentReference(userMessage.content);
 
   // Phase 1: Run intent classification + non-search tasks in parallel
   const [, contextResult, intentResult, offTopicResult] = await Promise.all([
@@ -99,6 +99,56 @@ export async function POST(req: NextRequest) {
 
   const contextMessages: { role: string; content: string }[] =
     contextResult?.messages ?? [];
+
+  // ── Follow-up query enrichment ──
+  // Short follow-up messages ("а при закупке у ЕИ на ту же сумму") lack entity context
+  // from prior turns. Extract key entities from recent conversation history and append
+  // them to searchQuery so RAG finds the right documents.
+  if (contextMessages.length > 0 && searchQuery.length < 100) {
+    const currentDocRef = detectDocumentReference(searchQuery);
+    const hasEntities = currentDocRef && currentDocRef.filenameHints.length > 0;
+
+    if (!hasEntities) {
+      // Look at last 3 user messages for entity references
+      const recentUserMsgs = contextMessages
+        .filter((m) => m.role === "user" && m.content !== userMessage.content)
+        .slice(-3);
+
+      const contextEntities = new Set<string>();
+      for (const m of recentUserMsgs) {
+        const ref = detectDocumentReference(m.content);
+        if (ref) {
+          for (const hint of ref.filenameHints) {
+            contextEntities.add(hint);
+          }
+        }
+      }
+
+      // Also check recent assistant messages for entity names
+      // (the assistant may have identified the entity even if user was implicit)
+      const recentAssistantMsgs = contextMessages
+        .filter((m) => m.role === "assistant")
+        .slice(-2);
+      for (const m of recentAssistantMsgs) {
+        const ref = detectDocumentReference(m.content.slice(0, 500));
+        if (ref) {
+          for (const hint of ref.filenameHints) {
+            contextEntities.add(hint);
+          }
+        }
+      }
+
+      if (contextEntities.size > 0) {
+        const entitySuffix = Array.from(contextEntities).join(" ");
+        searchQuery = `${searchQuery} ${entitySuffix}`.slice(0, 1000);
+        console.log(`[chat] Follow-up enrichment: added entities [${entitySuffix}] → searchQuery="${searchQuery.slice(0, 120)}"`);
+
+        // Recompute search hints and doc reference with enriched query
+        searchHints = extractSearchHints(searchQuery);
+        docRef = detectDocumentReference(searchQuery);
+      }
+    }
+  }
 
   // ── Determine retrieval strategy: agentic (complex) vs deterministic (simple) ──
   const useAgenticRag = isComplexQuery(userMessage.content, intentResult);
