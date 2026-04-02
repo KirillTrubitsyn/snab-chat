@@ -484,6 +484,14 @@ export default function Chat() {
         );
       }
     } catch {
+      // If a legacy .doc file failed to parse, show resave modal
+      const ext = file.name.split(".").pop()?.toLowerCase() || "";
+      if (ext === "doc") {
+        setChatFiles((prev) => prev.filter((f) => f.id !== fileId));
+        setDocFormatFileName(file.name);
+        setShowDocFormatModal(true);
+        return;
+      }
       if (isPhoto) {
         setChatPhotos((prev) =>
           prev.map((p) => (p.id === fileId ? { ...p, parsing: false, error: "Ошибка распознавания" } : p))
@@ -529,12 +537,6 @@ export default function Chat() {
           continue;
         }
 
-        // Legacy .doc format — show modal with resave instruction
-        if (ext === "doc") {
-          setDocFormatFileName(file.name);
-          setShowDocFormatModal(true);
-          continue;
-        }
         if (chatFiles.length >= MAX_CHAT_FILES) {
           alert(`Максимум ${MAX_CHAT_FILES} файлов`);
           break;

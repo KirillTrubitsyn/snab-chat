@@ -134,24 +134,12 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
   const handleFilesSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const fileArray = Array.from(files);
-
-    // Check for legacy .doc files
-    const docFile = fileArray.find((f) => f.name.toLowerCase().endsWith(".doc") && !f.name.toLowerCase().endsWith(".docx"));
-    if (docFile) {
-      setDocFormatFileName(docFile.name);
-      setShowDocFormatModal(true);
-      // Filter out .doc files, continue with the rest
-      const filtered = fileArray.filter((f) => !(f.name.toLowerCase().endsWith(".doc") && !f.name.toLowerCase().endsWith(".docx")));
-      if (filtered.length === 0) return;
-    }
-
-    const safeFiles = fileArray.filter((f) => !(f.name.toLowerCase().endsWith(".doc") && !f.name.toLowerCase().endsWith(".docx")));
-    if (safeFiles.length === 0) return;
-    setUploadFiles(safeFiles);
+    setUploadFiles(fileArray);
     setUploadStage("parsing");
     setParsedFiles([]);
     const parsed: ParsedFile[] = [];
-    for (const file of safeFiles) {
+    const failedDocFiles: string[] = [];
+    for (const file of fileArray) {
       try {
         const formData = new FormData();
 
@@ -175,8 +163,22 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
           headers: { "x-admin-code": encodeURIComponent(adminCode) },
           body: formData,
         });
-        if (res.ok) parsed.push(await res.json());
-      } catch { /* ignore */ }
+        if (res.ok) {
+          parsed.push(await res.json());
+        } else {
+          // If legacy .doc failed, track it
+          const ext = file.name.split(".").pop()?.toLowerCase() || "";
+          if (ext === "doc") failedDocFiles.push(file.name);
+        }
+      } catch {
+        const ext = file.name.split(".").pop()?.toLowerCase() || "";
+        if (ext === "doc") failedDocFiles.push(file.name);
+      }
+    }
+    // Show modal for failed .doc files
+    if (failedDocFiles.length > 0) {
+      setDocFormatFileName(failedDocFiles.join(", "));
+      setShowDocFormatModal(true);
     }
     setParsedFiles(parsed);
     setParsedFileCategories(parsed.map((pf) => detectCategory(pf.tags, pf.filename)));
