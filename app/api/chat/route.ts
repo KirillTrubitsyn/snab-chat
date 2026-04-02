@@ -14,6 +14,7 @@ import { logError } from "@/app/lib/error-logger";
 import { extractSearchHints, detectSectionReference, detectDocumentReference } from "@/app/lib/query-analyzer";
 import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgenticResults } from "@/app/lib/agentic-rag";
 import { expandByRelationships } from "@/app/lib/relationships";
+import { generateRegistryPromptBlock, findEntity } from "@/app/lib/sgk-registry";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -626,6 +627,12 @@ ${userMessage.content}
         ? `\n\nПРИМЕЧАНИЕ: Среди найденных документов есть только материалы вне 223-ФЗ. Если вопрос может относиться к обоим режимам, укажи, что информация по 223-ФЗ в текущих документах не найдена.`
         : "";
 
+  // Auto-detect entity regime from the query using hardcoded registry
+  const detectedEntity = findEntity(userMessage.content);
+  const entityRegimeHint = detectedEntity
+    ? `\n\n🏢 ОПРЕДЕЛЕНА ОРГАНИЗАЦИЯ: ${detectedEntity.name} — режим: ${detectedEntity.regime === "223-fz" ? "ПО 223-ФЗ" : "ВНЕ 223-ФЗ"}${detectedEntity.parentEntity ? ` (${detectedEntity.type} ${detectedEntity.parentEntity})` : ""}${detectedEntity.thresholdKRub ? `, порог закупки: ${detectedEntity.thresholdKRub} тыс. руб. без НДС` : ""}. Отвечай ТОЛЬКО по документам этого режима.`
+    : "";
+
   const uploadedDocsInstructions = hasAttachments
     ? `
 
@@ -748,7 +755,7 @@ ${userMessage.content}
 
 ПРИМЕР ОТКАЗА (когда информации нет):
 Вопрос: Какова средняя зарплата в отделе закупок?
-Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}
+Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${entityRegimeHint}
 ${intentResult.intent === "spu_search" ? `
 === РЕЕСТР СПУ (Список Потенциальных Участников) ===
 
@@ -792,6 +799,8 @@ ${intentResult.intent === "spu_search" ? `
 
 ВАЖНО: Контактные данные (телефон, email) выводи только по прямому запросу пользователя. В обычном списке достаточно наименования, ИНН и статуса.
 ` : ""}
+${generateRegistryPromptBlock()}
+
 === РАЗГРАНИЧЕНИЕ 223-ФЗ / НЕ 223-ФЗ ===
 
 В базе знаний есть документы двух режимов закупок:
@@ -805,7 +814,7 @@ ${intentResult.intent === "spu_search" ? `
 - Не путай: «Положение о закупках» ≠ «Стандарт закупок». Положения — по 223-ФЗ, Стандарт ООО СГК — вне.
 
 КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА РАЗГРАНИЧЕНИЯ:
-1. Если пользователь указывает конкретный объект или юрлицо — определи режим закупки по листу «структура СГК» из файла реестра СПУ и отвечай ТОЛЬКО по этому режиму.
+1. Если пользователь указывает конкретный объект или юрлицо — СНАЧАЛА определи режим закупки по РЕЕСТРУ ОРГАНИЗАЦИЙ ГРУППЫ СГК (выше), и отвечай ТОЛЬКО по этому режиму. НЕ делай предположений о режиме; если организации нет в реестре — скажи, что не можешь определить режим.
 2. Если пользователь НЕ указывает конкретный объект и из вопроса НЕ ясно, о каком режиме идёт речь — ты ОБЯЗАН ответить ПО ОБОИМ РЕЖИМАМ. Структурируй ответ двумя блоками:
 
 ## По 223-ФЗ
