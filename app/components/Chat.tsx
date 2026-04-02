@@ -460,7 +460,7 @@ export default function Chat() {
   const MAX_CHAT_FILES = 5;
   const MAX_CHAT_PHOTOS = 10;
   const MAX_CHAT_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
-  const ACCEPTED_CHAT_TYPES = ".pdf,.docx,.xlsx,.xls,.jpg,.jpeg,.png,.gif,.bmp,.webp";
+  const ACCEPTED_CHAT_TYPES = ".pdf,.doc,.docx,.xlsx,.xls,.jpg,.jpeg,.png,.gif,.bmp,.webp";
   const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "bmp", "webp"];
 
   const parseFileViaApi = useCallback(async (file: File, fileId: string, isPhoto: boolean) => {
