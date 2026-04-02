@@ -520,8 +520,8 @@ export default function Chat() {
         }
 
         // Documents
-        if (!["pdf", "docx", "xlsx", "xls"].includes(ext)) {
-          alert(`Формат .${ext} не поддерживается. Допустимые: PDF, DOCX, XLSX, изображения`);
+        if (!["pdf", "doc", "docx", "xlsx", "xls", "pptx"].includes(ext)) {
+          alert(`Формат .${ext} не поддерживается. Допустимые: PDF, DOC, DOCX, XLSX, PPTX, изображения`);
           continue;
         }
         if (chatFiles.length >= MAX_CHAT_FILES) {
