@@ -1,0 +1,4 @@
+# Test fixture files (too large for git)
+*
+!.gitignore
+!.gitkeep
