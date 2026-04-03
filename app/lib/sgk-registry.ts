@@ -86,6 +86,12 @@ export const SGK_REGISTRY: SgkEntity[] = [
     regime: "223-fz", parentEntity: 'АО «Енисейская ТГК (ТГК-13)»', type: "филиал",
     thresholdKRub: 500, businessUnit: "Енисейская ТГК",
   },
+  {
+    name: 'ООО «РТК-генерация»',
+    aliases: ["ртк-генерация", "ртк генерация"],
+    regime: "223-fz", parentEntity: null, type: "юрлицо",
+    thresholdKRub: 100, businessUnit: "Енисейская ТГК",
+  },
 
   // ═══════════════════════════════════════════════════════════
   // АБАКАНСКАЯ ТЭЦ — 223-ФЗ
@@ -313,12 +319,6 @@ export const SGK_REGISTRY: SgkEntity[] = [
     aliases: ["крастэк"],
     regime: "223-fz", parentEntity: null, type: "юрлицо",
     thresholdKRub: 100, businessUnit: "КрасТЭК",
-  },
-  {
-    name: 'ООО «РТК-генерация»',
-    aliases: ["ртк-генерация", "ртк генерация"],
-    regime: "223-fz", parentEntity: null, type: "юрлицо",
-    thresholdKRub: 100, businessUnit: "РТК-генерация",
   },
   {
     name: 'АО «Кызылская ТЭЦ»',

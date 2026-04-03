@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, FormEvent } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "ai/react";
 import ReactMarkdown from "react-markdown";
@@ -138,6 +138,7 @@ export default function Chat() {
   const [leftCollapsed, setLeftCollapsed] = useState(true);
   const [rightCollapsed, setRightCollapsed] = useState(true);
   const [sources, setSources] = useState<Source[]>([]);
+  const [hiddenSources, setHiddenSources] = useState<Source[]>([]);
   const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [viewingSource, setViewingSource] = useState<Source | null>(null);
@@ -284,6 +285,7 @@ export default function Chat() {
       const res = await fetch("/api/sources?view=chat");
       const data = await res.json();
       if (data.sources) setSources(data.sources);
+      if (data.denormalized) setHiddenSources(data.denormalized);
     } catch {
       // ignore
     }
@@ -292,6 +294,12 @@ export default function Chat() {
   useEffect(() => {
     loadSources();
   }, [loadSources]);
+
+  // Combined list for source matching in citations (visible + hidden denormalized)
+  const allSourcesForMatching = useMemo(
+    () => [...sources, ...hiddenSources],
+    [sources, hiddenSources]
+  );
 
   /* ── Support ── */
   const loadSupportHistory = useCallback(async () => {
@@ -1445,7 +1453,7 @@ export default function Chat() {
                     <MessageBubble
                       key={m.id}
                       message={m}
-                      allSources={sources}
+                      allSources={allSourcesForMatching}
                       onViewSource={setViewingSource}
                       onCreateInfographic={m.role === "assistant" ? navigateToInfographic : undefined}
                       onExportDocx={m.role === "assistant" ? (content: string) => handleExportDocx(content, prevUserMsg?.content || "Запрос") : undefined}
