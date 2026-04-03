@@ -353,6 +353,15 @@ ${userMessage.content}
   {
     const supplementSearches: Promise<SearchResult[]>[] = [];
 
+    // Determine if the user's query has a clear regime preference
+    const isStrictRegime = intentResult.fz_type === "223" || intentResult.fz_type === "non-223";
+    const strictRegimeTag = intentResult.fz_type === "223" ? "223-фз"
+      : intentResult.fz_type === "non-223" ? "вне 223-фз"
+      : null;
+    const oppositeRegimeTag = intentResult.fz_type === "223" ? "вне 223-фз"
+      : intentResult.fz_type === "non-223" ? "223-фз"
+      : null;
+
     const count223 = combinedResults.filter((r) => r.tags.some((t) => t.toLowerCase() === "223-фз")).length;
     const countNon223 = combinedResults.filter((r) => r.tags.some((t) => t.toLowerCase() === "вне 223-фз")).length;
     const MIN_REGIME_CHUNKS = 3;
@@ -377,13 +386,11 @@ ${userMessage.content}
       if (count223 < MIN_REGIME_CHUNKS) addRegimeSearches(["223-фз"]);
       if (countNon223 < MIN_REGIME_CHUNKS) addRegimeSearches(["вне 223-фз"]);
     } else if (intentResult.fz_type === "unknown" && intentResult.confidence >= 0.4) {
+      // Only supplement missing regimes when intent is truly unknown —
+      // do NOT add the opposite regime if one is already dominant
       if (count223 === 0 && countNon223 === 0) {
         addRegimeSearches(["223-фз"]);
         addRegimeSearches(["вне 223-фз"]);
-      } else if (countNon223 === 0) {
-        addRegimeSearches(["вне 223-фз"]);
-      } else if (count223 === 0) {
-        addRegimeSearches(["223-фз"]);
       }
     }
 
@@ -406,7 +413,7 @@ ${userMessage.content}
     }
 
     // 2b. Training course coverage: for procedure/general/regulation questions,
-    // ensure training materials from BOTH regimes are present (not just one)
+    // ensure training materials are present — but respect regime filter
     const trainingIntents = ["procedure", "general", "regulation", "authority", "pricing"];
     if (trainingIntents.includes(intentResult.intent)) {
       const trainingChunks = combinedResults.filter((r) =>
@@ -414,12 +421,16 @@ ${userMessage.content}
       );
 
       if (trainingChunks.length === 0) {
-        // No training at all — search broadly
-        supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение"]));
+        // No training at all — search with regime filter if strict, broadly otherwise
+        if (isStrictRegime && strictRegimeTag) {
+          supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение", strictRegimeTag]));
+        } else {
+          supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение"]));
+        }
       }
 
-      // For comparative queries, ensure training from BOTH regimes
-      if (intentResult.fz_type === "both" || intentResult.fz_type === "unknown") {
+      // For comparative queries ONLY, ensure training from BOTH regimes
+      if (intentResult.fz_type === "both") {
         const training223 = trainingChunks.some((r) =>
           r.tags.some((t) => t.toLowerCase() === "223-фз") ||
           r.source_filename.toLowerCase().includes("223")
@@ -438,10 +449,12 @@ ${userMessage.content}
     }
 
     // 3. Use intent query_variants (broader semantic coverage)
+    // When regime is clear, filter variants by regime tag to avoid pulling in wrong-regime docs
     if (intentResult.query_variants.length > 0) {
+      const variantTagFilter = isStrictRegime && strictRegimeTag ? [strictRegimeTag] : null;
       for (const variant of intentResult.query_variants.slice(0, 2)) {
         if (variant !== searchQuery && variant.length > 5) {
-          supplementSearches.push(hybridSearch(variant, 10, null));
+          supplementSearches.push(hybridSearch(variant, 10, variantTagFilter));
         }
       }
     }
@@ -463,6 +476,23 @@ ${userMessage.content}
       }
       if (addedCount > 0) {
         console.log(`[chat] Intent supplementary search added ${addedCount} new chunks from ${supplementSearches.length} queries`);
+      }
+    }
+
+    // Post-filter: when regime is strictly determined, remove opposite-regime chunks
+    // This is the final safety net — prevents wrong-regime documents from leaking
+    // into the answer context regardless of how they got in (hybrid search, variants, etc.)
+    if (isStrictRegime && oppositeRegimeTag) {
+      const beforeCount = combinedResults.length;
+      combinedResults = combinedResults.filter((r) => {
+        const tags = r.tags.map((t) => t.toLowerCase());
+        // Keep if: no regime tag at all OR has the correct regime tag
+        // Remove only if: explicitly tagged with the OPPOSITE regime
+        return !tags.includes(oppositeRegimeTag!);
+      });
+      const removed = beforeCount - combinedResults.length;
+      if (removed > 0) {
+        console.log(`[chat] Regime post-filter: removed ${removed} opposite-regime chunks (strict ${intentResult.fz_type})`);
       }
     }
   }
@@ -679,11 +709,14 @@ ${userMessage.content}
   const chunkTags = relevantChunks.flatMap((r) => r.tags.map((t) => t.toLowerCase()));
   const has223Chunks = chunkTags.includes("223-фз");
   const hasNon223Chunks = chunkTags.includes("вне 223-фз");
-  const dualRegimeHint = (has223Chunks && hasNon223Chunks)
+  // Only show dual-regime hint when intent is explicitly "both" AND both regimes are present.
+  // When user clearly asked about one regime, do NOT suggest the other.
+  const isStrictRegimeFinal = intentResult.fz_type === "223" || intentResult.fz_type === "non-223";
+  const dualRegimeHint = (has223Chunks && hasNon223Chunks && intentResult.fz_type === "both")
     ? `\n\n⚠️ ВАЖНО: Среди предоставленных документов есть материалы ПО ОБОИМ РЕЖИМАМ (223-ФЗ и вне 223-ФЗ). Ты ОБЯЗАН структурировать ответ двумя отдельными блоками: «## По 223-ФЗ» и «## Вне 223-ФЗ (ООО «СГК»)». НЕ смешивай их.`
-    : (has223Chunks && !hasNon223Chunks && intentResult.fz_type !== "223")
+    : (!isStrictRegimeFinal && has223Chunks && !hasNon223Chunks && intentResult.fz_type !== "223")
       ? `\n\nПРИМЕЧАНИЕ: Среди найденных документов есть только материалы по 223-ФЗ. Если вопрос может относиться к обоим режимам, укажи, что информация по режиму вне 223-ФЗ в текущих документах не найдена.`
-      : (!has223Chunks && hasNon223Chunks && intentResult.fz_type !== "non-223")
+      : (!isStrictRegimeFinal && !has223Chunks && hasNon223Chunks && intentResult.fz_type !== "non-223")
         ? `\n\nПРИМЕЧАНИЕ: Среди найденных документов есть только материалы вне 223-ФЗ. Если вопрос может относиться к обоим режимам, укажи, что информация по 223-ФЗ в текущих документах не найдена.`
         : "";
 
