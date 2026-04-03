@@ -1,7 +1,7 @@
 import { createServiceClient } from "./supabase";
 import { embedQuery } from "./embeddings";
 import type { IntentResult, QueryIntent } from "./intent-classifier";
-import type { SectionReference, DocumentReference } from "./query-analyzer";
+import type { SectionReference, DocumentReference, CatalogQuery } from "./query-analyzer";
 
 export interface SearchResult {
   id: string;
@@ -17,7 +17,7 @@ export interface SearchResult {
 const SIMILARITY_THRESHOLD = 0.35;
 const CLIFF_RATIO = 0.6;
 const CLIFF_RATIO_RELAXED = 0.5;
-const MAX_CHUNKS = 10;
+const MAX_CHUNKS = 15;
 const MIN_CHUNKS_BEFORE_RELAX = 3;
 
 export interface FilteredSearchResult {
@@ -639,6 +639,87 @@ export async function fetchChunksByDocument(
 
   console.log(
     `fetchChunksByDocument: returning ${results.length}/${typedChunks.length} chunks from "${filenames.join(", ")}"`
+  );
+
+  return results;
+}
+
+/* ── Catalog query: one representative chunk per matching source ── */
+
+/**
+ * For "list all documents of type X" queries.
+ * Finds ALL sources matching the document type hint, then returns
+ * the first chunk from each source (ensuring full coverage).
+ * Optionally filters by regime tag (e.g. "223-фз").
+ */
+export async function fetchCatalogResults(
+  catalog: CatalogQuery
+): Promise<SearchResult[]> {
+  const supabase = createServiceClient();
+
+  // Find all sources whose filename matches the document type hint
+  const { data: sources, error: srcError } = await supabase
+    .from("sources")
+    .select("filename")
+    .ilike("filename", `%${catalog.documentTypeHint}%`)
+    .limit(50);
+
+  if (srcError || !sources || sources.length === 0) {
+    console.log(`fetchCatalogResults: no sources for hint "${catalog.documentTypeHint}"`);
+    return [];
+  }
+
+  const filenames = (sources as { filename: string }[]).map((s) => s.filename);
+
+  // Fetch first 2 chunks per source (for context)
+  const { data: chunks, error: chunkError } = await supabase
+    .from("chunks")
+    .select("id, content, source_filename, chunk_index, tags, image_paths")
+    .in("source_filename", filenames)
+    .order("chunk_index", { ascending: true });
+
+  if (chunkError || !chunks || chunks.length === 0) {
+    console.log(`fetchCatalogResults: no chunks for sources ${filenames.join(", ")}`);
+    return [];
+  }
+
+  interface CatalogChunkRow {
+    id: string;
+    content: string;
+    source_filename: string;
+    chunk_index: number;
+    tags: string[] | null;
+    image_paths: string[] | null;
+  }
+
+  // Group by source, take first chunk per source
+  const bySource = new Map<string, CatalogChunkRow>();
+  for (const chunk of chunks as CatalogChunkRow[]) {
+    // If regime tag filter is set, check chunk tags
+    if (catalog.tagFilter) {
+      const chunkTags = (chunk.tags ?? []).map((t) => t.toLowerCase());
+      if (!chunkTags.includes(catalog.tagFilter.toLowerCase())) continue;
+    }
+
+    // Keep only the first chunk per source (lowest chunk_index)
+    if (!bySource.has(chunk.source_filename)) {
+      bySource.set(chunk.source_filename, chunk);
+    }
+  }
+
+  const results: SearchResult[] = Array.from(bySource.values()).map((chunk) => ({
+    id: chunk.id,
+    content: chunk.content,
+    source_filename: chunk.source_filename,
+    chunk_index: chunk.chunk_index,
+    similarity: 0.88, // synthetic score — high enough to survive filtering
+    tags: chunk.tags ?? [],
+    image_paths: chunk.image_paths ?? [],
+  }));
+
+  console.log(
+    `fetchCatalogResults: found ${results.length} sources for "${catalog.documentTypeHint}"` +
+    (catalog.tagFilter ? ` (tag: ${catalog.tagFilter})` : "")
   );
 
   return results;

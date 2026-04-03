@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { type CoreMessage } from "ai";
 import { GoogleGenAI } from "@google/genai";
-import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, type SearchResult } from "@/app/lib/retrieval";
+import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, type SearchResult } from "@/app/lib/retrieval";
 import { llmRerank } from "@/app/lib/reranker";
 import { classifyIntent } from "@/app/lib/intent-classifier";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
@@ -11,7 +11,7 @@ import { unauthorizedResponse, notFound } from "@/app/lib/api-helpers";
 import { classifyOffTopic, CATEGORY_LABELS, type OffTopicCategory } from "@/app/lib/off-topic-classifier";
 import { notifyOffTopic } from "@/app/lib/telegram";
 import { logError } from "@/app/lib/error-logger";
-import { extractSearchHints, detectSectionReference, detectDocumentReference } from "@/app/lib/query-analyzer";
+import { extractSearchHints, detectSectionReference, detectDocumentReference, detectCatalogQuery } from "@/app/lib/query-analyzer";
 import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgenticResults } from "@/app/lib/agentic-rag";
 import { expandByRelationships } from "@/app/lib/relationships";
 import { generateRegistryPromptBlock, findEntity } from "@/app/lib/sgk-registry";
@@ -85,6 +85,7 @@ export async function POST(req: NextRequest) {
   let searchHints = extractSearchHints(userMessage.content);
   const sectionRef = detectSectionReference(userMessage.content);
   let docRef = detectDocumentReference(userMessage.content);
+  const catalogQuery = detectCatalogQuery(userMessage.content);
 
   // Phase 1: Run intent classification + non-search tasks in parallel
   const [, contextResult, intentResult, offTopicResult] = await Promise.all([
@@ -200,7 +201,6 @@ export async function POST(req: NextRequest) {
         let preAdded = 0;
         for (const r of preResults) {
           if (!agenticCtx.chunks.has(r.id)) {
-            // Boost pre-seeded results so they survive reranking
             agenticCtx.chunks.set(r.id, { ...r, similarity: Math.max(r.similarity, 0.92) });
             preAdded++;
           }
@@ -209,6 +209,23 @@ export async function POST(req: NextRequest) {
         console.log(`[chat] Pre-seeded ${preAdded} chunks from targeted document lookup (${[...new Set(preResults.map(r => r.source_filename))].join(", ")})`);
       } catch (preError) {
         console.error("[chat] Pre-seed failed (non-fatal):", preError);
+      }
+    }
+
+    // ── Pre-seed: catalog query ensures full source coverage ──
+    if (catalogQuery) {
+      try {
+        const catResults = await fetchCatalogResults(catalogQuery);
+        let catAdded = 0;
+        for (const r of catResults) {
+          if (!agenticCtx.chunks.has(r.id)) {
+            agenticCtx.chunks.set(r.id, { ...r, similarity: Math.max(r.similarity, 0.90) });
+            catAdded++;
+          }
+        }
+        console.log(`[chat] Pre-seeded ${catAdded} catalog chunks from ${new Set(catResults.map(r => r.source_filename)).size} sources`);
+      } catch (catError) {
+        console.error("[chat] Catalog pre-seed failed (non-fatal):", catError);
       }
     }
 
@@ -277,9 +294,10 @@ ${userMessage.content}
   const searchPromises = Array.from(searchVariants).map((q) =>
     hybridSearch(q, 20, searchHints)
   );
-  const [sectionResults, docResults, ...variantResults] = await Promise.all([
+  const [sectionResults, docResults, catalogResults, ...variantResults] = await Promise.all([
     sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
     docRef ? fetchChunksByDocument(docRef, docRef.filenameHints.length > 2 ? 15 : 8, userMessage.content) : Promise.resolve([]),
+    catalogQuery ? fetchCatalogResults(catalogQuery) : Promise.resolve([]),
     ...searchPromises,
   ]);
 
@@ -318,6 +336,17 @@ ${userMessage.content}
     // Prepend (not append) so they appear before generic search results
     combinedResults = [...boostedDocResults, ...combinedResults];
     console.log(`[chat] Document lookup added ${boostedDocResults.length} new chunks (boosted to 0.92)`);
+  }
+
+  if (catalogResults.length > 0) {
+    // Catalog results ensure full coverage for "list all X" queries.
+    // One chunk per source — boosted so they survive filtering.
+    const newCatalogResults = catalogResults
+      .filter((r) => !existingIds.has(r.id))
+      .map((r) => ({ ...r, similarity: Math.max(r.similarity, 0.90) }));
+    for (const r of newCatalogResults) existingIds.add(r.id);
+    combinedResults = [...newCatalogResults, ...combinedResults];
+    console.log(`[chat] Catalog lookup added ${newCatalogResults.length} new chunks from ${new Set(newCatalogResults.map((r) => r.source_filename)).size} sources`);
   }
 
   // ── Intent-aware supplementary search ──
