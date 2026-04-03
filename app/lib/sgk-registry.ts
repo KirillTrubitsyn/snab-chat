@@ -292,6 +292,12 @@ export const SGK_REGISTRY: SgkEntity[] = [
     regime: "223-fz", parentEntity: 'АО «СИБЭКО»', type: "дочернее",
     thresholdKRub: 100, businessUnit: "СИБЭКО",
   },
+  {
+    name: 'ООО «Энергетик»',
+    aliases: ["энергетик"],
+    regime: "223-fz", parentEntity: null, type: "юрлицо",
+    thresholdKRub: 100, businessUnit: "СИБЭКО",
+  },
 
   // ═══════════════════════════════════════════════════════════
   // ОТДЕЛЬНЫЕ АО — 223-ФЗ
@@ -325,12 +331,6 @@ export const SGK_REGISTRY: SgkEntity[] = [
     aliases: ["теплоэнергетик"],
     regime: "223-fz", parentEntity: null, type: "юрлицо",
     thresholdKRub: 100, businessUnit: "Теплоэнергетик",
-  },
-  {
-    name: 'ООО «Энергетик»',
-    aliases: ["энергетик"],
-    regime: "223-fz", parentEntity: null, type: "юрлицо",
-    thresholdKRub: 100, businessUnit: "Энергетик",
   },
 
   // ═══════════════════════════════════════════════════════════

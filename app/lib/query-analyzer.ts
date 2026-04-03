@@ -178,6 +178,45 @@ export function detectDocumentReference(query: string): DocumentReference | null
   return { filenameHints: hints, documentTypeHint: docTypeHint ?? undefined };
 }
 
+/* ── Catalog (list-all) query detection ── */
+
+export interface CatalogQuery {
+  /** Document type substring for ILIKE matching (e.g. "положен") */
+  documentTypeHint: string;
+  /** Optional regime tag filter (e.g. "223-фз") */
+  tagFilter: string | null;
+}
+
+/**
+ * Detects "list all documents of type X" queries.
+ * E.g. "сформируй список положений о закупках Обществ по 223-фз"
+ * → { documentTypeHint: "положен", tagFilter: "223-фз" }
+ *
+ * Returns null if the query is not asking for a catalog/list.
+ */
+export function detectCatalogQuery(query: string): CatalogQuery | null {
+  const lower = query.toLowerCase();
+
+  // Must contain a "list" intent pattern
+  const hasList = /(?:список|перечень|перечисли|реестр|(?:все|какие(?:\s+есть)?|какие\s+существу|назови|приведи|сформируй|выведи|покажи)\s)/i.test(lower);
+  if (!hasList) return null;
+
+  // Must reference a document type
+  const docTypeHint = extractDocumentHint(lower);
+  if (!docTypeHint) return null;
+
+  // Extract regime filter
+  let tagFilter: string | null = null;
+  const isNon223 = /вне\s+223|не\s+по\s+223|без\s+223/i.test(lower);
+  if (isNon223) {
+    tagFilter = "вне 223-фз";
+  } else if (/223[\-\s]*фз|фз[\-\s]*223/i.test(lower)) {
+    tagFilter = "223-фз";
+  }
+
+  return { documentTypeHint: docTypeHint, tagFilter };
+}
+
 /**
  * Analyzes user query and extracts tag hints for filtering hybrid search.
  * Returns null if no specific filter can be determined (search all docs).
