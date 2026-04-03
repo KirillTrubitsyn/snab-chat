@@ -18,6 +18,8 @@ export async function POST(req: NextRequest) {
     const originalMimeType = (formData.get("mimeType") as string) || file?.type || "application/octet-stream";
     const folderPath = (formData.get("folderPath") as string) || null;
 
+    const storageBucket = (formData.get("storageBucket") as string) || "documents";
+
     let buffer: Buffer;
     let filename: string;
     let mimeType: string;
@@ -26,7 +28,7 @@ export async function POST(req: NextRequest) {
       // Large file: download from Supabase Storage
       const supabase = createServiceClient();
       const { data, error } = await supabase.storage
-        .from("documents")
+        .from(storageBucket)
         .download(storagePath);
 
       if (error || !data) {

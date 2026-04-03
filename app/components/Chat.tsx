@@ -471,10 +471,44 @@ export default function Chat() {
   const ACCEPTED_CHAT_TYPES = ".pdf,.doc,.docx,.xlsx,.xls,.pptx,.txt,.md,.mp3,.wav,.jpg,.jpeg,.png,.gif,.bmp,.webp";
   const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "bmp", "webp"];
 
+  const LARGE_FILE_THRESHOLD = 4 * 1024 * 1024; // 4 MB (Vercel body limit)
+
   const parseFileViaApi = useCallback(async (file: File, fileId: string, isPhoto: boolean) => {
-    const formData = new FormData();
-    formData.append("file", file);
     try {
+      const formData = new FormData();
+
+      // Large files: upload to Storage first, then pass storagePath to parse
+      if (file.size > LARGE_FILE_THRESHOLD) {
+        const urlRes = await fetch("/api/chat-upload-url", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-invite-code": encodeURIComponent(inviteCodeRef.current),
+          },
+          body: JSON.stringify({ filename: file.name, mimeType: file.type }),
+        });
+        if (urlRes.ok) {
+          const { uploadUrl, storagePath } = await urlRes.json();
+          const putRes = await fetch(uploadUrl, {
+            method: "PUT",
+            headers: { "Content-Type": file.type, "x-upsert": "false" },
+            body: file,
+          });
+          if (putRes.ok) {
+            formData.append("storagePath", storagePath);
+            formData.append("storageBucket", "chat-uploads");
+            formData.append("filename", file.name);
+            formData.append("mimeType", file.type);
+          } else {
+            throw new Error("Storage upload failed");
+          }
+        } else {
+          throw new Error("Failed to get upload URL");
+        }
+      } else {
+        formData.append("file", file);
+      }
+
       const res = await fetch("/api/parse", { method: "POST", body: formData, headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) } });
       if (!res.ok) throw new Error("Parse failed");
       const data = await res.json();
