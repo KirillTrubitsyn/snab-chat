@@ -410,6 +410,53 @@ export default function Chat() {
     return () => { cancelled = true; };
   }, [activeConvId, setMessages]);
 
+  // ── Sync messages when admin deletes them (poll + tab focus) ──
+  useEffect(() => {
+    if (!activeConvId) return;
+    const SYNC_INTERVAL = 30_000; // 30 seconds
+
+    const syncMessages = async () => {
+      // Don't sync while user is streaming or sending
+      if (pendingSubmitRef.current || isSending) return;
+      try {
+        const res = await fetch(`/api/conversations/messages?id=${activeConvId}`, {
+          headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+        });
+        const data = await res.json();
+        if (!data.messages) return;
+        // Compare message IDs — only update if something changed
+        const serverIds = new Set(data.messages.map((m: { id: string }) => m.id));
+        const localIds = new Set(messages.map((m) => m.id));
+        const deleted = [...localIds].some((id) => !serverIds.has(id));
+        const added = [...serverIds].some((id) => !localIds.has(id));
+        if (deleted || added) {
+          setMessages(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data.messages.map((m: { id: string; role: string; content: string; metadata?: any }) => ({
+              id: m.id,
+              role: m.role as "user" | "assistant",
+              content: m.content,
+              ...(m.metadata?.sources ? { sources: m.metadata.sources } : {}),
+              ...(m.metadata ? { metadata: m.metadata } : {}),
+            }))
+          );
+        }
+      } catch {
+        // ignore sync errors
+      }
+    };
+
+    const interval = setInterval(syncMessages, SYNC_INTERVAL);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") syncMessages();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [activeConvId, messages, isSending, setMessages]);
+
   /* ── Create conversation (with retry for transient errors) ── */
   const createConversation = useCallback(
     async (title?: string) => {
