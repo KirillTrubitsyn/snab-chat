@@ -303,21 +303,21 @@ export async function GET(req: NextRequest) {
   // Build infographic items from dedicated infographics table
   // Resolve user by invite_code_id directly or via conversation
   const infographicItems = (infographicRows || []).map((ig) => {
-    let userName = "Неизвестный";
-    let organization = "";
+    let user_name = "Неизвестный";
+    let organization: string | null = "";
     if (ig.conversation_id && ig.conversation_id in convsMap) {
       const resolved = resolveUser(ig.conversation_id, convsMap, codesMap);
-      userName = resolved.userName;
+      user_name = resolved.user_name;
       organization = resolved.organization;
     } else if (ig.invite_code_id && ig.invite_code_id in codesMap) {
       const code = codesMap[ig.invite_code_id];
-      userName = code.name || "Неизвестный";
+      user_name = code.name || "Неизвестный";
       organization = code.organization || "";
     }
     return {
       id: ig.id,
       type: "infographic" as const,
-      userName,
+      user_name,
       organization,
       content: ig.topic || "Инфографика",
       model: null,
