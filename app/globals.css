@@ -337,6 +337,34 @@ input, textarea {
   opacity: 1;
 }
 
+.sidebar-item-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.sidebar-item-actions .doc-delete-btn {
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.sidebar-item:hover .sidebar-item-actions .doc-delete-btn {
+  opacity: 1;
+}
+
+.sidebar-rename-input {
+  width: 100%;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border: 1.5px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg-white);
+  color: var(--text-primary);
+  outline: none;
+  font-family: inherit;
+}
+
 .doc-action-btn {
   background: none;
   border: none;
