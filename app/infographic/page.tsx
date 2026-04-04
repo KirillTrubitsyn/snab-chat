@@ -61,9 +61,13 @@ export default function InfographicPage() {
     setResultDescription("");
 
     try {
+      const inviteCode = localStorage.getItem("snabchat_invite_code") || "";
       const res = await fetch("/api/infographic", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-invite-code": encodeURIComponent(inviteCode),
+        },
         body: JSON.stringify({
           topic: topic.trim(),
           style,
@@ -82,7 +86,7 @@ export default function InfographicPage() {
 
       setResultImage(data.image_base64);
       setResultDescription(data.description || "");
-      if (data.conversationId) setSavedToHistory(true);
+      setSavedToHistory(true);
     } catch {
       setError("Ошибка сети. Попробуйте ещё раз.");
     } finally {
@@ -136,7 +140,7 @@ export default function InfographicPage() {
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  Сохранено в истории диалога
+                  Сохранено в «Инфографика»
                 </div>
               )}
               <div className="infographic-result-actions">

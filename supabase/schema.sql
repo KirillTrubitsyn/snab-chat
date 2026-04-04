@@ -286,7 +286,23 @@ create index if not exists idx_audit_created on audit_log(created_at desc);
 create index if not exists idx_audit_admin on audit_log(admin_name);
 create index if not exists idx_audit_action on audit_log(action);
 
--- 13. RLS (Row Level Security) — отключено для service role
+-- 13. Таблица инфографик (отдельное хранилище, не привязано к сообщениям)
+create table if not exists infographics (
+  id uuid primary key default gen_random_uuid(),
+  invite_code_id uuid references invite_codes(id) on delete set null,
+  conversation_id uuid references conversations(id) on delete set null,
+  topic text not null default '',
+  style text not null default 'business_infographic',
+  aspect_ratio text not null default '16:9',
+  description text default '',
+  image_base64 text not null,
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_infographics_invite on infographics(invite_code_id);
+create index if not exists idx_infographics_created on infographics(created_at desc);
+
+-- 14. RLS (Row Level Security) — отключено для service role
 -- При необходимости включите RLS и настройте политики:
 -- alter table sources enable row level security;
 -- alter table chunks enable row level security;

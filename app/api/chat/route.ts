@@ -723,7 +723,7 @@ ${userMessage.content}
   // Auto-detect entity regime from the query using hardcoded registry
   const detectedEntity = findEntity(userMessage.content);
   const entityRegimeHint = detectedEntity
-    ? `\n\n🏢 ОПРЕДЕЛЕНА ОРГАНИЗАЦИЯ: ${detectedEntity.name} — режим: ${detectedEntity.regime === "223-fz" ? "ПО 223-ФЗ" : "ВНЕ 223-ФЗ"}${detectedEntity.parentEntity ? ` (${detectedEntity.type} ${detectedEntity.parentEntity})` : ""}${detectedEntity.thresholdKRub ? `, порог закупки: ${detectedEntity.thresholdKRub} тыс. руб. без НДС` : ""}. Отвечай ТОЛЬКО по документам этого режима.`
+    ? `\n\n🏢 ОПРЕДЕЛЕНА ОРГАНИЗАЦИЯ: ${detectedEntity.name} — режим: ${detectedEntity.regime === "223-fz" ? "ПО 223-ФЗ" : "ВНЕ 223-ФЗ"}${detectedEntity.parentEntity ? ` (${detectedEntity.type} ${detectedEntity.parentEntity})` : ""}${detectedEntity.region ? `, регион: ${detectedEntity.region}` : ""}${detectedEntity.thresholdKRub ? `, порог закупки: ${detectedEntity.thresholdKRub} тыс. руб. без НДС` : ""}. Отвечай ТОЛЬКО по документам этого режима.`
     : "";
 
   // ── Phase 1: Adaptive system prompt based on document intent ──

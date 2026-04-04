@@ -208,11 +208,12 @@ export async function GET(req: NextRequest) {
 
   // ── Default: activity feed (chat + infographic) ──
 
-  // Load user messages, assistant messages (for lowConfidence + infographic), and off_topic in parallel
+  // Load user messages, assistant messages (for lowConfidence), infographics, and off_topic in parallel
   const [
     { data: messages, error: msgError },
     { data: assistantMsgs },
     { data: offTopicRows },
+    { data: infographicRows },
   ] = await Promise.all([
     supabase
       .from("messages")
@@ -232,6 +233,11 @@ export async function GET(req: NextRequest) {
       .select("query_text")
       .order("created_at", { ascending: false })
       .limit(500),
+    supabase
+      .from("infographics")
+      .select("id, invite_code_id, conversation_id, topic, created_at")
+      .order("created_at", { ascending: false })
+      .limit(200),
   ]);
 
   if (msgError) {
@@ -248,18 +254,28 @@ export async function GET(req: NextRequest) {
     asstByConvActivity[m.conversation_id].push({ metadata: m.metadata, created_at: m.created_at });
   }
 
-  const infographicMessages = (assistantMsgs || []).filter(
-    (m) => m.metadata?.type === "infographic"
-  );
-
   const allConvIds = [
     ...new Set([
       ...(messages || []).map((m) => m.conversation_id),
-      ...infographicMessages.map((m) => m.conversation_id),
+      ...(infographicRows || []).map((ig) => ig.conversation_id).filter(Boolean),
     ]),
   ].filter(Boolean);
 
   const { convsMap, codesMap } = await buildConvsAndCodesMap(supabase, allConvIds);
+
+  // Load invite codes from infographics that may not be in conversations
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const igCodeIds = [...new Set((infographicRows || []).map((ig: any) => ig.invite_code_id).filter(Boolean) as string[])]
+    .filter((id: string) => !(id in codesMap));
+  if (igCodeIds.length > 0) {
+    const { data: extraCodes } = await supabase
+      .from("invite_codes")
+      .select("id, name, organization")
+      .in("id", igCodeIds);
+    (extraCodes || []).forEach((c) => {
+      codesMap[c.id] = { name: c.name, organization: c.organization };
+    });
+  }
 
   // Filter out off-topic messages from activity feed
   const chatItems = (messages || [])
@@ -284,16 +300,30 @@ export async function GET(req: NextRequest) {
       };
     });
 
-  const infographicItems = infographicMessages
-    .filter((m) => m.conversation_id in convsMap)
-    .map((m) => ({
-      id: m.id,
+  // Build infographic items from dedicated infographics table
+  // Resolve user by invite_code_id directly or via conversation
+  const infographicItems = (infographicRows || []).map((ig) => {
+    let user_name = "Неизвестный";
+    let organization: string | null = "";
+    if (ig.conversation_id && ig.conversation_id in convsMap) {
+      const resolved = resolveUser(ig.conversation_id, convsMap, codesMap);
+      user_name = resolved.user_name;
+      organization = resolved.organization;
+    } else if (ig.invite_code_id && ig.invite_code_id in codesMap) {
+      const code = codesMap[ig.invite_code_id];
+      user_name = code.name || "Неизвестный";
+      organization = code.organization || "";
+    }
+    return {
+      id: ig.id,
       type: "infographic" as const,
-      ...resolveUser(m.conversation_id, convsMap, codesMap),
-      content: m.metadata?.topic || m.content.slice(0, 120),
+      user_name,
+      organization,
+      content: ig.topic || "Инфографика",
       model: null,
-      created_at: m.created_at,
-    }));
+      created_at: ig.created_at,
+    };
+  });
 
   const result = [...chatItems, ...infographicItems].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
