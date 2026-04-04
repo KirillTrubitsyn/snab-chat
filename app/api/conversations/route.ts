@@ -233,3 +233,35 @@ export async function DELETE(req: NextRequest) {
 
   return NextResponse.json({ ok: true });
 }
+
+/**
+ * PATCH /api/conversations — rename a conversation
+ */
+export async function PATCH(req: NextRequest) {
+  const invite = await getInviteCodeFromHeader(req);
+  if (!invite) return unauthorizedResponse();
+
+  let supabase;
+  try {
+    supabase = createServiceClient();
+  } catch (e) {
+    console.error("Supabase init error:", e); return serverError();
+  }
+
+  const { id, title } = await req.json();
+  if (!id || !title || typeof title !== "string") {
+    return NextResponse.json({ error: "Missing id or title" }, { status: 400 });
+  }
+
+  const { error } = await supabase
+    .from("conversations")
+    .update({ title: title.trim().slice(0, 200) })
+    .eq("id", id);
+
+  if (error) {
+    console.error("Rename conversation error:", error.message);
+    return serverError();
+  }
+
+  return ok({ ok: true });
+}

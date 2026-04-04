@@ -101,3 +101,32 @@ export async function DELETE(req: NextRequest) {
 
   return NextResponse.json({ ok: true });
 }
+
+/**
+ * PATCH /api/infographics — rename an infographic
+ */
+export async function PATCH(req: NextRequest) {
+  const invite = await getInviteCodeFromHeader(req);
+  if (!invite) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id, topic } = await req.json();
+  if (!id || !topic || typeof topic !== "string") {
+    return NextResponse.json({ error: "Missing id or topic" }, { status: 400 });
+  }
+
+  const supabase = createServiceClient();
+
+  const { error } = await supabase
+    .from("infographics")
+    .update({ topic: topic.trim().slice(0, 200) })
+    .eq("id", id);
+
+  if (error) {
+    console.error("Rename infographic error:", error.message);
+    return NextResponse.json({ error: "Ошибка переименования" }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
