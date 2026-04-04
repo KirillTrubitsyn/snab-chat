@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
             .insert({
               invite_code_id: isRealInviteCode ? invite!.id : null,
               conversation_id: (conversationId && typeof conversationId === "string") ? conversationId : null,
-              topic: topicText || "По документу",
+              topic: topicText || (descText ? descText.slice(0, 120) : "Инфографика"),
               style: style || "business_infographic",
               aspect_ratio: aspectRatio || "16:9",
               description: descText,
