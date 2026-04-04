@@ -609,7 +609,7 @@ export default function Chat() {
   /* ── Chat file attach handlers ── */
   const MAX_CHAT_FILES = 5;
   const MAX_CHAT_PHOTOS = 10;
-  const MAX_CHAT_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+  const MAX_CHAT_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
   const ACCEPTED_CHAT_TYPES = ".pdf,.doc,.docx,.xlsx,.xls,.pptx,.txt,.md,.mp3,.wav,.jpg,.jpeg,.png,.gif,.bmp,.webp";
   const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "bmp", "webp"];
 
@@ -690,7 +690,7 @@ export default function Chat() {
 
       for (const file of newFiles) {
         if (file.size > MAX_CHAT_FILE_SIZE) {
-          alert(`Файл "${file.name}" превышает 25 МБ`);
+          alert(`Файл "${file.name}" превышает 50 МБ`);
           continue;
         }
         const ext = file.name.split(".").pop()?.toLowerCase() || "";
