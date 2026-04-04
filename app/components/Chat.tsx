@@ -425,8 +425,8 @@ export default function Chat() {
         const data = await res.json();
         if (!data.messages) return;
         // Compare message IDs — only update if something changed
-        const serverIds = new Set(data.messages.map((m: { id: string }) => m.id));
-        const localIds = new Set(messages.map((m) => m.id));
+        const serverIds = new Set<string>(data.messages.map((m: { id: string }) => m.id));
+        const localIds = new Set<string>(messages.map((m) => m.id));
         const deleted = [...localIds].some((id) => !serverIds.has(id));
         const added = [...serverIds].some((id) => !localIds.has(id));
         if (deleted || added) {
