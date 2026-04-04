@@ -150,10 +150,12 @@ export async function POST(req: NextRequest) {
         try {
           const invite = await getInviteCodeFromHeader(req);
           const supabase = createServiceClient();
-          const { data: saved } = await supabase
+          // Admin IDs are not UUIDs (e.g. "admin-КИРИЛЛ-АДМИН"), so skip FK
+          const isRealInviteCode = invite?.id && !invite.id.startsWith("admin-");
+          const { data: saved, error: saveError } = await supabase
             .from("infographics")
             .insert({
-              invite_code_id: invite?.id || null,
+              invite_code_id: isRealInviteCode ? invite!.id : null,
               conversation_id: (conversationId && typeof conversationId === "string") ? conversationId : null,
               topic: topicText || "По документу",
               style: style || "business_infographic",
@@ -163,6 +165,9 @@ export async function POST(req: NextRequest) {
             })
             .select("id")
             .single();
+          if (saveError) {
+            console.error("Infographic DB save error:", saveError.message);
+          }
           savedId = saved?.id || null;
         } catch (saveErr) {
           console.error("Failed to save infographic:", saveErr);
