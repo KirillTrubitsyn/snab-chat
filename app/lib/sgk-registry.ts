@@ -336,7 +336,7 @@ export const SGK_REGISTRY: SgkEntity[] = [
     name: 'ООО «Теплоэнергетик»',
     aliases: ["теплоэнергетик"],
     regime: "223-fz", parentEntity: null, type: "юрлицо",
-    thresholdKRub: 100, businessUnit: "Теплоэнергетик", region: null,
+    thresholdKRub: 100, businessUnit: "Теплоэнергетик", region: "Кемеровская область, г. Белово",
   },
 
   // ═══════════════════════════════════════════════════════════
