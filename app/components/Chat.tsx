@@ -150,6 +150,9 @@ export default function Chat() {
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
   const [convBulkMode, setConvBulkMode] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<"chats" | "infographics">("chats");
+  const [infographics, setInfographics] = useState<Array<{ id: string; topic: string; style: string; aspect_ratio: string; description: string; created_at: string; conversation_id: string | null }>>([]);
+  const [viewingInfographic, setViewingInfographic] = useState<{ id: string; topic: string; image_base64: string; description: string; created_at: string } | null>(null);
   const [chatError, setChatError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<"chat" | "knowledge-base">("chat");
   const [kbCategoryFilter, setKbCategoryFilter] = useState<string>("all");
@@ -278,6 +281,24 @@ export default function Chat() {
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
+
+  /* ── Load infographics ── */
+  const loadInfographics = useCallback(async () => {
+    if (!inviteCode) return;
+    try {
+      const res = await fetch("/api/infographics", {
+        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+      });
+      const data = await res.json();
+      if (data.infographics) setInfographics(data.infographics);
+    } catch {
+      // ignore
+    }
+  }, [inviteCode]);
+
+  useEffect(() => {
+    loadInfographics();
+  }, [loadInfographics]);
 
   /* ── Load sources ── */
   const loadSources = useCallback(async () => {
@@ -518,6 +539,33 @@ export default function Chat() {
     },
     [activeConvId, setMessages]
   );
+
+  /* ── Infographic helpers ── */
+  const viewInfographic = useCallback(async (id: string) => {
+    try {
+      const res = await fetch("/api/infographics", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-invite-code": encodeURIComponent(inviteCodeRef.current),
+        },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (data.infographic) setViewingInfographic(data.infographic);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const deleteInfographic = useCallback(async (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    await fetch(`/api/infographics?id=${id}`, {
+      method: "DELETE",
+      headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+    });
+    setInfographics((prev) => prev.filter((i) => i.id !== id));
+  }, []);
 
   /* ── Chat file attach handlers ── */
   const MAX_CHAT_FILES = 5;
@@ -1659,6 +1707,26 @@ export default function Chat() {
               </svg>
             </button>
             <div className="sidebar-content">
+              {/* Tab toggle: Чаты | Инфографика */}
+              <div className="sidebar-tab-toggle">
+                <button
+                  className={`sidebar-tab-btn ${sidebarTab === "chats" ? "active" : ""}`}
+                  onClick={() => setSidebarTab("chats")}
+                >
+                  Чаты
+                </button>
+                <button
+                  className={`sidebar-tab-btn ${sidebarTab === "infographics" ? "active" : ""}`}
+                  onClick={() => { setSidebarTab("infographics"); loadInfographics(); }}
+                >
+                  Инфографика
+                  {infographics.length > 0 && (
+                    <span className="sidebar-tab-badge">{infographics.length}</span>
+                  )}
+                </button>
+              </div>
+
+              {sidebarTab === "chats" ? (
               <div className="sidebar-section" style={{ flex: 1 }}>
                 <div className="sidebar-section-title">
                   <span>ДИАЛОГИ</span>
@@ -1797,6 +1865,71 @@ export default function Chat() {
                   ))}
                 </div>
               </div>
+              ) : (
+              /* ── Infographics tab ── */
+              <div className="sidebar-section" style={{ flex: 1 }}>
+                <div className="sidebar-section-title">
+                  <span>ИНФОГРАФИКА</span>
+                  <button
+                    onClick={() => navigateToInfographic()}
+                    title="Создать инфографику"
+                    style={{ fontSize: 16, color: "var(--text-secondary)", lineHeight: 1 }}
+                  >
+                    +
+                  </button>
+                </div>
+                {infographics.length === 0 ? (
+                  <div style={{ padding: "20px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+                    Нет сохранённых инфографик
+                  </div>
+                ) : (
+                <div className="sidebar-list">
+                  {infographics.map((ig) => (
+                    <div
+                      className="sidebar-item infographic-card-item"
+                      onClick={() => viewInfographic(ig.id)}
+                      key={ig.id}
+                    >
+                      <div className="infographic-card-icon">
+                        <InfographicIcon size={16} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 500,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {ig.topic || "Без темы"}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                          {formatDate(ig.created_at)}
+                        </div>
+                      </div>
+                      <button
+                        className="doc-delete-btn"
+                        onClick={(e) => deleteInfographic(ig.id, e)}
+                        title="Удалить инфографику"
+                        style={{
+                          fontSize: 14,
+                          color: "var(--text-muted)",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                )}
+              </div>
+              )}
             </div>
           </aside>
         </div>
@@ -1814,6 +1947,54 @@ export default function Chat() {
           onClose={() => setViewingSource(null)}
           inviteCode={inviteCodeRef.current}
         />
+      )}
+
+      {/* ── Infographic Viewer Modal ── */}
+      {viewingInfographic && (
+        <div className="modal-overlay" style={{ zIndex: 9998 }} onClick={() => setViewingInfographic(null)}>
+          <div className="infographic-viewer-modal" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="infographic-viewer-close"
+              onClick={() => setViewingInfographic(null)}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+            <div className="infographic-viewer-header">
+              <InfographicIcon size={18} />
+              <span>{viewingInfographic.topic || "Инфографика"}</span>
+              <span className="infographic-viewer-date">{formatDate(viewingInfographic.created_at)}</span>
+            </div>
+            <img
+              src={viewingInfographic.image_base64}
+              alt={viewingInfographic.topic || "Инфографика"}
+              className="infographic-viewer-image"
+            />
+            {viewingInfographic.description && (
+              <p className="infographic-viewer-desc">{viewingInfographic.description}</p>
+            )}
+            <div className="infographic-viewer-actions">
+              <button
+                className="infographic-btn primary"
+                onClick={() => {
+                  const link = document.createElement("a");
+                  link.href = viewingInfographic.image_base64;
+                  link.download = `infographic-${Date.now()}.png`;
+                  link.click();
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                Скачать PNG
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Support Modal ── */}

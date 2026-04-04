@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 import { withGoogleApiLimit } from "@/app/lib/google-ai";
-import { saveMessage } from "@/app/lib/memory";
+import { createServiceClient } from "@/app/lib/supabase";
+import { getInviteCodeFromHeader } from "@/app/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -144,29 +145,34 @@ export async function POST(req: NextRequest) {
 
         const descText = fixCyrillicLookalikes(description.trim());
 
-        // Save infographic as a message in conversation history
-        if (conversationId && typeof conversationId === "string") {
-          try {
-            await saveMessage(
-              conversationId,
-              "assistant",
-              descText || `Инфографика: ${topicText || "По документу"}`,
-              {
-                type: "infographic",
-                image_base64: imageBase64,
-                topic: topicText || "По документу",
-                style: style || "business_infographic",
-              }
-            );
-          } catch (saveErr) {
-            console.error("Failed to save infographic to history:", saveErr);
-          }
+        // Save infographic to dedicated infographics table
+        let savedId: string | null = null;
+        try {
+          const invite = await getInviteCodeFromHeader(req);
+          const supabase = createServiceClient();
+          const { data: saved } = await supabase
+            .from("infographics")
+            .insert({
+              invite_code_id: invite?.id || null,
+              conversation_id: (conversationId && typeof conversationId === "string") ? conversationId : null,
+              topic: topicText || "По документу",
+              style: style || "business_infographic",
+              aspect_ratio: aspectRatio || "16:9",
+              description: descText,
+              image_base64: imageBase64,
+            })
+            .select("id")
+            .single();
+          savedId = saved?.id || null;
+        } catch (saveErr) {
+          console.error("Failed to save infographic:", saveErr);
         }
 
         console.log(`Infographic generated successfully with model: ${modelId}`);
         return NextResponse.json({
           image_base64: imageBase64,
           description: descText,
+          infographicId: savedId,
           conversationId: conversationId || null,
         });
       } catch (err) {
