@@ -70,6 +70,7 @@ async function generateWithIdeogram(
   aspectRatio?: string
 ): Promise<{ imageBase64: string; description: string }> {
   const apiKey = process.env.IDEOGRAM_API_KEY || "";
+  console.log("IDEOGRAM_API_KEY present:", !!apiKey, "length:", apiKey.length, "env keys:", Object.keys(process.env).filter(k => k.includes("IDEOGRAM")));
   if (!apiKey) {
     throw new Error("IDEOGRAM_API_KEY не настроен");
   }
