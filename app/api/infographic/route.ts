@@ -113,7 +113,7 @@ DESCRIPTION: <описание на русском>`;
   const result = await withGoogleApiLimit(() =>
     Promise.race([
       client.models.generateContent({
-        model: "gemini-3-flash",
+        model: "gemini-3-flash-preview",
         contents: [{ role: "user", parts: [{ text: geminiPrompt }] }],
         config: {
           temperature: 0.3,
