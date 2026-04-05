@@ -62,48 +62,89 @@ function fixCyrillicLookalikes(text: string): string {
 }
 
 /**
- * Build a short, image-generation-friendly prompt for Ideogram.
- * Ideogram is NOT an LLM — it needs concise visual descriptions.
- * Russian text that should appear on the image must be in quotes.
+ * Step 1: Use Gemini LLM to analyze the topic/document and produce
+ * a detailed visual description for Ideogram image generation.
+ * Returns an English prompt optimized for Ideogram with Russian text in quotes.
  */
-function buildIdeogramPrompt(
+async function buildIdeogramPromptWithGemini(
   topic: string,
   styleKey: string,
   documentText?: string
-): string {
-  const styleVisuals: Record<string, string> = {
-    business_infographic: "corporate business infographic with icons, charts, and structured data blocks, blue and gray color palette",
-    process_timeline: "timeline infographic showing sequential process steps, horizontal flow with arrows",
-    comparison_chart: "comparison infographic with parallel columns, contrasting colors",
-    statistics_dashboard: "statistics dashboard with pie charts, bar graphs, and large KPI numbers",
-    process_flowchart: "flowchart diagram with rectangles for actions, diamonds for decisions, connecting arrows",
-    hierarchy_orgchart: "organizational hierarchy chart with connected blocks",
-    mindmap: "mind map with central topic and radiating colorful branches",
-    procedure_summary: "procedure summary with numbered steps in cards, icons, highlighted key points",
+): Promise<{ ideogramPrompt: string; description: string }> {
+  const styleLabels: Record<string, string> = {
+    business_infographic: "деловая корпоративная инфографика",
+    process_timeline: "таймлайн / хронология этапов",
+    comparison_chart: "сравнительная таблица",
+    statistics_dashboard: "дашборд статистики",
+    process_flowchart: "блок-схема процесса",
+    hierarchy_orgchart: "организационная структура",
+    mindmap: "интеллект-карта (mind map)",
+    procedure_summary: "визуальное резюме процедуры",
   };
 
-  const styleDesc = styleVisuals[styleKey] || "professional business infographic";
+  const styleLabel = styleLabels[styleKey] || "деловая инфографика";
 
-  // Extract short key phrases from document for data hints
-  let dataHint = "";
+  let contextPart = "";
   if (documentText) {
-    const excerpt = documentText.slice(0, 2000);
-    const numbers = excerpt.match(/\d+[%,.]?\d*/g)?.slice(0, 6) || [];
-    if (numbers.length > 0) {
-      dataHint = ` Include data: ${numbers.join(", ")}.`;
-    }
+    contextPart = `\n\nДанные из документа:\n${documentText.slice(0, 15000)}`;
   }
 
-  // Keep topic short — truncate if too long for Ideogram (max ~200 chars for topic part)
-  const topicShort = topic ? topic.slice(0, 200) : "business process overview";
+  const geminiPrompt = `Ты помогаешь подготовить промпт для модели генерации изображений Ideogram 3.
 
-  // Put the Russian title text in quotes so Ideogram renders it on the image
-  return `Professional ${styleDesc}. Title text: "${topicShort}". Clean modern design, bold sans-serif Cyrillic font, minimal text on image, use icons, arrows, numbers and visual elements instead of words.${dataHint} All text in Russian Cyrillic script, perfectly spelled.`;
+Задача: создать инфографику в стиле "${styleLabel}" на тему: "${topic || "определи тему из документа"}"${contextPart}
+
+Проанализируй данные и создай ДЕТАЛЬНОЕ ОПИСАНИЕ инфографики на АНГЛИЙСКОМ языке для Ideogram.
+
+ПРАВИЛА:
+1. Пиши описание на английском — Ideogram лучше понимает английский
+2. Весь русский текст, который должен появиться НА изображении, оборачивай в кавычки — Ideogram отрисует его как текст
+3. Русского текста на изображении должно быть МИНИМУМ — только заголовок и короткие подписи (2-4 слова каждая)
+4. Используй максимум 5-7 текстовых элементов на русском
+5. Числа, проценты, стрелки, иконки — предпочтительнее слов
+6. Опиши визуальную структуру: расположение блоков, цвета, иконки, графики
+7. Общая длина промпта — не более 1500 символов
+
+Также напиши краткое описание инфографики на русском (2-3 предложения) для пользователя.
+
+Ответ СТРОГО в формате:
+PROMPT: <промпт для Ideogram на английском>
+DESCRIPTION: <описание на русском>`;
+
+  const result = await withGoogleApiLimit(() =>
+    Promise.race([
+      client.models.generateContent({
+        model: "gemini-3-flash",
+        contents: [{ role: "user", parts: [{ text: geminiPrompt }] }],
+        config: {
+          temperature: 0.3,
+        },
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout: 30s")), 30_000)
+      ),
+    ])
+  );
+
+  const text = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+  // Parse PROMPT and DESCRIPTION from response
+  const promptMatch = text.match(/PROMPT:\s*([\s\S]*?)(?=DESCRIPTION:|$)/i);
+  const descMatch = text.match(/DESCRIPTION:\s*([\s\S]*?)$/i);
+
+  const ideogramPrompt = (promptMatch?.[1] || "").trim().slice(0, 2000);
+  const description = (descMatch?.[1] || topic || "Инфографика").trim();
+
+  if (!ideogramPrompt) {
+    throw new Error("Gemini не смог создать описание инфографики");
+  }
+
+  console.log("Gemini → Ideogram prompt:", ideogramPrompt.slice(0, 200) + "...");
+
+  return { ideogramPrompt, description };
 }
 
 /**
- * Generate infographic via Ideogram 3 API.
- * Returns { imageBase64, description } or throws on failure.
+ * Step 2: Generate image via Ideogram 3 API using the prompt from Gemini.
  */
 async function generateWithIdeogram(
   topic: string,
@@ -116,15 +157,18 @@ async function generateWithIdeogram(
     throw new Error("IDEOGRAM_API_KEY не настроен");
   }
 
-  // Map app aspect ratios (16:9) → Ideogram format (16x9)
+  // Step 1: Gemini analyzes data and builds a visual prompt
+  const { ideogramPrompt, description } = await buildIdeogramPromptWithGemini(
+    topic, styleKey, documentText
+  );
+
+  // Step 2: Ideogram generates the image
   const arMap: Record<string, string> = {
     "16:9": "16x9",
     "1:1": "1x1",
     "9:16": "9x16",
   };
   const ideogramAR = (aspectRatio && arMap[aspectRatio]) || "16x9";
-
-  const prompt = buildIdeogramPrompt(topic, styleKey, documentText);
 
   const res = await Promise.race([
     fetch("https://api.ideogram.ai/v1/ideogram-v3/generate", {
@@ -134,12 +178,12 @@ async function generateWithIdeogram(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        prompt,
+        prompt: ideogramPrompt,
         aspect_ratio: ideogramAR,
         rendering_speed: "QUALITY",
         style_type: "DESIGN",
         magic_prompt: "OFF",
-        negative_prompt: "blurry text, misspelled words, garbled letters, Latin letters mixed with Cyrillic, unreadable text, gibberish",
+        negative_prompt: "blurry text, misspelled words, garbled letters, Latin letters mixed with Cyrillic, unreadable text, gibberish, wrong spelling",
       }),
     }),
     new Promise<never>((_, reject) =>
@@ -167,7 +211,7 @@ async function generateWithIdeogram(
   const mimeType = imgRes.headers.get("content-type") || "image/png";
   const imageBase64 = `data:${mimeType};base64,${imgBuffer.toString("base64")}`;
 
-  return { imageBase64, description: topic || "Инфографика" };
+  return { imageBase64, description };
 }
 
 export async function POST(req: NextRequest) {
