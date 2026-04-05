@@ -62,15 +62,57 @@ function fixCyrillicLookalikes(text: string): string {
 }
 
 /**
+ * Build a short, image-generation-friendly prompt for Ideogram.
+ * Ideogram is NOT an LLM — it needs concise visual descriptions,
+ * not long system instructions.
+ */
+function buildIdeogramPrompt(
+  topic: string,
+  styleKey: string,
+  documentText?: string
+): string {
+  const styleVisuals: Record<string, string> = {
+    business_infographic: "corporate business infographic with icons, charts, and structured data blocks, blue and gray color palette",
+    process_timeline: "timeline infographic showing sequential process steps with dates and descriptions, horizontal flow",
+    comparison_chart: "comparison infographic with parallel columns, contrasting colors for different options",
+    statistics_dashboard: "statistics dashboard with pie charts, bar graphs, and large KPI numbers",
+    process_flowchart: "flowchart diagram with rectangles for actions, diamonds for decisions, and connecting arrows",
+    hierarchy_orgchart: "organizational hierarchy chart with connected blocks showing structure",
+    mindmap: "mind map with central topic and radiating branches in different colors",
+    procedure_summary: "procedure summary with numbered steps in cards, icons, and highlighted key points",
+  };
+
+  const styleDesc = styleVisuals[styleKey] || "professional business infographic";
+
+  // Extract key data points from document if provided (very brief)
+  let dataHint = "";
+  if (documentText) {
+    const excerpt = documentText.slice(0, 2000);
+    // Pull out numbers, percentages, key terms
+    const numbers = excerpt.match(/\d+[%,.]?\d*/g)?.slice(0, 10) || [];
+    if (numbers.length > 0) {
+      dataHint = `. Include these data points: ${numbers.join(", ")}`;
+    }
+  }
+
+  const topicPart = topic
+    ? topic
+    : "business process overview";
+
+  return `Professional ${styleDesc}. Topic: "${topicPart}"${dataHint}. Clean modern design, minimal text, use icons and visual elements. Russian Cyrillic text only. No English text.`;
+}
+
+/**
  * Generate infographic via Ideogram 3 API.
  * Returns { imageBase64, description } or throws on failure.
  */
 async function generateWithIdeogram(
-  userPrompt: string,
-  aspectRatio?: string
+  topic: string,
+  styleKey: string,
+  aspectRatio?: string,
+  documentText?: string
 ): Promise<{ imageBase64: string; description: string }> {
   const apiKey = process.env.IDEOGRAM_API_KEY || "";
-  console.log("IDEOGRAM_API_KEY present:", !!apiKey, "length:", apiKey.length, "env keys:", Object.keys(process.env).filter(k => k.includes("IDEOGRAM")));
   if (!apiKey) {
     throw new Error("IDEOGRAM_API_KEY не настроен");
   }
@@ -83,7 +125,7 @@ async function generateWithIdeogram(
   };
   const ideogramAR = (aspectRatio && arMap[aspectRatio]) || "16x9";
 
-  const fullPrompt = `${SYSTEM_PROMPT}\n\n${userPrompt}`;
+  const prompt = buildIdeogramPrompt(topic, styleKey, documentText);
 
   const res = await Promise.race([
     fetch("https://api.ideogram.ai/v1/ideogram-v3/generate", {
@@ -93,9 +135,10 @@ async function generateWithIdeogram(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        prompt: fullPrompt,
+        prompt,
         aspect_ratio: ideogramAR,
         rendering_speed: "DEFAULT",
+        style_type: "DESIGN",
       }),
     }),
     new Promise<never>((_, reject) =>
@@ -123,9 +166,7 @@ async function generateWithIdeogram(
   const mimeType = imgRes.headers.get("content-type") || "image/png";
   const imageBase64 = `data:${mimeType};base64,${imgBuffer.toString("base64")}`;
 
-  const description = json.data?.[0]?.prompt || "";
-
-  return { imageBase64, description };
+  return { imageBase64, description: topic || "Инфографика" };
 }
 
 export async function POST(req: NextRequest) {
@@ -175,7 +216,7 @@ export async function POST(req: NextRequest) {
     // ── Ideogram 3 path ──
     if (useIdeogram) {
       try {
-        const { imageBase64, description } = await generateWithIdeogram(userPrompt, aspectRatio);
+        const { imageBase64, description } = await generateWithIdeogram(topicText, style || "business_infographic", aspectRatio, documentText);
         const descText = fixCyrillicLookalikes(description.trim());
 
         // Save to DB
