@@ -63,8 +63,8 @@ function fixCyrillicLookalikes(text: string): string {
 
 /**
  * Build a short, image-generation-friendly prompt for Ideogram.
- * Ideogram is NOT an LLM — it needs concise visual descriptions,
- * not long system instructions.
+ * Ideogram is NOT an LLM — it needs concise visual descriptions.
+ * Russian text that should appear on the image must be in quotes.
  */
 function buildIdeogramPrompt(
   topic: string,
@@ -73,33 +73,32 @@ function buildIdeogramPrompt(
 ): string {
   const styleVisuals: Record<string, string> = {
     business_infographic: "corporate business infographic with icons, charts, and structured data blocks, blue and gray color palette",
-    process_timeline: "timeline infographic showing sequential process steps with dates and descriptions, horizontal flow",
-    comparison_chart: "comparison infographic with parallel columns, contrasting colors for different options",
+    process_timeline: "timeline infographic showing sequential process steps, horizontal flow with arrows",
+    comparison_chart: "comparison infographic with parallel columns, contrasting colors",
     statistics_dashboard: "statistics dashboard with pie charts, bar graphs, and large KPI numbers",
-    process_flowchart: "flowchart diagram with rectangles for actions, diamonds for decisions, and connecting arrows",
-    hierarchy_orgchart: "organizational hierarchy chart with connected blocks showing structure",
-    mindmap: "mind map with central topic and radiating branches in different colors",
-    procedure_summary: "procedure summary with numbered steps in cards, icons, and highlighted key points",
+    process_flowchart: "flowchart diagram with rectangles for actions, diamonds for decisions, connecting arrows",
+    hierarchy_orgchart: "organizational hierarchy chart with connected blocks",
+    mindmap: "mind map with central topic and radiating colorful branches",
+    procedure_summary: "procedure summary with numbered steps in cards, icons, highlighted key points",
   };
 
   const styleDesc = styleVisuals[styleKey] || "professional business infographic";
 
-  // Extract key data points from document if provided (very brief)
+  // Extract short key phrases from document for data hints
   let dataHint = "";
   if (documentText) {
     const excerpt = documentText.slice(0, 2000);
-    // Pull out numbers, percentages, key terms
-    const numbers = excerpt.match(/\d+[%,.]?\d*/g)?.slice(0, 10) || [];
+    const numbers = excerpt.match(/\d+[%,.]?\d*/g)?.slice(0, 6) || [];
     if (numbers.length > 0) {
-      dataHint = `. Include these data points: ${numbers.join(", ")}`;
+      dataHint = ` Include data: ${numbers.join(", ")}.`;
     }
   }
 
-  const topicPart = topic
-    ? topic
-    : "business process overview";
+  // Keep topic short — truncate if too long for Ideogram (max ~200 chars for topic part)
+  const topicShort = topic ? topic.slice(0, 200) : "business process overview";
 
-  return `Professional ${styleDesc}. Topic: "${topicPart}"${dataHint}. Clean modern design, minimal text, use icons and visual elements. Russian Cyrillic text only. No English text.`;
+  // Put the Russian title text in quotes so Ideogram renders it on the image
+  return `Professional ${styleDesc}. Title text: "${topicShort}". Clean modern design, bold sans-serif Cyrillic font, minimal text on image, use icons, arrows, numbers and visual elements instead of words.${dataHint} All text in Russian Cyrillic script, perfectly spelled.`;
 }
 
 /**
@@ -137,8 +136,10 @@ async function generateWithIdeogram(
       body: JSON.stringify({
         prompt,
         aspect_ratio: ideogramAR,
-        rendering_speed: "DEFAULT",
+        rendering_speed: "QUALITY",
         style_type: "DESIGN",
+        magic_prompt: "OFF",
+        negative_prompt: "blurry text, misspelled words, garbled letters, Latin letters mixed with Cyrillic, unreadable text, gibberish",
       }),
     }),
     new Promise<never>((_, reject) =>
