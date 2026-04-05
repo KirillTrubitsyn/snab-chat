@@ -15,6 +15,8 @@ const IMAGE_MODELS = [
   "gemini-3-pro-image-preview",
 ];
 
+const IDEOGRAM_API_KEY = process.env.IDEOGRAM_API_KEY || "";
+
 const INFOGRAPHIC_STYLE_PROMPTS: Record<string, string> = {
   business_infographic:
     "Деловая корпоративная инфографика с чёткой структурой, иконками, числовыми данными и графиками. Используй синие и серые тона.",
@@ -61,9 +63,76 @@ function fixCyrillicLookalikes(text: string): string {
   return text.replace(/[ABCEHKMOPTXaceopxy]/g, (ch) => map[ch] ?? ch);
 }
 
+/**
+ * Generate infographic via Ideogram 3 API.
+ * Returns { imageBase64, description } or throws on failure.
+ */
+async function generateWithIdeogram(
+  userPrompt: string,
+  aspectRatio?: string
+): Promise<{ imageBase64: string; description: string }> {
+  if (!IDEOGRAM_API_KEY) {
+    throw new Error("IDEOGRAM_API_KEY не настроен");
+  }
+
+  // Map app aspect ratios (16:9) → Ideogram format (16x9)
+  const arMap: Record<string, string> = {
+    "16:9": "16x9",
+    "1:1": "1x1",
+    "9:16": "9x16",
+  };
+  const ideogramAR = (aspectRatio && arMap[aspectRatio]) || "16x9";
+
+  const fullPrompt = `${SYSTEM_PROMPT}\n\n${userPrompt}`;
+
+  const res = await Promise.race([
+    fetch("https://api.ideogram.ai/v1/ideogram-v3/generate", {
+      method: "POST",
+      headers: {
+        "Api-Key": IDEOGRAM_API_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        prompt: fullPrompt,
+        aspect_ratio: ideogramAR,
+        rendering_speed: "DEFAULT",
+      }),
+    }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Timeout: 90s")), 90_000)
+    ),
+  ]);
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Ideogram API error ${res.status}: ${body}`);
+  }
+
+  const json = await res.json();
+  const imageUrl = json.data?.[0]?.url;
+  if (!imageUrl) {
+    throw new Error("Ideogram не вернул изображение");
+  }
+
+  // Download image and convert to base64
+  const imgRes = await fetch(imageUrl);
+  if (!imgRes.ok) {
+    throw new Error("Не удалось загрузить изображение из Ideogram");
+  }
+  const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+  const mimeType = imgRes.headers.get("content-type") || "image/png";
+  const imageBase64 = `data:${mimeType};base64,${imgBuffer.toString("base64")}`;
+
+  const description = json.data?.[0]?.prompt || "";
+
+  return { imageBase64, description };
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { topic, style, aspectRatio, documentText, conversationId } = await req.json();
+    const { topic, style, aspectRatio, documentText, conversationId, model } = await req.json();
+
+    const useIdeogram = model === "ideogram";
 
     const hasDocumentText = documentText && typeof documentText === "string" && documentText.trim().length > 0;
     const topicText = (topic && typeof topic === "string") ? topic.trim() : "";
@@ -103,6 +172,55 @@ export async function POST(req: NextRequest) {
       userPrompt += `\n\nФормат изображения: ${arHints[aspectRatio]}`;
     }
 
+    // ── Ideogram 3 path ──
+    if (useIdeogram) {
+      try {
+        const { imageBase64, description } = await generateWithIdeogram(userPrompt, aspectRatio);
+        const descText = fixCyrillicLookalikes(description.trim());
+
+        // Save to DB
+        let savedId: string | null = null;
+        try {
+          const invite = await getInviteCodeFromHeader(req);
+          const supabase = createServiceClient();
+          const isRealInviteCode = invite?.id && !invite.id.startsWith("admin-");
+          const { data: saved, error: saveError } = await supabase
+            .from("infographics")
+            .insert({
+              invite_code_id: isRealInviteCode ? invite!.id : null,
+              conversation_id: (conversationId && typeof conversationId === "string") ? conversationId : null,
+              topic: topicText || (descText ? descText.slice(0, 120) : "Инфографика"),
+              style: style || "business_infographic",
+              aspect_ratio: aspectRatio || "16:9",
+              description: descText,
+              image_base64: imageBase64,
+            })
+            .select("id")
+            .single();
+          if (saveError) console.error("Infographic DB save error:", saveError.message);
+          savedId = saved?.id || null;
+        } catch (saveErr) {
+          console.error("Failed to save infographic:", saveErr);
+        }
+
+        console.log("Infographic generated successfully with model: ideogram-v3");
+        return NextResponse.json({
+          image_base64: imageBase64,
+          description: descText,
+          infographicId: savedId,
+          conversationId: conversationId || null,
+        });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : "Ошибка генерации";
+        console.error("Ideogram infographic error:", errMsg);
+        return NextResponse.json(
+          { error: `Не удалось сгенерировать инфографику (Ideogram): ${errMsg}` },
+          { status: 502 }
+        );
+      }
+    }
+
+    // ── Google Gemini path (default) ──
     // Try each model once with a 50s timeout — no retries, no delays
     for (const modelId of IMAGE_MODELS) {
       try {

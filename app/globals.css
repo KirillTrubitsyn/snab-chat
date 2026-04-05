@@ -3694,6 +3694,48 @@ input, textarea {
   color: var(--text-muted);
 }
 
+.infographic-model-group {
+  display: flex;
+  gap: 8px;
+}
+
+.infographic-model-btn {
+  flex: 1;
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.infographic-model-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.infographic-model-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.infographic-model-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.infographic-model-btn.active .infographic-model-label {
+  color: var(--accent);
+}
+
+.infographic-model-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .infographic-error {
   background: rgba(220, 38, 38, 0.08);
   color: var(--error);
