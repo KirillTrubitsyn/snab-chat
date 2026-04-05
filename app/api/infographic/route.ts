@@ -15,8 +15,6 @@ const IMAGE_MODELS = [
   "gemini-3-pro-image-preview",
 ];
 
-const IDEOGRAM_API_KEY = process.env.IDEOGRAM_API_KEY || "";
-
 const INFOGRAPHIC_STYLE_PROMPTS: Record<string, string> = {
   business_infographic:
     "Деловая корпоративная инфографика с чёткой структурой, иконками, числовыми данными и графиками. Используй синие и серые тона.",
@@ -71,7 +69,8 @@ async function generateWithIdeogram(
   userPrompt: string,
   aspectRatio?: string
 ): Promise<{ imageBase64: string; description: string }> {
-  if (!IDEOGRAM_API_KEY) {
+  const apiKey = process.env.IDEOGRAM_API_KEY || "";
+  if (!apiKey) {
     throw new Error("IDEOGRAM_API_KEY не настроен");
   }
 
@@ -89,7 +88,7 @@ async function generateWithIdeogram(
     fetch("https://api.ideogram.ai/v1/ideogram-v3/generate", {
       method: "POST",
       headers: {
-        "Api-Key": IDEOGRAM_API_KEY,
+        "Api-Key": apiKey,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
