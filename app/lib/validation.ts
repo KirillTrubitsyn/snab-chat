@@ -84,6 +84,7 @@ export const infographicSchema = z.object({
   aspectRatio: z.string().max(20).optional(),
   documentText: z.string().max(100000).optional(),
   conversationId: z.string().optional().nullable(),
+  model: z.enum(["google", "ideogram"]).optional(),
 });
 
 // ── Parse helper ──
