@@ -20,11 +20,6 @@ const ASPECT_RATIOS = [
   { key: "9:16", label: "9:16", desc: "Вертикальная" },
 ];
 
-const MODELS = [
-  { key: "google", label: "Google Gemini", desc: "Gemini Image Generation" },
-  { key: "ideogram", label: "Ideogram 3", desc: "Лучше с кириллицей" },
-];
-
 export default function InfographicPage() {
   const router = useRouter();
   const [topic, setTopic] = useState("");
@@ -32,7 +27,6 @@ export default function InfographicPage() {
   const [aspectRatio, setAspectRatio] = useState("16:9");
   const [documentText, setDocumentText] = useState("");
   const [conversationId, setConversationId] = useState("");
-  const [model, setModel] = useState("google");
   const [generating, setGenerating] = useState(false);
   const [savedToHistory, setSavedToHistory] = useState(false);
   const [resultImage, setResultImage] = useState("");
@@ -80,7 +74,6 @@ export default function InfographicPage() {
           aspectRatio,
           documentText,
           conversationId: conversationId || undefined,
-          model,
         }),
       });
 
@@ -243,23 +236,6 @@ export default function InfographicPage() {
                     >
                       <span className="infographic-ratio-value">{ar.label}</span>
                       <span className="infographic-ratio-desc">{ar.desc}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Model switcher */}
-              <div className="infographic-field">
-                <label className="infographic-label">Модель генерации</label>
-                <div className="infographic-model-group">
-                  {MODELS.map((m) => (
-                    <button
-                      key={m.key}
-                      className={`infographic-model-btn ${model === m.key ? "active" : ""}`}
-                      onClick={() => setModel(m.key)}
-                    >
-                      <span className="infographic-model-label">{m.label}</span>
-                      <span className="infographic-model-desc">{m.desc}</span>
                     </button>
                   ))}
                 </div>
