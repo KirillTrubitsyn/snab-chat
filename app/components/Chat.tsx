@@ -433,6 +433,32 @@ export default function Chat() {
     return () => { cancelled = true; };
   }, [activeConvId, setMessages]);
 
+  // ── Reload messages from server to replace temp IDs after streaming ──
+  const reloadMessagesFromServer = useCallback(async (convId: string) => {
+    try {
+      // Small delay to ensure server has saved the assistant message
+      await new Promise((r) => setTimeout(r, 1500));
+      const res = await fetch(`/api/conversations/messages?id=${convId}`, {
+        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+      });
+      const data = await res.json();
+      if (data.messages) {
+        setMessages(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data.messages.map((m: { id: string; role: string; content: string; metadata?: any }) => ({
+            id: m.id,
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            ...(m.metadata?.sources ? { sources: m.metadata.sources } : {}),
+            ...(m.metadata ? { metadata: m.metadata } : {}),
+          }))
+        );
+      }
+    } catch {
+      // ignore — messages are still visible with temp IDs
+    }
+  }, [setMessages]);
+
   // ── Sync messages when admin deletes them (poll + tab focus) ──
   useEffect(() => {
     if (!activeConvId) return;
@@ -960,6 +986,8 @@ export default function Chat() {
 
         pendingSubmitRef.current = null;
         setIsSending(false);
+        // Reload messages from server to replace temp IDs with real ones
+        reloadMessagesFromServer(newId);
         loadConversations();
         return;
       }
@@ -1060,9 +1088,11 @@ export default function Chat() {
         console.error("Stream error:", err);
       } finally {
         setIsSending(false);
+        // Reload messages from server to replace temp IDs with real ones
+        if (convIdRef.current) reloadMessagesFromServer(convIdRef.current);
       }
     },
-    [input, isLoading, isSending, messages, chatFiles, chatPhotos, setInput, setMessages, createConversation, loadConversations]
+    [input, isLoading, isSending, messages, chatFiles, chatPhotos, setInput, setMessages, createConversation, loadConversations, reloadMessagesFromServer]
   );
 
   /* ── Auto-scroll ── */
