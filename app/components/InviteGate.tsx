@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiUrl } from "@/app/lib/api";
 
 interface InviteGateProps {
   onSuccess: (data: {
@@ -56,7 +57,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     setLoading(true);
     try {
       const deviceId = getOrCreateDeviceId();
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch(apiUrl("/api/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: trimmed, device_id: deviceId }),
@@ -128,7 +129,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     setLoading(true);
     try {
       const deviceId = getOrCreateDeviceId();
-      const res = await fetch("/api/auth/register", {
+      const res = await fetch(apiUrl("/api/auth/register"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

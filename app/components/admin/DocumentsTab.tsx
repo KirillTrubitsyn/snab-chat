@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { apiUrl } from "@/app/lib/api";
 import DocumentViewer, { DocumentSource } from "../DocumentViewer";
 import KBSearchBar from "../KBSearchBar";
 import {
@@ -47,7 +48,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
   const loadSources = useCallback(async () => {
     setSourcesLoading(true);
     try {
-      const res = await fetch("/api/sources");
+      const res = await fetch(apiUrl("/api/sources"));
       const data = await res.json();
       if (data.sources) setSources(data.sources);
     } catch { /* ignore */ }
@@ -66,7 +67,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
   const deleteSource = async (sourceId: number) => {
     if (!confirm("Удалить этот документ из базы знаний?")) return;
     try {
-      await fetch(`/api/sources?id=${sourceId}`, { method: "DELETE", headers });
+      await fetch(apiUrl(`/api/sources?id=${sourceId}`), { method: "DELETE", headers });
       setSources((prev) => prev.filter((s) => s.id !== sourceId));
     } catch { /* ignore */ }
   };
@@ -76,7 +77,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
     if (!confirm(`Удалить ${selectedSourceIds.size} документ(ов) из базы знаний?`)) return;
     try {
       const ids = Array.from(selectedSourceIds);
-      await fetch("/api/sources", {
+      await fetch(apiUrl("/api/sources"), {
         method: "DELETE",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ ids }),
@@ -90,7 +91,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
   const updateSourceTags = async (sourceId: number, tags: string[]) => {
     setSources((prev) => prev.map((s) => (s.id === sourceId ? { ...s, tags } : s)));
     try {
-      await fetch(`/api/sources?id=${sourceId}`, {
+      await fetch(apiUrl(`/api/sources?id=${sourceId}`), {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ tags }),
@@ -102,7 +103,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
     setSources((prev) => prev.map((s) => (s.id === sourceId ? { ...s, folder_path: folderPath } : s)));
     setOpenMenuId(null);
     try {
-      await fetch(`/api/sources?id=${sourceId}`, {
+      await fetch(apiUrl(`/api/sources?id=${sourceId}`), {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ folder_path: folderPath }),
@@ -123,7 +124,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
     setSources((prev) => prev.map((s) => (s.id === sourceId ? { ...s, filename: newName } : s)));
     setRenamingId(null);
     try {
-      await fetch(`/api/sources?id=${sourceId}`, {
+      await fetch(apiUrl(`/api/sources?id=${sourceId}`), {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ filename: newName }),
@@ -158,7 +159,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
           formData.append("file", file);
         }
 
-        const res = await fetch("/api/parse", {
+        const res = await fetch(apiUrl("/api/parse"), {
           method: "POST",
           headers: { "x-admin-code": encodeURIComponent(adminCode) },
           body: formData,
@@ -189,7 +190,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
 
   const uploadLargeFile = async (file: File): Promise<string | null> => {
     try {
-      const res = await fetch("/api/upload-url", {
+      const res = await fetch(apiUrl("/api/upload-url"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -243,7 +244,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
       }
       formData.append("folderPath", parsedFileCategories[i] || "standards");
       try {
-        const ingestRes = await fetch("/api/ingest", {
+        const ingestRes = await fetch(apiUrl("/api/ingest"), {
           method: "POST",
           headers: { "x-admin-code": encodeURIComponent(adminCode) },
           body: formData,
@@ -389,7 +390,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
               if (src) setViewingSource(src);
             }}
             onDownload={(sourceId) => {
-              window.open("/api/sources/download?id=" + sourceId + "&action=download&token=" + encodeURIComponent(adminCode), "_blank");
+              window.open(apiUrl("/api/sources/download?id=" + sourceId + "&action=download&token=" + encodeURIComponent(adminCode)), "_blank");
             }}
           />
           <div className="admin-doc-list-view">
@@ -470,7 +471,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
                     <button className="admin-doc-action-btn" title="Просмотр" onClick={(e) => { e.stopPropagation(); setViewingSource(doc); }}>
                       <span className="material-symbols-outlined">visibility</span>
                     </button>
-                    <a href={`/api/sources/download?id=${doc.id}&action=download&token=${encodeURIComponent(adminCode)}`} className="admin-doc-action-btn" title="Скачать" onClick={(e) => e.stopPropagation()}>
+                    <a href={apiUrl(`/api/sources/download?id=${doc.id}&action=download&token=${encodeURIComponent(adminCode)}`)} className="admin-doc-action-btn" title="Скачать" onClick={(e) => e.stopPropagation()}>
                       <span className="material-symbols-outlined">download</span>
                     </a>
                     {isDocAdmin && <div style={{ position: "relative" }}>

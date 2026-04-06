@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { apiUrl } from "@/app/lib/api";
 import { formatDateTime } from "@/app/lib/date-utils";
 import type { UserMessageItem } from "./types";
 
@@ -15,7 +16,7 @@ export default function MessagesTab({ adminCode }: { adminCode: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/activity?type=messages", { headers });
+      const res = await fetch(apiUrl("/api/admin/activity?type=messages"), { headers });
       const data = await res.json();
       if (data.messages) setMessages(data.messages);
     } catch { /* ignore */ }
@@ -39,7 +40,7 @@ export default function MessagesTab({ adminCode }: { adminCode: string }) {
     setDeleting(true);
     try {
       const ids = Array.from(selectedIds).join(",");
-      await fetch(`/api/admin/activity?type=messages&ids=${ids}`, { method: "DELETE", headers });
+      await fetch(apiUrl(`/api/admin/activity?type=messages&ids=${ids}`), { method: "DELETE", headers });
       setSelectedIds(new Set());
       load();
     } catch { /* ignore */ }
@@ -49,7 +50,7 @@ export default function MessagesTab({ adminCode }: { adminCode: string }) {
   const deleteSingle = async (id: string) => {
     if (!confirm("Удалить это сообщение?")) return;
     try {
-      await fetch(`/api/admin/activity?type=messages&ids=${id}`, { method: "DELETE", headers });
+      await fetch(apiUrl(`/api/admin/activity?type=messages&ids=${id}`), { method: "DELETE", headers });
       setSelectedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
       load();
     } catch { /* ignore */ }

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { sanitizeHtml } from "@/app/lib/sanitize";
+import { apiUrl } from "@/app/lib/api";
 import ExcelViewer from "./ExcelViewer";
 import type { Source, ExcelSheet } from "./types";
 
@@ -115,14 +116,14 @@ export default function ChatDocumentViewer({
       return;
     }
     if (isPptx && hasOriginal) {
-      fetch(`/api/sources/pptx-slides?id=${source.id}`, { headers: authHeaders })
+      fetch(apiUrl(`/api/sources/pptx-slides?id=${source.id}`), { headers: authHeaders })
         .then((r) => r.json())
         .then((d) => {
           if (d.slides && d.slides.length > 0) {
             setPptxSlides(d.slides);
             setLoading(false);
           } else {
-            fetch(`/api/sources/content?id=${source.id}`, { headers: authHeaders })
+            fetch(apiUrl(`/api/sources/content?id=${source.id}`), { headers: authHeaders })
               .then((r) => r.json())
               .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
               .catch(() => setContent("Не удалось загрузить содержимое"))
@@ -130,7 +131,7 @@ export default function ChatDocumentViewer({
           }
         })
         .catch(() => {
-          fetch(`/api/sources/content?id=${source.id}`, { headers: authHeaders })
+          fetch(apiUrl(`/api/sources/content?id=${source.id}`), { headers: authHeaders })
             .then((r) => r.json())
             .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
             .catch(() => setContent("Не удалось загрузить содержимое"))
@@ -139,14 +140,14 @@ export default function ChatDocumentViewer({
       return;
     }
     if (isExcel) {
-      fetch(`/api/sources/excel-data?id=${source.id}`, { headers: authHeaders })
+      fetch(apiUrl(`/api/sources/excel-data?id=${source.id}`), { headers: authHeaders })
         .then((r) => r.json())
         .then((d) => {
           if (d.sheets && d.sheets.length > 0) {
             setExcelSheets(d.sheets);
             setLoading(false);
           } else {
-            fetch(`/api/sources/content?id=${source.id}`, { headers: authHeaders })
+            fetch(apiUrl(`/api/sources/content?id=${source.id}`), { headers: authHeaders })
               .then((r) => r.json())
               .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
               .catch(() => setContent("Не удалось загрузить содержимое"))
@@ -160,14 +161,14 @@ export default function ChatDocumentViewer({
       return;
     }
     if (isDocx && hasOriginal) {
-      fetch(`/api/sources/docx-html?id=${source.id}`, { headers: authHeaders })
+      fetch(apiUrl(`/api/sources/docx-html?id=${source.id}`), { headers: authHeaders })
         .then((r) => r.json())
         .then((d) => {
           if (d.html) {
             setDocxHtml(d.html);
             setLoading(false);
           } else {
-            fetch(`/api/sources/content?id=${source.id}`, { headers: authHeaders })
+            fetch(apiUrl(`/api/sources/content?id=${source.id}`), { headers: authHeaders })
               .then((r) => r.json())
               .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
               .catch(() => setContent("Не удалось загрузить содержимое"))
@@ -175,7 +176,7 @@ export default function ChatDocumentViewer({
           }
         })
         .catch(() => {
-          fetch(`/api/sources/content?id=${source.id}`, { headers: authHeaders })
+          fetch(apiUrl(`/api/sources/content?id=${source.id}`), { headers: authHeaders })
               .then((r) => r.json())
               .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
               .catch(() => setContent("Не удалось загрузить содержимое"))
@@ -183,7 +184,7 @@ export default function ChatDocumentViewer({
         });
       return;
     }
-    fetch(`/api/sources/content?id=${source.id}`, { headers: authHeaders })
+    fetch(apiUrl(`/api/sources/content?id=${source.id}`), { headers: authHeaders })
       .then((r) => r.json())
       .then((d) => setContent(d.markdown || ""))
       .catch(() => setContent("Не удалось загрузить содержимое"))
@@ -206,7 +207,7 @@ export default function ChatDocumentViewer({
                 const isMd = source.filename.endsWith(".md") || source.mime_type === "application/x-denormalized";
                 const endpoint = !hasOriginal && isMd ? "download-docx" : "download";
                 window.open(
-                  `/api/sources/${endpoint}?id=${source.id}&action=download${inviteCode ? `&token=${encodeURIComponent(inviteCode)}` : ""}`,
+                  apiUrl(`/api/sources/${endpoint}?id=${source.id}&action=download${inviteCode ? `&token=${encodeURIComponent(inviteCode)}` : ""}`),
                   "_blank"
                 );
               }}
@@ -228,7 +229,7 @@ export default function ChatDocumentViewer({
             <div className="document-viewer-loading">Загрузка...</div>
           ) : isPdf && hasOriginal ? (
             <iframe
-              src={`/api/sources/download?id=${source.id}&action=view${inviteCode ? `&token=${encodeURIComponent(inviteCode)}` : ""}`}
+              src={apiUrl(`/api/sources/download?id=${source.id}&action=view${inviteCode ? `&token=${encodeURIComponent(inviteCode)}` : ""}`)}
               className="document-viewer-iframe"
               title={source.filename}
             />

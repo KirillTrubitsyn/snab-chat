@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { apiUrl } from "@/app/lib/api";
 
 export default function SettingsTab({ adminCode }: { adminCode: string }) {
   const [webhookStatus, setWebhookStatus] = useState<string | null>(null);
@@ -12,7 +13,7 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
     setWebhookLoading(true);
     setWebhookStatus(null);
     try {
-      const res = await fetch("/api/telegram/setup", { method: "POST", headers });
+      const res = await fetch(apiUrl("/api/telegram/setup"), { method: "POST", headers });
       const data = await res.json();
       if (res.ok) {
         const ok = data.telegram_response?.ok;
