@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { parseMarkdownTables } from "@/app/lib/markdown-tables";
 import { getInviteCodeFromHeader } from "@/app/lib/auth";
 import { unauthorizedResponse } from "@/app/lib/api-helpers";
@@ -41,40 +41,52 @@ export async function GET(req: NextRequest) {
 
     if (!downloadError && fileData) {
       const buffer = Buffer.from(await fileData.arrayBuffer());
-      const workbook = XLSX.read(buffer, { type: "buffer" });
+      const workbook = new ExcelJS.Workbook();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await workbook.xlsx.load(buffer as any);
       const sheets: ExcelSheet[] = [];
 
-      for (const sheetName of workbook.SheetNames) {
-        const sheet = workbook.Sheets[sheetName];
-        if (!sheet) continue;
+      for (const ws of workbook.worksheets) {
+        const totalCols = ws.columnCount;
+        if (ws.rowCount === 0 || totalCols === 0) continue;
 
-        const rows: string[][] = XLSX.utils.sheet_to_json(sheet, {
-          header: 1,
-          defval: "",
-          raw: false,
+        const rows: string[][] = [];
+        ws.eachRow({ includeEmpty: false }, (row) => {
+          const vals: string[] = [];
+          for (let c = 1; c <= totalCols; c++) {
+            const cell = row.getCell(c);
+            vals.push(cell.text ?? String(cell.value ?? ""));
+          }
+          rows.push(vals);
         });
 
         if (rows.length === 0) continue;
 
-        // Get merged cells
-        const merges = (sheet["!merges"] || []).map((m) => ({
-          s: { r: m.s.r, c: m.s.c },
-          e: { r: m.e.r, c: m.e.c },
-        }));
-
-        // Get column widths
-        const cols = sheet["!cols"] || [];
-        const maxCols = Math.max(...rows.map((r) => r.length), 0);
-        const colWidths: number[] = [];
-        for (let i = 0; i < maxCols; i++) {
-          const w = cols[i]?.wch || cols[i]?.wpx
-            ? Math.round((cols[i]?.wpx || 64) / 7)
-            : 0;
-          colWidths.push(w);
+        // Get merged cells (convert to 0-based format matching old API)
+        const merges: ExcelSheet["merges"] = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const wsAny = ws as any;
+        if (wsAny._merges) {
+          for (const key of Object.keys(wsAny._merges)) {
+            const m = wsAny._merges[key].model;
+            merges.push({
+              s: { r: m.top - 1, c: m.left - 1 },
+              e: { r: m.bottom - 1, c: m.right - 1 },
+            });
+          }
         }
 
+        // Get column widths
+        const colWidths: number[] = [];
+        for (let i = 1; i <= totalCols; i++) {
+          const col = ws.getColumn(i);
+          colWidths.push(col.width ? Math.round(col.width) : 0);
+        }
+
+        // Normalize row lengths
+        const maxCols = Math.max(...rows.map((r) => r.length), 0);
         sheets.push({
-          name: sheetName,
+          name: ws.name,
           rows: rows.map((row) =>
             Array.from({ length: maxCols }, (_, i) => String(row[i] ?? ""))
           ),
@@ -100,11 +112,11 @@ export async function GET(req: NextRequest) {
 
   const markdown = chunks.map((c) => c.content).join("\n\n");
   const parsed = parseMarkdownTables(markdown, source.filename);
-  const sheets: ExcelSheet[] = parsed.map((s) => ({
+  const excelSheets: ExcelSheet[] = parsed.map((s) => ({
     ...s,
     merges: [],
     colWidths: [],
   }));
 
-  return NextResponse.json({ sheets, filename: source.filename });
+  return NextResponse.json({ sheets: excelSheets, filename: source.filename });
 }
