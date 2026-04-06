@@ -3,6 +3,11 @@ import { embedQuery } from "./embeddings";
 import type { IntentResult, QueryIntent } from "./intent-classifier";
 import type { SectionReference, DocumentReference, CatalogQuery } from "./query-analyzer";
 
+/** Escape special regex characters to prevent ReDoS and syntax errors */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export interface SearchResult {
   id: string;
   content: string;
@@ -362,7 +367,7 @@ export async function fetchChunksBySection(
 
   // Filter chunks that actually contain the section reference
   const sectionRegexes = ref.sections.map((s) => {
-    const escaped = s.replace(/\./g, "\\.");
+    const escaped = escapeRegExp(s);
     // Match: "61." "61 " "Пункт 61" at various positions
     return new RegExp(
       `(?:^|\\n|\\s)${escaped}[\\.\\s\\)]|` +        // "61." or "61 " or "61)" at boundaries
@@ -528,7 +533,7 @@ export async function fetchChunksByDocument(
           const lower = chunk.content.toLowerCase();
           let score = 0;
           for (const kw of keywords) {
-            const regex = new RegExp(kw, "gi");
+            const regex = new RegExp(escapeRegExp(kw), "gi");
             const matches = lower.match(regex);
             if (matches) score += matches.length;
           }
@@ -580,7 +585,7 @@ export async function fetchChunksByDocument(
       const lower = chunk.content.toLowerCase();
       let score = 0;
       for (const kw of keywords) {
-        const regex = new RegExp(kw, "gi");
+        const regex = new RegExp(escapeRegExp(kw), "gi");
         const matches = lower.match(regex);
         if (matches) score += matches.length;
       }

@@ -238,12 +238,24 @@ router.get("/api/sources/excel-data", async (req: Request, res: Response) => {
     const { data, error } = await supabase.storage.from("documents").download(storagePath);
     if (error || !data) return res.status(404).json({ error: "File not found" });
 
-    const XLSX = await import("xlsx");
+    const ExcelJS = await import("exceljs");
     const buffer = Buffer.from(await data.arrayBuffer());
-    const workbook = XLSX.read(buffer, { type: "buffer" });
+    const workbook = new ExcelJS.default.Workbook();
+    await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
     const sheets: Record<string, unknown[]> = {};
-    for (const name of workbook.SheetNames) {
-      sheets[name] = XLSX.utils.sheet_to_json(workbook.Sheets[name], { defval: "" });
+    for (const ws of workbook.worksheets) {
+      const rows: Record<string, unknown>[] = [];
+      const headers: string[] = [];
+      ws.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) {
+          row.eachCell((cell, colNumber) => { headers[colNumber - 1] = String(cell.value ?? `Col${colNumber}`); });
+        } else {
+          const obj: Record<string, unknown> = {};
+          row.eachCell((cell, colNumber) => { obj[headers[colNumber - 1] ?? `Col${colNumber}`] = cell.value ?? ""; });
+          rows.push(obj);
+        }
+      });
+      sheets[ws.name] = rows;
     }
     return res.json({ sheets });
   } catch (err) {

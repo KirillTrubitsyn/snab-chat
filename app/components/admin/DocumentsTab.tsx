@@ -16,7 +16,7 @@ import type { Source, ParsedFile } from "./types";
 const DOC_CATEGORIES = DOCUMENT_CATEGORIES;
 
 export default function DocumentsTab({ adminCode }: { adminCode: string }) {
-  const isDocAdmin = adminCode.toUpperCase() === "КИРИЛЛ-АДМИН";
+  const isDocAdmin = typeof window !== "undefined" && localStorage.getItem("snabchat_is_doc_admin") === "true";
   const [sources, setSources] = useState<Source[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(false);
   const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);

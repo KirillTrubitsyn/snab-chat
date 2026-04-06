@@ -150,7 +150,14 @@ export async function DELETE(req: NextRequest) {
 
   // Delete all conversations
   if (all === "true") {
+    const confirm = searchParams.get("confirm");
     if (isAdminCode(invite.code)) {
+      if (confirm !== "true") {
+        return NextResponse.json(
+          { error: "Для удаления всех диалогов передайте параметр confirm=true" },
+          { status: 400 }
+        );
+      }
       // Админ может удалить всё
       await supabase.from("messages").delete().neq("id", "00000000-0000-0000-0000-000000000000");
       const { error } = await supabase.from("conversations").delete().neq("id", "00000000-0000-0000-0000-000000000000");
@@ -253,14 +260,25 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Missing id or title" }, { status: 400 });
   }
 
-  const { error } = await supabase
+  // Build query with ownership check: admins can rename any, users only their own
+  let query = supabase
     .from("conversations")
     .update({ title: title.trim().slice(0, 200) })
     .eq("id", id);
 
+  if (!isAdminCode(invite.code)) {
+    query = query.eq("invite_code_id", invite.id);
+  }
+
+  const { error, data } = await query.select("id");
+
   if (error) {
     console.error("Rename conversation error:", error.message);
     return serverError();
+  }
+
+  if (!data || data.length === 0) {
+    return notFound("Диалог не найден");
   }
 
   return ok({ ok: true });

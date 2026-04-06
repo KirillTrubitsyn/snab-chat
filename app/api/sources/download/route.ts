@@ -63,6 +63,9 @@ export async function GET(req: NextRequest) {
         headers: {
           "Content-Type": source.mime_type || "application/octet-stream",
           "Content-Disposition": disposition,
+          "Cache-Control": "no-store",
+          "Referrer-Policy": "no-referrer",
+          "X-Content-Type-Options": "nosniff",
         },
       });
     }
@@ -94,6 +97,9 @@ export async function GET(req: NextRequest) {
       headers: {
         "Content-Type": source.mime_type || "application/octet-stream",
         "Content-Disposition": `inline; filename="${encodeURIComponent(source.filename)}"`,
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   }
@@ -110,6 +116,9 @@ export async function GET(req: NextRequest) {
     headers: {
       "Content-Type": "text/markdown; charset=utf-8",
       "Content-Disposition": disposition,
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

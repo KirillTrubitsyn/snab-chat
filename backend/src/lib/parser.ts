@@ -14,9 +14,9 @@ const mammoth = require("mammoth") as {
     ) => unknown;
   };
 };
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import JSZip from "jszip";
-import { google, withGoogleApiLimit } from "./google-ai.js";
+import { google, withGoogleApiLimit } from "./google-ai";
 import { generateText } from "ai";
 
 const PPTX_MIME =
@@ -107,7 +107,7 @@ export async function parseToMarkdown(
     filename.endsWith(".xlsx") ||
     filename.endsWith(".xls")
   ) {
-    return { markdown: parseExcelToMarkdown(buffer, filename), images: [] };
+    return { markdown: await parseExcelToMarkdown(buffer, filename), images: [] };
   }
 
   if (
@@ -620,7 +620,7 @@ async function parseImageToMarkdown(
           ],
         },
       ],
-      maxTokens: 8000,
+      maxOutputTokens: 8000,
       temperature: 0,
     })
   );
@@ -643,45 +643,55 @@ function validateMagicBytes(
   }
 }
 
-function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
+async function parseExcelToMarkdown(buffer: Buffer, filename: string): Promise<string> {
   validateMagicBytes(buffer, [ZIP_MAGIC, OLE2_MAGIC], "Excel");
 
-  const workbook = XLSX.read(buffer, { type: "buffer", cellStyles: true });
+  const workbook = new ExcelJS.Workbook();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await workbook.xlsx.load(buffer as any);
+
   const parts: string[] = [];
 
   const cleanName = filename.replace(/\.(xlsx|xls)$/i, "").replace(/_/g, " ");
   parts.push(`# ${cleanName}\n`);
 
-  for (const sheetName of workbook.SheetNames) {
-    const sheet = workbook.Sheets[sheetName];
-    if (!sheet) continue;
+  const sheetNames = workbook.worksheets.map((ws) => ws.name);
 
-    const range = XLSX.utils.decode_range(sheet["!ref"] || "A1");
-    const totalRows = range.e.r - range.s.r + 1;
-    const totalCols = range.e.c - range.s.c + 1;
+  for (const ws of workbook.worksheets) {
+    const totalRows = ws.rowCount;
+    const totalCols = ws.columnCount;
     if (totalRows === 0 || totalCols === 0) continue;
 
-    if (workbook.SheetNames.length > 1) {
-      parts.push(`## Лист: ${sheetName}\n`);
+    if (sheetNames.length > 1) {
+      parts.push(`## Лист: ${ws.name}\n`);
     }
 
-    const rows: string[][] = XLSX.utils.sheet_to_json(sheet, {
-      header: 1,
-      defval: "",
-      blankrows: false,
+    // Read all rows as string arrays
+    const rows: string[][] = [];
+    ws.eachRow({ includeEmpty: false }, (row) => {
+      const vals: string[] = [];
+      for (let c = 1; c <= totalCols; c++) {
+        const cell = row.getCell(c);
+        vals.push(cell.text ?? String(cell.value ?? ""));
+      }
+      rows.push(vals);
     });
 
     if (rows.length === 0) continue;
 
-    const merges = sheet["!merges"] || [];
+    // Build merge map from worksheet merges
     const mergeMap = new Map<string, string>();
-    for (const merge of merges) {
-      const topLeft = XLSX.utils.encode_cell({ r: merge.s.r, c: merge.s.c });
-      const val = sheet[topLeft]?.v ?? "";
-      for (let r = merge.s.r; r <= merge.e.r; r++) {
-        for (let c = merge.s.c; c <= merge.e.c; c++) {
-          const key = `${r}:${c}`;
-          mergeMap.set(key, String(val));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wsAny = ws as any;
+    if (wsAny._merges) {
+      for (const key of Object.keys(wsAny._merges)) {
+        const m = wsAny._merges[key].model;
+        const topCell = ws.getRow(m.top).getCell(m.left);
+        const val = topCell.text ?? String(topCell.value ?? "");
+        for (let r = m.top; r <= m.bottom; r++) {
+          for (let c = m.left; c <= m.right; c++) {
+            mergeMap.set(`${r - 1}:${c - 1}`, val);
+          }
         }
       }
     }
@@ -693,10 +703,13 @@ function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
         (String(c).length < 80 && isNaN(Number(c)))
     );
 
+    // Get the starting row index (ExcelJS rows are 1-based, but our array is 0-based)
+    // We use 0-based indexing for the mergeMap keys
+
     if (rows.length <= 30) {
       const header = rows[0].map((c, j) => {
         const val = String(c).replace(/\|/g, "\\|").replace(/\n/g, " ").trim();
-        return val || mergeMap.get(`${range.s.r}:${range.s.c + j}`) || "";
+        return val || mergeMap.get(`0:${j}`) || "";
       });
       if (header.length === 0 || header.every((h) => h === "")) continue;
 
@@ -711,7 +724,7 @@ function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
             header
               .map((_, j) => {
                 const raw = String(row[j] ?? "").trim();
-                const merged = raw || mergeMap.get(`${range.s.r + i}:${range.s.c + j}`) || "";
+                const merged = raw || mergeMap.get(`${i}:${j}`) || "";
                 return merged.replace(/\|/g, "\\|").replace(/\n/g, " ").trim();
               })
               .join(" | ") +
@@ -739,7 +752,7 @@ function parseExcelToMarkdown(buffer: Buffer, filename: string): string {
           const pairs = headerRow
             .map((h, j) => {
               const raw = String(row[j] ?? "").trim();
-              const val = raw || mergeMap.get(`${range.s.r + dataStartRow + i}:${range.s.c + j}`) || "";
+              const val = raw || mergeMap.get(`${dataStartRow + i}:${j}`) || "";
               const hStr = String(h).trim();
               return val && hStr ? `${hStr}: ${val}` : null;
             })

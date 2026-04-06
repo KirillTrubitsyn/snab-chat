@@ -236,7 +236,7 @@ export async function classifyOffTopic(
       model: google("gemini-3.1-flash-lite-preview"),
       system: CLASSIFIER_PROMPT,
       prompt: userPrompt,
-      maxTokens: 20,
+      maxOutputTokens: 20,
       temperature: 0,
     });
 
