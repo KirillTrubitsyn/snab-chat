@@ -854,7 +854,7 @@ export default function Chat() {
       // Prepare attached documents from chatFiles + chatPhotos
       const readyFiles = chatFiles.filter((f) => !f.parsing && !f.error && f.markdown);
       const readyPhotos = chatPhotos.filter((p) => !p.parsing && !p.error && p.markdown);
-      const attachedDocuments = [
+      const attachedDocuments: Array<{ filename: string; markdown: string }> = [
         ...readyFiles.map((f) => ({ filename: f.filename, markdown: f.markdown })),
         ...readyPhotos.map((p, i) => ({ filename: p.file.name || `Фото ${i + 1}`, markdown: p.markdown })),
       ];
@@ -862,6 +862,30 @@ export default function Chat() {
         ...readyFiles.map((f) => f.filename),
         ...readyPhotos.map((p) => p.file.name || "Фото"),
       ];
+
+      // ── Auto-detect and fetch URLs from message text ──
+      const urlRegex = /https?:\/\/[^\s<>"{}|\\^`[\]]+/gi;
+      const detectedUrls = text ? [...new Set(text.match(urlRegex) || [])] : [];
+      if (detectedUrls.length > 0) {
+        const urlResults = await Promise.allSettled(
+          detectedUrls.slice(0, 5).map(async (url) => {
+            const res = await fetch("/api/fetch-url", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+              body: JSON.stringify({ url }),
+            });
+            if (!res.ok) return null;
+            return res.json();
+          })
+        );
+        for (const result of urlResults) {
+          if (result.status === "fulfilled" && result.value) {
+            const { title, url: fetchedUrl, markdown } = result.value;
+            attachedDocuments.push({ filename: `${title} (${fetchedUrl})`, markdown });
+            attachmentNames.push(title || fetchedUrl);
+          }
+        }
+      }
       const messageText = text || (attachmentNames.length > 0 ? `Проверь ${attachmentNames.length === 1 ? "документ" : "документы"}: ${attachmentNames.join(", ")}` : "");
 
       // Phase 2: Save newly attached documents to session for future messages
