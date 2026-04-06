@@ -3,49 +3,102 @@ import { createServiceClient } from "./supabase";
 import { adminRequiredResponse, unauthorizedResponse } from "./api-helpers";
 
 // ============================================================
-// Захардкоженные админ-коды
+// Админ-коды из переменной окружения ADMIN_CODES_JSON
+// Формат: [{"code":"ADMIN-CODE","name":"Full Name","number":1,"isDocAdmin":false}, ...]
 // ============================================================
 
-const ADMIN_CODES: Record<string, string> = {
-  "ИВАН-АДМИН": "Козлов Иван Евгеньевич",
-  "АНДРЕЙ-АДМИН": "Лунев Андрей Эдуардович",
-  "КИРИЛЛ-АДМИН": "Трубицын Кирилл Андреевич",
-  "ВИТАЛИЙ-АДМИН": "Емельянов Виталий Сергеевич",
-};
+interface AdminEntry {
+  code: string;
+  name: string;
+  number: number;
+  isDocAdmin?: boolean;
+}
 
-// Порядковый номер админа (для отображения пользователю без ФИО)
-const ADMIN_NUMBERS: Record<string, number> = {
-  "ИВАН-АДМИН": 1,
-  "АНДРЕЙ-АДМИН": 2,
-  "КИРИЛЛ-АДМИН": 3,
-  "ВИТАЛИЙ-АДМИН": 4,
-};
+function loadAdminCodes(): AdminEntry[] {
+  const raw = process.env.ADMIN_CODES_JSON;
+  if (!raw) {
+    console.warn("[auth] ADMIN_CODES_JSON not set — no admin codes configured");
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error("Expected array");
+    return parsed.map((e: Record<string, unknown>) => ({
+      code: String(e.code).toUpperCase(),
+      name: String(e.name),
+      number: Number(e.number),
+      isDocAdmin: Boolean(e.isDocAdmin),
+    }));
+  } catch (err) {
+    console.error("[auth] Failed to parse ADMIN_CODES_JSON:", err);
+    return [];
+  }
+}
 
-// Имена админов по порядковому номеру (для Telegram webhook)
-export const ADMIN_NAMES_BY_NUMBER: Record<number, string> = {
-  1: "Козлов Иван Евгеньевич",
-  2: "Лунев Андрей Эдуардович",
-  3: "Трубицын Кирилл Андреевич",
-  4: "Емельянов Виталий Сергеевич",
-};
+let _adminEntries: AdminEntry[] | null = null;
+function getAdminEntries(): AdminEntry[] {
+  if (!_adminEntries) _adminEntries = loadAdminCodes();
+  return _adminEntries;
+}
+
+// Derived lookup maps (lazy-initialized)
+function getAdminCodesMap(): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const e of getAdminEntries()) map[e.code] = e.name;
+  return map;
+}
+
+function getAdminNumbersMap(): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (const e of getAdminEntries()) map[e.code] = e.number;
+  return map;
+}
+
+export function getAdminNamesByNumber(): Record<number, string> {
+  const map: Record<number, string> = {};
+  for (const e of getAdminEntries()) map[e.number] = e.name;
+  return map;
+}
+
+// Keep backward-compatible export (lazy getter)
+export const ADMIN_NAMES_BY_NUMBER: Record<number, string> = new Proxy(
+  {} as Record<number, string>,
+  {
+    get(_, prop) {
+      return getAdminNamesByNumber()[prop as unknown as number];
+    },
+    ownKeys() {
+      return Object.keys(getAdminNamesByNumber());
+    },
+    getOwnPropertyDescriptor(_, prop) {
+      const map = getAdminNamesByNumber();
+      if (prop in map) {
+        return { enumerable: true, configurable: true, value: map[prop as unknown as number] };
+      }
+      return undefined;
+    },
+  }
+);
 
 export function isAdminCode(code: string): boolean {
-  return code.toUpperCase() in ADMIN_CODES;
+  return code.toUpperCase() in getAdminCodesMap();
 }
 
 /**
- * Только КИРИЛЛ-АДМИН может загружать/удалять документы в базу знаний
+ * Проверяет, является ли код администратором документов (загрузка/удаление в базу знаний).
+ * Определяется полем isDocAdmin в ADMIN_CODES_JSON.
  */
 export function isDocumentAdmin(code: string): boolean {
-  return code.toUpperCase() === "КИРИЛЛ-АДМИН";
+  const entry = getAdminEntries().find((e) => e.code === code.toUpperCase());
+  return entry?.isDocAdmin === true;
 }
 
 export function getAdminName(code: string): string | null {
-  return ADMIN_CODES[code.toUpperCase()] ?? null;
+  return getAdminCodesMap()[code.toUpperCase()] ?? null;
 }
 
 export function getAdminNumber(code: string): number | null {
-  return ADMIN_NUMBERS[code.toUpperCase()] ?? null;
+  return getAdminNumbersMap()[code.toUpperCase()] ?? null;
 }
 
 // ============================================================
@@ -209,7 +262,7 @@ export function requireAdmin(
 }
 
 /**
- * Проверяет, что запрос от КИРИЛЛ-АДМИН (единственный кто может управлять документами)
+ * Проверяет, что запрос от администратора с правами управления документами (isDocAdmin)
  */
 export function requireDocumentAdmin(
   req: NextRequest

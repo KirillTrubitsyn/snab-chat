@@ -74,6 +74,11 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         localStorage.setItem("snabchat_user_name", data.adminName);
         localStorage.setItem("snabchat_is_admin", "true");
         localStorage.setItem("snabchat_invite_code", data.code);
+        if (data.isDocumentAdmin) {
+          localStorage.setItem("snabchat_is_doc_admin", "true");
+        } else {
+          localStorage.removeItem("snabchat_is_doc_admin");
+        }
         router.push("/admin");
       } else {
         localStorage.setItem("snabchat_invite_code", data.code);
