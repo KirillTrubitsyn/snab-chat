@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { sanitizeHtml } from "@/app/lib/sanitize";
+import { apiUrl } from "@/app/lib/api";
 
 export interface DocumentSource {
   id: number;
@@ -199,7 +200,7 @@ export default function DocumentViewer({
       setResolved(null);
       return;
     }
-    fetch(`/api/sources/resolve?id=${source.id}`, { headers: authHeaders })
+    fetch(apiUrl(`/api/sources/resolve?id=${source.id}`), { headers: authHeaders })
       .then((r) => r.json())
       .then((d) => {
         if (d.original) {
@@ -247,7 +248,7 @@ export default function DocumentViewer({
     }
 
     if (srcIsPptx && srcHasOriginal) {
-      fetch(`/api/sources/pptx-slides?id=${src.id}`, { headers: authHeaders })
+      fetch(apiUrl(`/api/sources/pptx-slides?id=${src.id}`), { headers: authHeaders })
         .then((r) => r.json())
         .then((d) => {
           if (d.slides && d.slides.length > 0) {
@@ -262,7 +263,7 @@ export default function DocumentViewer({
     }
 
     if (srcIsExcel && srcHasOriginal) {
-      fetch(`/api/sources/excel-data?id=${src.id}`, { headers: authHeaders })
+      fetch(apiUrl(`/api/sources/excel-data?id=${src.id}`), { headers: authHeaders })
         .then((r) => r.json())
         .then((d) => {
           if (d.sheets && d.sheets.length > 0) {
@@ -283,7 +284,7 @@ export default function DocumentViewer({
     }
 
     if (srcIsDocx && srcHasOriginal) {
-      fetch(`/api/sources/docx-html?id=${src.id}`, { headers: authHeaders })
+      fetch(apiUrl(`/api/sources/docx-html?id=${src.id}`), { headers: authHeaders })
         .then((r) => r.json())
         .then((d) => {
           if (d.html) {
@@ -302,7 +303,7 @@ export default function DocumentViewer({
   }
 
   function fetchContent(id: number) {
-    fetch(`/api/sources/content?id=${id}`, { headers: authHeaders })
+    fetch(apiUrl(`/api/sources/content?id=${id}`), { headers: authHeaders })
       .then((r) => r.json())
       .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
       .catch(() => setContent("Не удалось загрузить содержимое"))
@@ -323,7 +324,7 @@ export default function DocumentViewer({
               style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13 }}
               onClick={() =>
                 window.open(
-                  `/api/sources/download?id=${eff.id}&action=download${tokenParam}`,
+                  apiUrl(`/api/sources/download?id=${eff.id}&action=download${tokenParam}`),
                   "_blank"
                 )
               }
@@ -345,7 +346,7 @@ export default function DocumentViewer({
             <div className="document-viewer-loading">Загрузка...</div>
           ) : isPdf && hasOriginal ? (
             <iframe
-              src={`/api/sources/download?id=${eff.id}&action=view${tokenParam}`}
+              src={apiUrl(`/api/sources/download?id=${eff.id}&action=view${tokenParam}`)}
               className="document-viewer-iframe"
               title={source.filename}
             />

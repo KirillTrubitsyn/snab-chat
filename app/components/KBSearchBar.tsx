@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { apiUrl } from "@/app/lib/api";
 
 /* ── Типы ── */
 
@@ -147,7 +148,7 @@ export default function KBSearchBar({
       setError(null);
 
       try {
-        const res = await fetch("/api/kb-search", {
+        const res = await fetch(apiUrl("/api/kb-search"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

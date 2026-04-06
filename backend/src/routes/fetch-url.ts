@@ -1,0 +1,163 @@
+import { Router, Request, Response } from "express";
+import { getInviteCodeFromHeader } from "../lib/auth.js";
+
+const router = Router();
+
+const MAX_CONTENT_LENGTH = 5 * 1024 * 1024;
+const FETCH_TIMEOUT = 15000;
+const MAX_OUTPUT_CHARS = 50000;
+
+function htmlToMarkdown(html: string): string {
+  let cleaned = html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<nav[\s\S]*?<\/nav>/gi, "")
+    .replace(/<footer[\s\S]*?<\/footer>/gi, "")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, "")
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, "")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, "");
+
+  cleaned = cleaned.replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, "\n# $1\n");
+  cleaned = cleaned.replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, "\n## $1\n");
+  cleaned = cleaned.replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, "\n### $1\n");
+  cleaned = cleaned.replace(/<h4[^>]*>([\s\S]*?)<\/h4>/gi, "\n#### $1\n");
+  cleaned = cleaned.replace(/<h5[^>]*>([\s\S]*?)<\/h5>/gi, "\n##### $1\n");
+  cleaned = cleaned.replace(/<h6[^>]*>([\s\S]*?)<\/h6>/gi, "\n###### $1\n");
+
+  cleaned = cleaned.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, "\n- $1");
+  cleaned = cleaned.replace(/<\/?[ou]l[^>]*>/gi, "\n");
+
+  cleaned = cleaned.replace(/<\/p>/gi, "\n\n");
+  cleaned = cleaned.replace(/<br\s*\/?>/gi, "\n");
+  cleaned = cleaned.replace(/<\/div>/gi, "\n");
+
+  cleaned = cleaned.replace(/<(strong|b)[^>]*>([\s\S]*?)<\/\1>/gi, "**$2**");
+  cleaned = cleaned.replace(/<(em|i)[^>]*>([\s\S]*?)<\/\1>/gi, "*$2*");
+
+  cleaned = cleaned.replace(/<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)");
+
+  cleaned = cleaned.replace(/<\/td>/gi, " | ");
+  cleaned = cleaned.replace(/<\/th>/gi, " | ");
+  cleaned = cleaned.replace(/<tr[^>]*>/gi, "\n| ");
+  cleaned = cleaned.replace(/<\/tr>/gi, "");
+
+  cleaned = cleaned.replace(/<[^>]+>/g, "");
+
+  cleaned = cleaned
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&mdash;/g, "—")
+    .replace(/&ndash;/g, "–")
+    .replace(/&laquo;/g, "«")
+    .replace(/&raquo;/g, "»")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+
+  cleaned = cleaned
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return cleaned;
+}
+
+function extractTitle(html: string): string {
+  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (match) {
+    return match[1].replace(/<[^>]+>/g, "").replace(/&[^;]+;/g, " ").trim();
+  }
+  const ogMatch = html.match(/<meta[^>]*property="og:title"[^>]*content="([^"]*)"[^>]*>/i);
+  return ogMatch ? ogMatch[1].trim() : "";
+}
+
+router.post("/api/fetch-url", async (req: Request, res: Response) => {
+  const invite = await getInviteCodeFromHeader(req);
+  if (!invite) return res.status(401).json({ error: "Требуется инвайт-код" });
+
+  try {
+    const { url } = req.body;
+
+    if (!url || typeof url !== "string") {
+      return res.status(400).json({ error: "URL не указан" });
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return res.status(400).json({ error: "Некорректный URL" });
+    }
+
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+      return res.status(400).json({ error: "Поддерживаются только HTTP/HTTPS ссылки" });
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
+    let response: globalThis.Response;
+    try {
+      response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; SnabChat/1.0; +https://snabchat.ru)",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.5",
+        },
+        redirect: "follow",
+      });
+    } catch (err) {
+      clearTimeout(timeout);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return res.status(400).json({ error: "Не удалось загрузить страницу: таймаут" });
+      }
+      return res.status(400).json({ error: "Не удалось загрузить страницу: сайт недоступен" });
+    }
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      return res.status(400).json({ error: `Не удалось загрузить страницу: HTTP ${response.status}` });
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("text/html") && !contentType.includes("text/plain") && !contentType.includes("application/xhtml")) {
+      return res.status(400).json({ error: "Страница не содержит текст (тип: " + contentType.split(";")[0] + ")" });
+    }
+
+    const contentLength = response.headers.get("content-length");
+    if (contentLength && parseInt(contentLength) > MAX_CONTENT_LENGTH) {
+      return res.status(400).json({ error: "Страница слишком большая (> 5 МБ)" });
+    }
+
+    const html = await response.text();
+    if (html.length > MAX_CONTENT_LENGTH) {
+      return res.status(400).json({ error: "Страница слишком большая (> 5 МБ)" });
+    }
+
+    const title = extractTitle(html) || parsedUrl.hostname;
+    let markdown = htmlToMarkdown(html);
+
+    if (markdown.length > MAX_OUTPUT_CHARS) {
+      markdown = markdown.slice(0, MAX_OUTPUT_CHARS) + "\n\n... (содержимое обрезано)";
+    }
+
+    if (markdown.length < 50) {
+      return res.status(400).json({ error: "Не удалось извлечь текст со страницы (возможно, контент загружается через JavaScript)" });
+    }
+
+    return res.json({
+      title,
+      url: parsedUrl.href,
+      markdown,
+      length: markdown.length,
+    });
+  } catch (err) {
+    console.error("[fetch-url] Error:", err);
+    return res.status(500).json({ error: "Ошибка при загрузке страницы" });
+  }
+});
+
+export default router;

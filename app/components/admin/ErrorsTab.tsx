@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { apiUrl } from "@/app/lib/api";
 import { formatDateTime } from "@/app/lib/date-utils";
 import { ERROR_TYPE_LABELS } from "./constants";
 import type { ErrorItem } from "./types";
@@ -17,7 +18,7 @@ export default function ErrorsTab({ adminCode }: { adminCode: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/errors?days=${days}&type=${typeFilter}`, { headers });
+      const res = await fetch(apiUrl(`/api/admin/errors?days=${days}&type=${typeFilter}`), { headers });
       const data = await res.json();
       if (data.errors) setErrors(data.errors);
     } catch { /* ignore */ }
@@ -28,7 +29,7 @@ export default function ErrorsTab({ adminCode }: { adminCode: string }) {
 
   const deleteError = async (id: string) => {
     try {
-      await fetch(`/api/admin/errors?id=${id}`, { method: "DELETE", headers });
+      await fetch(apiUrl(`/api/admin/errors?id=${id}`), { method: "DELETE", headers });
       setErrors((prev) => prev.filter((e) => e.id !== id));
     } catch { /* ignore */ }
   };

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { apiUrl } from "@/app/lib/api";
 import { formatDateShort } from "@/app/lib/date-utils";
 import type { InviteCode } from "./types";
 
@@ -29,7 +30,7 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
   const loadCodes = useCallback(async () => {
     setCodesLoading(true);
     try {
-      const res = await fetch("/api/admin/invite-codes", { headers });
+      const res = await fetch(apiUrl("/api/admin/invite-codes"), { headers });
       const data = await res.json();
       if (data.codes) setCodes(data.codes);
     } catch { /* ignore */ }
@@ -42,7 +43,7 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
     if (!newCode.trim() || !newName.trim()) return;
     setCreating(true);
     try {
-      const res = await fetch("/api/admin/invite-codes", {
+      const res = await fetch(apiUrl("/api/admin/invite-codes"), {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -69,14 +70,14 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
   const deleteCode = async (id: string) => {
     if (!confirm("Удалить этот инвайт-код?")) return;
     try {
-      await fetch(`/api/admin/invite-codes?id=${id}`, { method: "DELETE", headers });
+      await fetch(apiUrl(`/api/admin/invite-codes?id=${id}`), { method: "DELETE", headers });
       loadCodes();
     } catch { /* ignore */ }
   };
 
   const toggleCodeActive = async (id: string, currentActive: boolean) => {
     try {
-      await fetch(`/api/admin/invite-codes?id=${id}`, {
+      await fetch(apiUrl(`/api/admin/invite-codes?id=${id}`), {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ is_active: !currentActive }),
@@ -97,7 +98,7 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
   const saveEdit = async () => {
     if (!editingCode) return;
     try {
-      await fetch(`/api/admin/invite-codes?id=${editingCode.id}`, {
+      await fetch(apiUrl(`/api/admin/invite-codes?id=${editingCode.id}`), {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({

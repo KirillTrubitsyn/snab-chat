@@ -10,6 +10,7 @@ import { containsMarkdownTable } from "@/app/lib/markdown-tables";
 import KBSearchBar from "@/app/components/KBSearchBar";
 import { formatDateRelative } from "@/app/lib/date-utils";
 import { sanitizeHtml } from "@/app/lib/sanitize";
+import { apiUrl } from "@/app/lib/api";
 import {
   VoiceButton,
   CameraButton,
@@ -188,7 +189,7 @@ export default function Chat() {
     if (docxDownloading) return;
     setDocxDownloading(true);
     try {
-      const res = await fetch("/api/export", {
+      const res = await fetch(apiUrl("/api/export"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: questionContent, answer: answerContent }),
@@ -219,7 +220,7 @@ export default function Chat() {
     if (xlsxDownloading) return;
     setXlsxDownloading(true);
     try {
-      const res = await fetch("/api/export-excel", {
+      const res = await fetch(apiUrl("/api/export-excel"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: questionContent, answer: answerContent }),
@@ -261,7 +262,7 @@ export default function Chat() {
     setInput,
   } = useChat({
     id: activeConvId ?? chatKey,
-    api: "/api/chat",
+    api: apiUrl("/api/chat"),
     body: { conversationId: convIdRef.current },
     headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
   });
@@ -279,7 +280,7 @@ export default function Chat() {
   const loadConversations = useCallback(async () => {
     if (!inviteCode) return;
     try {
-      const res = await fetch("/api/conversations", {
+      const res = await fetch(apiUrl("/api/conversations"), {
         headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
       });
       const data = await res.json();
@@ -297,7 +298,7 @@ export default function Chat() {
   const loadInfographics = useCallback(async () => {
     if (!inviteCode) return;
     try {
-      const res = await fetch("/api/infographics", {
+      const res = await fetch(apiUrl("/api/infographics"), {
         headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
       });
       const data = await res.json();
@@ -314,7 +315,7 @@ export default function Chat() {
   /* ── Load sources ── */
   const loadSources = useCallback(async () => {
     try {
-      const res = await fetch("/api/sources?view=chat");
+      const res = await fetch(apiUrl("/api/sources?view=chat"));
       const data = await res.json();
       if (data.sources) setSources(data.sources);
       if (data.denormalized) setHiddenSources(data.denormalized);
@@ -337,7 +338,7 @@ export default function Chat() {
   const loadSupportHistory = useCallback(async () => {
     if (!inviteCode) return;
     try {
-      const res = await fetch("/api/support", {
+      const res = await fetch(apiUrl("/api/support"), {
         headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
       });
       const data = await res.json();
@@ -371,7 +372,7 @@ export default function Chat() {
     if (!supportMessage.trim() || supportSending) return;
     setSupportSending(true);
     try {
-      const res = await fetch("/api/support", {
+      const res = await fetch(apiUrl("/api/support"), {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
         body: JSON.stringify({ message: supportMessage.trim() }),
@@ -415,7 +416,7 @@ export default function Chat() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/conversations/messages?id=${activeConvId}`, {
+        const res = await fetch(apiUrl(`/api/conversations/messages?id=${activeConvId}`), {
           headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
         });
         const data = await res.json();
@@ -447,7 +448,7 @@ export default function Chat() {
     try {
       // Small delay to ensure server has saved the assistant message
       await new Promise((r) => setTimeout(r, 1500));
-      const res = await fetch(`/api/conversations/messages?id=${convId}`, {
+      const res = await fetch(apiUrl(`/api/conversations/messages?id=${convId}`), {
         headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
       });
       const data = await res.json();
@@ -477,7 +478,7 @@ export default function Chat() {
       // Don't sync while user is streaming or sending
       if (pendingSubmitRef.current || isSending) return;
       try {
-        const res = await fetch(`/api/conversations/messages?id=${activeConvId}`, {
+        const res = await fetch(apiUrl(`/api/conversations/messages?id=${activeConvId}`), {
           headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
         });
         const data = await res.json();
@@ -525,7 +526,7 @@ export default function Chat() {
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         try {
-          const res = await fetch("/api/conversations", {
+          const res = await fetch(apiUrl("/api/conversations"), {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
             body: JSON.stringify({ title: title || "Новый диалог" }),
@@ -564,7 +565,7 @@ export default function Chat() {
   const deleteConversation = useCallback(
     async (convId: string, e?: React.MouseEvent) => {
       e?.stopPropagation();
-      await fetch(`/api/conversations?id=${convId}`, {
+      await fetch(apiUrl(`/api/conversations?id=${convId}`), {
         method: "DELETE",
         headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
       });
@@ -582,7 +583,7 @@ export default function Chat() {
   /* ── Infographic helpers ── */
   const viewInfographic = useCallback(async (id: string) => {
     try {
-      const res = await fetch("/api/infographics", {
+      const res = await fetch(apiUrl("/api/infographics"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -599,7 +600,7 @@ export default function Chat() {
 
   const deleteInfographic = useCallback(async (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    await fetch(`/api/infographics?id=${id}`, {
+    await fetch(apiUrl(`/api/infographics?id=${id}`), {
       method: "DELETE",
       headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
     });
@@ -616,7 +617,7 @@ export default function Chat() {
   const submitRenameConversation = useCallback(async () => {
     if (!renamingId || !renameValue.trim()) { setRenamingId(null); return; }
     const trimmed = renameValue.trim();
-    await fetch("/api/conversations", {
+    await fetch(apiUrl("/api/conversations"), {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -631,7 +632,7 @@ export default function Chat() {
   const submitRenameInfographic = useCallback(async () => {
     if (!renamingId || !renameValue.trim()) { setRenamingId(null); return; }
     const trimmed = renameValue.trim();
-    await fetch("/api/infographics", {
+    await fetch(apiUrl("/api/infographics"), {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -658,7 +659,7 @@ export default function Chat() {
 
       // Large files: upload to Storage first, then pass storagePath to parse
       if (file.size > LARGE_FILE_THRESHOLD) {
-        const urlRes = await fetch("/api/chat-upload-url", {
+        const urlRes = await fetch(apiUrl("/api/chat-upload-url"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -688,7 +689,7 @@ export default function Chat() {
         formData.append("file", file);
       }
 
-      const res = await fetch("/api/parse", { method: "POST", body: formData, headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) } });
+      const res = await fetch(apiUrl("/api/parse"), { method: "POST", body: formData, headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) } });
       if (!res.ok) throw new Error("Parse failed");
       const data = await res.json();
       if (isPhoto) {
@@ -801,7 +802,7 @@ export default function Chat() {
     if (selectedSourceIds.size === 0) return;
     const ids = Array.from(selectedSourceIds);
     try {
-      const res = await fetch("/api/sources", {
+      const res = await fetch(apiUrl("/api/sources"), {
         method: "DELETE",
         headers: { "Content-Type": "application/json", "x-admin-code": encodeURIComponent(inviteCodeRef.current) },
         body: JSON.stringify({ ids }),
@@ -819,7 +820,7 @@ export default function Chat() {
   const deleteSelectedConversations = useCallback(async () => {
     if (selectedConvIds.size === 0) return;
     const ids = Array.from(selectedConvIds);
-    await fetch("/api/conversations", {
+    await fetch(apiUrl("/api/conversations"), {
       method: "DELETE",
       headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
       body: JSON.stringify({ ids }),
@@ -837,7 +838,7 @@ export default function Chat() {
   }, [selectedConvIds, activeConvId]);
 
   const deleteAllConversations = useCallback(async () => {
-    await fetch("/api/conversations?all=true", { method: "DELETE", headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) } });
+    await fetch(apiUrl("/api/conversations?all=true"), { method: "DELETE", headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) } });
     setConversations([]);
     setActiveConvId(null);
     convIdRef.current = null;
@@ -878,7 +879,7 @@ export default function Chat() {
       if (detectedUrls.length > 0) {
         const urlResults = await Promise.allSettled(
           detectedUrls.slice(0, 5).map(async (url) => {
-            const res = await fetch("/api/fetch-url", {
+            const res = await fetch(apiUrl("/api/fetch-url"), {
               method: "POST",
               headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
               body: JSON.stringify({ url }),
@@ -935,7 +936,7 @@ export default function Chat() {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 90000);
 
-          const res = await fetch("/api/chat", {
+          const res = await fetch(apiUrl("/api/chat"), {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
             body: JSON.stringify({
@@ -1036,7 +1037,7 @@ export default function Chat() {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 90000);
 
-        const res = await fetch("/api/chat", {
+        const res = await fetch(apiUrl("/api/chat"), {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
           body: JSON.stringify({
@@ -1532,7 +1533,7 @@ export default function Chat() {
                   onDownload={(sourceId, filename) => {
                     const isMd = filename?.endsWith(".md");
                     const endpoint = isMd ? "/api/sources/download-docx" : "/api/sources/download";
-                    window.open(endpoint + "?id=" + sourceId + "&action=download&token=" + encodeURIComponent(inviteCodeRef.current), "_blank");
+                    window.open(apiUrl(endpoint + "?id=" + sourceId + "&action=download&token=" + encodeURIComponent(inviteCodeRef.current)), "_blank");
                   }}
                 />
                   <div className="kb-list">
@@ -1618,7 +1619,7 @@ export default function Chat() {
                               </button>
                               <a
                                 className="kb-action-btn"
-                                href={`/api/sources/${ext === "md" ? "download-docx" : "download"}?id=${doc.id}&action=download&token=${encodeURIComponent(inviteCodeRef.current)}`}
+                                href={apiUrl(`/api/sources/${ext === "md" ? "download-docx" : "download"}?id=${doc.id}&action=download&token=${encodeURIComponent(inviteCodeRef.current)}`)}
                                 title="Скачать"
                               >
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

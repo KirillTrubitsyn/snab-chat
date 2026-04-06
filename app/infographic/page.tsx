@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { apiUrl } from "@/app/lib/api";
 
 const STYLES = [
   { key: "business_infographic", label: "Деловая инфографика", icon: "📊" },
@@ -62,7 +63,7 @@ export default function InfographicPage() {
 
     try {
       const inviteCode = localStorage.getItem("snabchat_invite_code") || "";
-      const res = await fetch("/api/infographic", {
+      const res = await fetch(apiUrl("/api/infographic"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

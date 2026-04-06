@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { apiUrl } from "@/app/lib/api";
 import { formatDateTime } from "@/app/lib/date-utils";
 import type { SupportItem } from "./types";
 
@@ -18,7 +19,7 @@ export default function SupportTab({ adminCode }: { adminCode: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const url = filter ? `/api/admin/support?status=${filter}` : "/api/admin/support";
+      const url = filter ? apiUrl(`/api/admin/support?status=${filter}`) : apiUrl("/api/admin/support");
       const res = await fetch(url, { headers });
       const data = await res.json();
       if (data.messages) setMessages(data.messages);
@@ -33,7 +34,7 @@ export default function SupportTab({ adminCode }: { adminCode: string }) {
     if (!replyText.trim()) return;
     setReplySending(true);
     try {
-      await fetch("/api/admin/support", {
+      await fetch(apiUrl("/api/admin/support"), {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ id, reply: replyText.trim() }),
@@ -48,7 +49,7 @@ export default function SupportTab({ adminCode }: { adminCode: string }) {
   const deleteMessage = async (id: string) => {
     if (!confirm("Удалить это обращение?")) return;
     try {
-      await fetch(`/api/admin/support?id=${id}`, { method: "DELETE", headers });
+      await fetch(apiUrl(`/api/admin/support?id=${id}`), { method: "DELETE", headers });
       load();
     } catch { /* ignore */ }
   };

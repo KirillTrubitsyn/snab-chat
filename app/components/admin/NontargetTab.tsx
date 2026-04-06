@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { apiUrl } from "@/app/lib/api";
 import { formatDateTime } from "@/app/lib/date-utils";
 import { CATEGORY_LABELS } from "./constants";
 import type { NontargetItem } from "./types";
@@ -18,7 +19,7 @@ export default function NontargetTab({ adminCode }: { adminCode: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/off-topic?days=${days}`, { headers });
+      const res = await fetch(apiUrl(`/api/admin/off-topic?days=${days}`), { headers });
       const data = await res.json();
       if (data.queries) setQueries(data.queries);
       if (data.stats) setStats(data.stats);
@@ -30,7 +31,7 @@ export default function NontargetTab({ adminCode }: { adminCode: string }) {
 
   const deleteQuery = async (id: string) => {
     try {
-      await fetch(`/api/admin/off-topic?id=${id}`, { method: "DELETE", headers });
+      await fetch(apiUrl(`/api/admin/off-topic?id=${id}`), { method: "DELETE", headers });
       setQueries((prev) => prev.filter((q) => q.id !== id));
       setSelectedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
     } catch { /* ignore */ }
@@ -50,7 +51,7 @@ export default function NontargetTab({ adminCode }: { adminCode: string }) {
     if (!confirm(`Удалить ${selectedIds.size} нецелевых запросов?`)) return;
     setDeleting(true);
     try {
-      await Promise.all(Array.from(selectedIds).map((id) => fetch(`/api/admin/off-topic?id=${id}`, { method: "DELETE", headers })));
+      await Promise.all(Array.from(selectedIds).map((id) => fetch(apiUrl(`/api/admin/off-topic?id=${id}`), { method: "DELETE", headers })));
       setSelectedIds(new Set());
       load();
     } catch { /* ignore */ }

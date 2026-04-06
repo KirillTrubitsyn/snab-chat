@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { apiUrl } from "@/app/lib/api";
 import { formatDateTime } from "@/app/lib/date-utils";
 import type { ActivityItem } from "./types";
 
@@ -36,7 +37,7 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
   const loadActivity = useCallback(async () => {
     setActivityLoading(true);
     try {
-      const res = await fetch("/api/admin/activity", { headers });
+      const res = await fetch(apiUrl("/api/admin/activity"), { headers });
       const data = await res.json();
       if (data.activity) setActivity(data.activity);
     } catch { /* ignore */ }
@@ -66,7 +67,7 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
     setDeleting(true);
     try {
       const ids = Array.from(selectedIds).join(",");
-      await fetch(`/api/admin/activity?type=messages&ids=${ids}`, { method: "DELETE", headers });
+      await fetch(apiUrl(`/api/admin/activity?type=messages&ids=${ids}`), { method: "DELETE", headers });
       setSelectedIds(new Set());
       loadActivity();
     } catch { /* ignore */ }
@@ -75,7 +76,7 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
 
   const deleteSingle = async (id: string) => {
     try {
-      await fetch(`/api/admin/activity?type=messages&ids=${id}`, { method: "DELETE", headers });
+      await fetch(apiUrl(`/api/admin/activity?type=messages&ids=${id}`), { method: "DELETE", headers });
       setSelectedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
       loadActivity();
     } catch { /* ignore */ }
@@ -84,7 +85,7 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
   const cleanupOrphaned = async () => {
     if (!confirm("Удалить все диалоги без привязки к инвайт-коду?")) return;
     try {
-      const res = await fetch("/api/admin/activity", { method: "DELETE", headers });
+      const res = await fetch(apiUrl("/api/admin/activity"), { method: "DELETE", headers });
       const data = await res.json();
       alert(`Удалено диалогов: ${data.deleted || 0}`);
       loadActivity();
