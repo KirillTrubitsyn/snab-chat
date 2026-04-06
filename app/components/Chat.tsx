@@ -268,8 +268,10 @@ export default function Chat() {
 
   // Always use the latest setMessages via ref to avoid stale closure issues
   // when useChat's id changes mid-execution (e.g., new conversation created during handleSubmit)
+  // IMPORTANT: Update ref synchronously during render, NOT in useEffect (which runs after paint
+  // and leaves a window where async callbacks use the stale setter)
   const setMessagesRef = useRef(_setMessages);
-  useEffect(() => { setMessagesRef.current = _setMessages; }, [_setMessages]);
+  setMessagesRef.current = _setMessages;
   const setMessages = useCallback(
     (...args: Parameters<typeof _setMessages>) => setMessagesRef.current(...args),
     []
@@ -443,29 +445,33 @@ export default function Chat() {
   }, [activeConvId]);  // setMessages is stable via ref wrapper
 
   // ── Reload messages from server to replace temp IDs after streaming ──
-  const reloadMessagesFromServer = useCallback(async (convId: string) => {
-    try {
-      // Small delay to ensure server has saved the assistant message
-      await new Promise((r) => setTimeout(r, 1500));
-      const res = await fetch(`/api/conversations/messages?id=${convId}`, {
-        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-      });
-      const data = await res.json();
-      if (data.messages) {
-        setMessages(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          data.messages.map((m: { id: string; role: string; content: string; metadata?: any }) => ({
-            id: m.id,
-            role: m.role as "user" | "assistant",
-            content: m.content,
-            ...(m.metadata?.sources ? { sources: m.metadata.sources } : {}),
-            ...(m.metadata ? { metadata: m.metadata } : {}),
-          }))
-        );
+  const reloadMessagesFromServer = useCallback(async (convId: string, expectedCount: number) => {
+    // Retry a few times until server has all messages saved
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        const res = await fetch(`/api/conversations/messages?id=${convId}`, {
+          headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+        });
+        const data = await res.json();
+        if (data.messages && data.messages.length >= expectedCount) {
+          setMessages(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data.messages.map((m: { id: string; role: string; content: string; metadata?: any }) => ({
+              id: m.id,
+              role: m.role as "user" | "assistant",
+              content: m.content,
+              ...(m.metadata?.sources ? { sources: m.metadata.sources } : {}),
+              ...(m.metadata ? { metadata: m.metadata } : {}),
+            }))
+          );
+          return; // Success — replaced temp IDs
+        }
+      } catch {
+        // ignore — will retry or give up
       }
-    } catch {
-      // ignore — messages are still visible with temp IDs
     }
+    // All retries exhausted — messages still visible with temp IDs
   }, []);  // setMessages is stable via ref wrapper
 
   // ── Sync messages when admin deletes them (poll + tab focus) ──
@@ -1020,7 +1026,7 @@ export default function Chat() {
         pendingSubmitRef.current = null;
         setIsSending(false);
         // Reload messages from server to replace temp IDs with real ones
-        reloadMessagesFromServer(newId);
+        reloadMessagesFromServer(newId, 2); // expect user + assistant messages
         loadConversations();
         return;
       }
@@ -1122,7 +1128,7 @@ export default function Chat() {
       } finally {
         setIsSending(false);
         // Reload messages from server to replace temp IDs with real ones
-        if (convIdRef.current) reloadMessagesFromServer(convIdRef.current);
+        if (convIdRef.current) reloadMessagesFromServer(convIdRef.current, messages.length + 2); // +user +assistant
       }
     },
     [input, isLoading, isSending, messages, chatFiles, chatPhotos, setInput, createConversation, loadConversations, reloadMessagesFromServer]
