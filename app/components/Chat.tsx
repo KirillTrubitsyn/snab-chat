@@ -256,7 +256,7 @@ export default function Chat() {
     messages,
     input,
     handleInputChange,
-    setMessages,
+    setMessages: _setMessages,
     isLoading,
     setInput,
   } = useChat({
@@ -265,6 +265,15 @@ export default function Chat() {
     body: { conversationId: convIdRef.current },
     headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
   });
+
+  // Always use the latest setMessages via ref to avoid stale closure issues
+  // when useChat's id changes mid-execution (e.g., new conversation created during handleSubmit)
+  const setMessagesRef = useRef(_setMessages);
+  useEffect(() => { setMessagesRef.current = _setMessages; }, [_setMessages]);
+  const setMessages = useCallback(
+    (...args: Parameters<typeof _setMessages>) => setMessagesRef.current(...args),
+    []
+  );
 
   /* ── Load conversations ── */
   const loadConversations = useCallback(async () => {
@@ -431,7 +440,7 @@ export default function Chat() {
       }
     })();
     return () => { cancelled = true; };
-  }, [activeConvId, setMessages]);
+  }, [activeConvId]);  // setMessages is stable via ref wrapper
 
   // ── Reload messages from server to replace temp IDs after streaming ──
   const reloadMessagesFromServer = useCallback(async (convId: string) => {
@@ -457,7 +466,7 @@ export default function Chat() {
     } catch {
       // ignore — messages are still visible with temp IDs
     }
-  }, [setMessages]);
+  }, []);  // setMessages is stable via ref wrapper
 
   // ── Sync messages when admin deletes them (poll + tab focus) ──
   useEffect(() => {
@@ -506,7 +515,7 @@ export default function Chat() {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [activeConvId, messages, isSending, setMessages]);
+  }, [activeConvId, messages, isSending]);  // setMessages is stable via ref wrapper
 
   /* ── Create conversation (with retry for transient errors) ── */
   const createConversation = useCallback(
@@ -548,7 +557,7 @@ export default function Chat() {
       }
       throw lastError!;
     },
-    [setMessages]
+    []  // setMessages is stable via ref wrapper
   );
 
   /* ── Delete conversation ── */
@@ -567,7 +576,7 @@ export default function Chat() {
         setHasSummary(false);
       }
     },
-    [activeConvId, setMessages]
+    [activeConvId]  // setMessages is stable via ref wrapper
   );
 
   /* ── Infographic helpers ── */
@@ -825,7 +834,7 @@ export default function Chat() {
     }
     setSelectedConvIds(new Set());
     setConvBulkMode(false);
-  }, [selectedConvIds, activeConvId, setMessages]);
+  }, [selectedConvIds, activeConvId]);
 
   const deleteAllConversations = useCallback(async () => {
     await fetch("/api/conversations?all=true", { method: "DELETE", headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) } });
@@ -837,7 +846,7 @@ export default function Chat() {
     setHasSummary(false);
     setSelectedConvIds(new Set());
     setConvBulkMode(false);
-  }, [setMessages]);
+  }, []);
 
   /* ── Submit handler with pending logic ── */
   const handleSubmit = useCallback(
@@ -1116,7 +1125,7 @@ export default function Chat() {
         if (convIdRef.current) reloadMessagesFromServer(convIdRef.current);
       }
     },
-    [input, isLoading, isSending, messages, chatFiles, chatPhotos, setInput, setMessages, createConversation, loadConversations, reloadMessagesFromServer]
+    [input, isLoading, isSending, messages, chatFiles, chatPhotos, setInput, createConversation, loadConversations, reloadMessagesFromServer]
   );
 
   /* ── Auto-scroll ── */
