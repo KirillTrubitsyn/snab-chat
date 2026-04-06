@@ -448,11 +448,13 @@ export default function Chat() {
         const data = await res.json();
         if (!data.messages) return;
         // Compare message IDs — only update if something changed
+        // Skip temp IDs (from streaming) — they won't exist on server yet
         const serverIds = new Set<string>(data.messages.map((m: { id: string }) => m.id));
-        const localIds = new Set<string>(messages.map((m) => m.id));
+        const localIds = new Set<string>(messages.filter((m) => !m.id.startsWith("temp-")).map((m) => m.id));
+        const hasTempIds = messages.some((m) => m.id.startsWith("temp-"));
         const deleted = [...localIds].some((id) => !serverIds.has(id));
         const added = [...serverIds].some((id) => !localIds.has(id));
-        if (deleted || added) {
+        if ((deleted || added) && !hasTempIds) {
           setMessages(
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             data.messages.map((m: { id: string; role: string; content: string; metadata?: any }) => ({
