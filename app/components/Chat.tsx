@@ -844,7 +844,7 @@ export default function Chat() {
   }, [selectedConvIds, activeConvId]);
 
   const deleteAllConversations = useCallback(async () => {
-    await fetch("/api/conversations?all=true", { method: "DELETE", headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) } });
+    await fetch("/api/conversations?all=true&confirm=true", { method: "DELETE", headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) } });
     setConversations([]);
     setActiveConvId(null);
     convIdRef.current = null;
