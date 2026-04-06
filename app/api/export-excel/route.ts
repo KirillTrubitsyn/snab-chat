@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { parseMarkdownTables } from "@/app/lib/markdown-tables";
 
 /* ── Filename generator (matches DOCX export logic) ── */
@@ -45,29 +45,6 @@ function parseNumericValue(val: string): number | null {
   return isFinite(num) ? num : null;
 }
 
-/* ── Auto-size columns based on content ── */
-
-function autoSizeColumns(
-  rows: (string | number)[][],
-  minWidth: number = 8,
-  maxWidth: number = 50
-): XLSX.ColInfo[] {
-  if (rows.length === 0) return [];
-  const colCount = Math.max(...rows.map((r) => r.length));
-  const cols: XLSX.ColInfo[] = [];
-
-  for (let c = 0; c < colCount; c++) {
-    let maxLen = minWidth;
-    for (const row of rows) {
-      const cell = String(row[c] ?? "");
-      const len = cell.length + 2;
-      if (len > maxLen) maxLen = len;
-    }
-    cols.push({ wch: Math.min(maxLen, maxWidth) });
-  }
-  return cols;
-}
-
 /* ── API handler ── */
 
 export async function POST(request: NextRequest) {
@@ -91,48 +68,42 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const workbook = XLSX.utils.book_new();
+    const workbook = new ExcelJS.Workbook();
 
     for (const table of tables) {
-      // Convert string rows to typed values (numbers, formulas, text)
-      const typedRows: (string | number)[][] = table.rows.map((row) =>
-        row.map((cell) => {
-          const num = parseNumericValue(cell);
-          return num !== null ? num : cell;
-        })
-      );
-
-      // Create sheet from array of arrays
-      const sheet = XLSX.utils.aoa_to_sheet(typedRows);
-
-      // Post-process: convert cells starting with "=" to formulas
-      for (const cellRef in sheet) {
-        if (cellRef.startsWith("!")) continue;
-        const cell = sheet[cellRef];
-        if (typeof cell.v === "string" && cell.v.startsWith("=")) {
-          cell.f = cell.v.slice(1); // formula without leading "="
-          cell.t = "n";
-          delete cell.v;
-        }
-      }
-
-      // Auto-size columns
-      sheet["!cols"] = autoSizeColumns(typedRows);
-
       // Truncate sheet name to Excel's 31-char limit
       const sheetName = table.name.slice(0, 31);
-      XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
+      const worksheet = workbook.addWorksheet(sheetName);
+
+      for (const row of table.rows) {
+        const typedRow = row.map((cell) => {
+          if (typeof cell === "string" && cell.startsWith("=")) {
+            return { formula: cell.slice(1) };
+          }
+          const num = parseNumericValue(cell);
+          return num !== null ? num : cell;
+        });
+        worksheet.addRow(typedRow);
+      }
+
+      // Auto-size columns based on content
+      for (let c = 1; c <= worksheet.columnCount; c++) {
+        let maxLen = 8;
+        const col = worksheet.getColumn(c);
+        col.eachCell({ includeEmpty: false }, (cell) => {
+          const len = (cell.text ?? String(cell.value ?? "")).length + 2;
+          if (len > maxLen) maxLen = len;
+        });
+        col.width = Math.min(maxLen, 50);
+      }
     }
 
-    const buffer = XLSX.write(workbook, {
-      type: "buffer",
-      bookType: "xlsx",
-    });
+    const buffer = await workbook.xlsx.writeBuffer();
 
     const filename = generateFilename(question || "Таблица");
     const encodedFilename = encodeURIComponent(filename);
 
-    return new NextResponse(new Uint8Array(buffer), {
+    return new NextResponse(new Uint8Array(buffer as ArrayBuffer), {
       status: 200,
       headers: {
         "Content-Type":
