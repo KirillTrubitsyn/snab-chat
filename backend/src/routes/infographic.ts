@@ -8,6 +8,7 @@ const router = Router();
 
 const client = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
 
+// Fallback chain: if primary model is unavailable (503), try next
 const IMAGE_MODELS = [
   "gemini-3.1-flash-image-preview",
   "gemini-3-pro-image-preview",
@@ -39,12 +40,16 @@ const SYSTEM_PROMPT = `Ты профессиональный дизайнер и
 2. Текст должен быть чётким, читаемым, без ошибок и опечаток
 3. Используй профессиональный деловой стиль
 4. Структурируй информацию визуально: блоки, стрелки, иконки, нумерация
-5. МАКСИМАЛЬНО СОКРАЩАЙ текст на изображении. Каждая надпись — не более 1-3 коротких слов. Вместо текста используй: иконки, пиктограммы, цветовое кодирование, числа, графики, диаграммы, стрелки и символы
+5. МАКСИМАЛЬНО СОКРАЩАЙ текст на изображении. Каждая надпись — не более 1-3 коротких слов. Вместо текста используй: иконки, пиктограммы, цветовое кодирование, числа, графики, диаграммы, стрелки и символы (✓, ✗, →, %, №, ₽). Информацию передавай визуально, а не словами
 6. Цветовая палитра: профессиональная, корпоративная (синий, серый, белый, акцентные цвета)
-7. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать латинские буквы-двойники вместо русских
+7. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать латинские буквы-двойники вместо русских (а→a, е→e, о→o, с→c, р→p, х→x и т.д.). Все буквы должны быть кириллическими
 8. Шрифты должны быть достаточно крупными для удобного чтения
-9. Перед отрисовкой каждой надписи мысленно проверь правописание каждого слова по буквам`;
+9. Перед отрисовкой каждой надписи мысленно проверь правописание каждого слова по буквам. Убедись, что все буквы написаны правильно и ни одна не пропущена, не переставлена и не заменена`;
 
+/**
+ * Fix Cyrillic lookalike characters — replace Latin chars that look like
+ * Cyrillic with their proper Cyrillic counterparts in Russian text.
+ */
 function fixCyrillicLookalikes(text: string): string {
   const map: Record<string, string> = {
     A: "А", B: "В", C: "С", E: "Е", H: "Н", K: "К",
@@ -54,6 +59,7 @@ function fixCyrillicLookalikes(text: string): string {
   return text.replace(/[ABCEHKMOPTXaceopxy]/g, (ch) => map[ch] ?? ch);
 }
 
+// POST /api/infographic
 router.post("/api/infographic", async (req: Request, res: Response) => {
   try {
     const { topic, style, aspectRatio, documentText, conversationId } = req.body;
@@ -62,13 +68,17 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
     const topicText = (topic && typeof topic === "string") ? topic.trim() : "";
 
     if (!topicText && !hasDocumentText) {
-      return res.status(400).json({ error: "Укажите тему или загрузите контекст документа" });
+      return res.status(400).json({
+        error: "Укажите тему или загрузите контекст документа",
+      });
     }
 
-    const styleInstruction = INFOGRAPHIC_STYLE_PROMPTS[style] || style || "";
+    const styleInstruction =
+      INFOGRAPHIC_STYLE_PROMPTS[style] || style || "";
 
     let lastError: string | null = null;
 
+    // Build user prompt (document context trimmed to 20k to stay within limits)
     const basePrompt = topicText
       ? `Создай инфографику на тему: ${topicText}\n\nВАЖНО: Если ты размещаешь текст на изображении, пиши каждое русское слово аккуратно, буква за буквой. Используй минимум слов — заменяй текст иконками, числами и графиками где возможно.`
       : "Создай инфографику по следующему документу. Определи тему и ключевые данные самостоятельно.\n\nВАЖНО: Если ты размещаешь текст на изображении, пиши каждое русское слово аккуратно, буква за буквой. Используй минимум слов — заменяй текст иконками, числами и графиками где возможно.";
@@ -91,6 +101,7 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
       userPrompt += `\n\nФормат изображения: ${arHints[aspectRatio]}`;
     }
 
+    // Try each model once with a 50s timeout — no retries, no delays
     for (const modelId of IMAGE_MODELS) {
       try {
         const result = await withGoogleApiLimit(() =>
@@ -109,6 +120,7 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
           ])
         );
 
+        // Extract image and text from response
         const parts = result.candidates?.[0]?.content?.parts ?? [];
         let imageBase64 = "";
         let description = "";
@@ -131,10 +143,12 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
 
         const descText = fixCyrillicLookalikes(description.trim());
 
+        // Save infographic to dedicated infographics table
         let savedId: string | null = null;
         try {
           const invite = await getInviteCodeFromHeader(req);
           const supabase = createServiceClient();
+          // Admin IDs are not UUIDs (e.g. "admin-КИРИЛЛ-АДМИН"), so skip FK
           const isRealInviteCode = invite?.id && !invite.id.startsWith("admin-");
           const { data: saved, error: saveError } = await supabase
             .from("infographics")
@@ -149,7 +163,9 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
             })
             .select("id")
             .single();
-          if (saveError) console.error("Infographic DB save error:", saveError.message);
+          if (saveError) {
+            console.error("Infographic DB save error:", saveError.message);
+          }
           savedId = saved?.id || null;
         } catch (saveErr) {
           console.error("Failed to save infographic:", saveErr);
@@ -166,6 +182,7 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
         const errMsg = err instanceof Error ? err.message : "Ошибка генерации";
         lastError = errMsg;
         console.error(`Infographic error with ${modelId}:`, errMsg);
+        // Continue to next model immediately — no delays
       }
     }
 
@@ -174,7 +191,9 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
     });
   } catch (err) {
     console.error("Infographic generation error:", err);
-    return res.status(500).json({ error: "Ошибка сервера при генерации инфографики" });
+    return res.status(500).json({
+      error: "Ошибка сервера при генерации инфографики",
+    });
   }
 });
 

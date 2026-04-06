@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { createServiceClient } from "../lib/supabase.js";
-import { getInviteCodeFromHeader, isAdminCode } from "../lib/auth.js";
+import { getInviteCodeFromHeader, isAdminCode, requireAdmin } from "../lib/auth.js";
 
 const router = Router();
 
@@ -10,6 +10,7 @@ const router = Router();
  */
 router.get("/api/chunk-image", async (req: Request, res: Response) => {
   try {
+    // Support auth via header or query param (img tags can't send headers)
     const tokenParam = (req.query.token as string) || "";
     let authorized = false;
 
@@ -74,26 +75,169 @@ router.get("/api/chunk-image", async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/debug-chunks — debug chunk retrieval
+ * POST /api/migrate — run database migrations.
+ */
+router.post("/api/migrate", async (_req: Request, res: Response) => {
+  try {
+    const supabase = createServiceClient();
+
+    // Add storage_path and folder_path columns if they don't exist
+    const { error: alterError } = await supabase.rpc("exec_sql", {
+      sql: `
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'sources' AND column_name = 'storage_path'
+          ) THEN
+            ALTER TABLE sources ADD COLUMN storage_path text;
+          END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'sources' AND column_name = 'folder_path'
+          ) THEN
+            ALTER TABLE sources ADD COLUMN folder_path text;
+          END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'conversations' AND column_name = 'admin_name'
+          ) THEN
+            ALTER TABLE conversations ADD COLUMN admin_name text;
+          END IF;
+        END $$;
+      `,
+    });
+
+    // Fallback: try direct SQL if rpc doesn't exist
+    if (alterError) {
+      console.log("exec_sql rpc not available:", alterError.message);
+    }
+
+    // Create storage bucket
+    const { error: bucketError } = await supabase.storage.createBucket(
+      "documents",
+      { public: false }
+    );
+
+    return res.json({
+      success: true,
+      message: "Migration completed",
+      bucketCreated: !bucketError,
+      bucketNote: bucketError?.message || "Created successfully",
+      columnNote: alterError
+        ? "Could not auto-add columns. Please run in Supabase SQL Editor: ALTER TABLE sources ADD COLUMN IF NOT EXISTS storage_path text; ALTER TABLE sources ADD COLUMN IF NOT EXISTS folder_path text;"
+        : "Columns added successfully",
+    });
+  } catch (err) {
+    console.error("Migration error:", err);
+    return res.status(500).json({
+      error: "Migration failed",
+      details: String(err),
+    });
+  }
+});
+
+/**
+ * GET /api/debug-chunks — debug chunk retrieval (admin only)
  */
 router.get("/api/debug-chunks", async (req: Request, res: Response) => {
   try {
-    const invite = await getInviteCodeFromHeader(req);
-    if (!invite) return res.status(401).json({ error: "Unauthorized" });
+    const adminCheck = requireAdmin(req, res);
+    if (!adminCheck) return;
 
-    const filename = req.query.filename as string;
-    if (!filename) return res.status(400).json({ error: "filename required" });
+    const filename = (req.query.filename as string) || "SRM";
 
     const supabase = createServiceClient();
-    const { data, error } = await supabase
+
+    // 1. Check sources
+    const { data: sources, error: srcErr } = await supabase
+      .from("sources")
+      .select("id, filename, tags, created_at, storage_path, folder_path")
+      .ilike("filename", `%${filename}%`)
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    // 2. Check chunks for those sources
+    const { data: chunks, error: chunkErr } = await supabase
       .from("chunks")
-      .select("id, source_filename, chunk_index, tags, image_paths")
+      .select("id, source_id, source_filename, chunk_index, tags, image_paths, created_at")
       .ilike("source_filename", `%${filename}%`)
-      .order("chunk_index", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(50);
 
-    if (error) return res.status(500).json({ error: error.message });
-    return res.json({ chunks: data || [] });
+    // 3. Check if embeddings exist (embedding is not null)
+    const { data: embCheck, error: embErr } = await supabase
+      .rpc("check_embeddings", { filename_pattern: `%${filename}%` })
+      .single();
+
+    // Fallback: raw count query if RPC doesn't exist
+    let embeddingInfo = embCheck;
+    if (embErr) {
+      // Direct query: count chunks with/without embeddings
+      const { count: totalCount } = await supabase
+        .from("chunks")
+        .select("id", { count: "exact", head: true })
+        .ilike("source_filename", `%${filename}%`);
+
+      embeddingInfo = {
+        total_chunks: totalCount || 0,
+        rpc_error: embErr.message,
+      };
+    }
+
+    // 4. Test hybrid_search with a simple query
+    const { data: searchResults, error: searchErr } = await supabase.rpc("hybrid_search", {
+      query_text: filename,
+      query_embedding: `[${new Array(1536).fill(0).join(",")}]`, // zero vector just to test
+      match_count: 10,
+      vector_weight: 0.0, // only FTS for diagnostic
+      fts_weight: 1.0,
+      filter_tags: null, // no filter
+    });
+
+    // 5. Test with SRM tag filter
+    const { data: filteredResults, error: filteredErr } = await supabase.rpc("hybrid_search", {
+      query_text: filename,
+      query_embedding: `[${new Array(1536).fill(0).join(",")}]`,
+      match_count: 10,
+      vector_weight: 0.0,
+      fts_weight: 1.0,
+      filter_tags: ["SRM"],
+    });
+
+    return res.json({
+      sources: sources || [],
+      sourcesError: srcErr?.message || null,
+      chunks: (chunks || []).map((c: Record<string, unknown>) => ({
+        ...c,
+        image_paths_count: Array.isArray(c.image_paths) ? (c.image_paths as string[]).length : 0,
+      })),
+      chunksError: chunkErr?.message || null,
+      embeddingInfo,
+      searchUnfiltered: {
+        results: (searchResults || []).map((r: Record<string, unknown>) => ({
+          id: r.id,
+          source_filename: r.source_filename,
+          chunk_index: r.chunk_index,
+          similarity: r.similarity,
+          tags: r.tags,
+          image_paths: r.image_paths,
+        })),
+        error: searchErr?.message || null,
+      },
+      searchWithSRMTag: {
+        results: (filteredResults || []).map((r: Record<string, unknown>) => ({
+          id: r.id,
+          source_filename: r.source_filename,
+          chunk_index: r.chunk_index,
+          similarity: r.similarity,
+          tags: r.tags,
+        })),
+        error: filteredErr?.message || null,
+      },
+    });
   } catch (err) {
     console.error("[debug-chunks] Error:", err);
     return res.status(500).json({ error: "Internal error" });

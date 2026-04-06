@@ -3,11 +3,15 @@ import { getInviteCodeFromHeader } from "../lib/auth.js";
 
 const router = Router();
 
-const MAX_CONTENT_LENGTH = 5 * 1024 * 1024;
-const FETCH_TIMEOUT = 15000;
-const MAX_OUTPUT_CHARS = 50000;
+const MAX_CONTENT_LENGTH = 5 * 1024 * 1024; // 5 MB max page size
+const FETCH_TIMEOUT = 15000; // 15 seconds
+const MAX_OUTPUT_CHARS = 50000; // Same as MAX_UPLOADED_DOC_CHARS in chat route
 
+/**
+ * Extract readable text content from HTML, converting to simple markdown.
+ */
 function htmlToMarkdown(html: string): string {
+  // Remove script, style, nav, footer, header tags and their content
   let cleaned = html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<style[\s\S]*?<\/style>/gi, "")
@@ -17,6 +21,7 @@ function htmlToMarkdown(html: string): string {
     .replace(/<iframe[\s\S]*?<\/iframe>/gi, "")
     .replace(/<svg[\s\S]*?<\/svg>/gi, "");
 
+  // Convert headings
   cleaned = cleaned.replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, "\n# $1\n");
   cleaned = cleaned.replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, "\n## $1\n");
   cleaned = cleaned.replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, "\n### $1\n");
@@ -24,25 +29,32 @@ function htmlToMarkdown(html: string): string {
   cleaned = cleaned.replace(/<h5[^>]*>([\s\S]*?)<\/h5>/gi, "\n##### $1\n");
   cleaned = cleaned.replace(/<h6[^>]*>([\s\S]*?)<\/h6>/gi, "\n###### $1\n");
 
+  // Convert lists
   cleaned = cleaned.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, "\n- $1");
   cleaned = cleaned.replace(/<\/?[ou]l[^>]*>/gi, "\n");
 
+  // Convert paragraphs and divs to line breaks
   cleaned = cleaned.replace(/<\/p>/gi, "\n\n");
   cleaned = cleaned.replace(/<br\s*\/?>/gi, "\n");
   cleaned = cleaned.replace(/<\/div>/gi, "\n");
 
+  // Convert bold/italic
   cleaned = cleaned.replace(/<(strong|b)[^>]*>([\s\S]*?)<\/\1>/gi, "**$2**");
   cleaned = cleaned.replace(/<(em|i)[^>]*>([\s\S]*?)<\/\1>/gi, "*$2*");
 
+  // Convert links — keep text and URL
   cleaned = cleaned.replace(/<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)");
 
+  // Convert tables
   cleaned = cleaned.replace(/<\/td>/gi, " | ");
   cleaned = cleaned.replace(/<\/th>/gi, " | ");
   cleaned = cleaned.replace(/<tr[^>]*>/gi, "\n| ");
   cleaned = cleaned.replace(/<\/tr>/gi, "");
 
+  // Remove remaining HTML tags
   cleaned = cleaned.replace(/<[^>]+>/g, "");
 
+  // Decode HTML entities
   cleaned = cleaned
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
@@ -50,12 +62,13 @@ function htmlToMarkdown(html: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&nbsp;/g, " ")
-    .replace(/&mdash;/g, "—")
-    .replace(/&ndash;/g, "–")
-    .replace(/&laquo;/g, "«")
-    .replace(/&raquo;/g, "»")
+    .replace(/&mdash;/g, "\u2014")
+    .replace(/&ndash;/g, "\u2013")
+    .replace(/&laquo;/g, "\u00ab")
+    .replace(/&raquo;/g, "\u00bb")
     .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
 
+  // Clean up whitespace
   cleaned = cleaned
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
@@ -64,26 +77,34 @@ function htmlToMarkdown(html: string): string {
   return cleaned;
 }
 
+/**
+ * Extract page title from HTML.
+ */
 function extractTitle(html: string): string {
   const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   if (match) {
     return match[1].replace(/<[^>]+>/g, "").replace(/&[^;]+;/g, " ").trim();
   }
+  // Try og:title
   const ogMatch = html.match(/<meta[^>]*property="og:title"[^>]*content="([^"]*)"[^>]*>/i);
   return ogMatch ? ogMatch[1].trim() : "";
 }
 
+// POST /api/fetch-url
 router.post("/api/fetch-url", async (req: Request, res: Response) => {
-  const invite = await getInviteCodeFromHeader(req);
-  if (!invite) return res.status(401).json({ error: "Требуется инвайт-код" });
-
   try {
+    const invite = await getInviteCodeFromHeader(req);
+    if (!invite) {
+      return res.status(401).json({ error: "Требуется инвайт-код" });
+    }
+
     const { url } = req.body;
 
     if (!url || typeof url !== "string") {
       return res.status(400).json({ error: "URL не указан" });
     }
 
+    // Validate URL
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(url);
@@ -95,6 +116,7 @@ router.post("/api/fetch-url", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Поддерживаются только HTTP/HTTPS ссылки" });
     }
 
+    // Fetch the page
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
 
@@ -127,6 +149,7 @@ router.post("/api/fetch-url", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Страница не содержит текст (тип: " + contentType.split(";")[0] + ")" });
     }
 
+    // Check content length
     const contentLength = response.headers.get("content-length");
     if (contentLength && parseInt(contentLength) > MAX_CONTENT_LENGTH) {
       return res.status(400).json({ error: "Страница слишком большая (> 5 МБ)" });
@@ -140,10 +163,12 @@ router.post("/api/fetch-url", async (req: Request, res: Response) => {
     const title = extractTitle(html) || parsedUrl.hostname;
     let markdown = htmlToMarkdown(html);
 
+    // Truncate to max output chars
     if (markdown.length > MAX_OUTPUT_CHARS) {
       markdown = markdown.slice(0, MAX_OUTPUT_CHARS) + "\n\n... (содержимое обрезано)";
     }
 
+    // Skip if too little content extracted
     if (markdown.length < 50) {
       return res.status(400).json({ error: "Не удалось извлечь текст со страницы (возможно, контент загружается через JavaScript)" });
     }
