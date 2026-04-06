@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
-import { requireDocumentAdmin } from "@/app/lib/auth";
+import { requireDocumentAdmin, getInviteCodeFromHeader } from "@/app/lib/auth";
+import { unauthorizedResponse } from "@/app/lib/api-helpers";
 
 export async function GET(req: NextRequest) {
+  // Require authentication — any valid invite or admin code
+  const invite = await getInviteCodeFromHeader(req);
+  if (!invite) return unauthorizedResponse();
+
   try {
     const { searchParams } = new URL(req.url);
     const view = searchParams.get("view"); // "chat" = regular user view

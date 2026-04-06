@@ -58,7 +58,7 @@ export default function Chat() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const isAdmin = typeof window !== "undefined" && localStorage.getItem("snabchat_is_admin") === "true";
-  const isDocAdmin = typeof window !== "undefined" && (localStorage.getItem("snabchat_admin_code") || "").toUpperCase() === "КИРИЛЛ-АДМИН";
+  const isDocAdmin = typeof window !== "undefined" && localStorage.getItem("snabchat_is_doc_admin") === "true";
 
   /* ── Keep inviteCodeRef in sync ── */
   useEffect(() => {
@@ -91,6 +91,7 @@ export default function Chat() {
     localStorage.removeItem("snabchat_user_name");
     localStorage.removeItem("snabchat_is_admin");
     localStorage.removeItem("snabchat_admin_code");
+    localStorage.removeItem("snabchat_is_doc_admin");
     setIsAuthenticated(false);
     setInviteCode("");
     setUserName("");

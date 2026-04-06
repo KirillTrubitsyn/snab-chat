@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getInviteCodeFromHeader } from "@/app/lib/auth";
 import { unauthorizedResponse, badRequest, serverError } from "@/app/lib/api-helpers";
+import dns from "node:dns/promises";
+import net from "node:net";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -8,6 +10,88 @@ export const maxDuration = 30;
 const MAX_CONTENT_LENGTH = 5 * 1024 * 1024; // 5 MB max page size
 const FETCH_TIMEOUT = 15000; // 15 seconds
 const MAX_OUTPUT_CHARS = 50000; // Same as MAX_UPLOADED_DOC_CHARS in chat route
+
+// ── SSRF Protection ──
+
+const BLOCKED_HOSTNAMES = new Set([
+  "localhost",
+  "metadata.google.internal",
+  "metadata.google",
+]);
+
+/**
+ * Check if an IP address is in a private/reserved range.
+ */
+function isPrivateIP(ip: string): boolean {
+  // IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1)
+  if (ip.startsWith("::ffff:")) {
+    ip = ip.slice(7);
+  }
+
+  if (net.isIPv4(ip)) {
+    const parts = ip.split(".").map(Number);
+    const [a, b] = parts;
+    if (a === 0) return true;                             // 0.0.0.0/8
+    if (a === 10) return true;                            // 10.0.0.0/8
+    if (a === 127) return true;                           // 127.0.0.0/8
+    if (a === 169 && b === 254) return true;              // 169.254.0.0/16 (link-local / cloud metadata)
+    if (a === 172 && b >= 16 && b <= 31) return true;     // 172.16.0.0/12
+    if (a === 192 && b === 168) return true;              // 192.168.0.0/16
+    return false;
+  }
+
+  if (net.isIPv6(ip)) {
+    const normalized = ip.toLowerCase();
+    if (normalized === "::1") return true;                 // IPv6 loopback
+    if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true; // fc00::/7 (ULA)
+    if (normalized.startsWith("fe80")) return true;        // fe80::/10 (link-local)
+    return false;
+  }
+
+  return false;
+}
+
+/**
+ * Validate that a URL hostname does not resolve to a private/internal IP.
+ * Prevents SSRF attacks targeting internal services and cloud metadata endpoints.
+ */
+async function validateUrlTarget(url: URL): Promise<string | null> {
+  const hostname = url.hostname.toLowerCase();
+
+  // Block known internal hostnames
+  if (BLOCKED_HOSTNAMES.has(hostname)) {
+    return "Доступ к внутренним ресурсам запрещён";
+  }
+
+  // If hostname is already an IP, check directly
+  if (net.isIP(hostname)) {
+    if (isPrivateIP(hostname)) {
+      return "Доступ к внутренним ресурсам запрещён";
+    }
+    return null;
+  }
+
+  // Resolve hostname and check all IPs
+  try {
+    const addresses = await dns.resolve4(hostname).catch(() => [] as string[]);
+    const addresses6 = await dns.resolve6(hostname).catch(() => [] as string[]);
+    const allAddresses = [...addresses, ...addresses6];
+
+    if (allAddresses.length === 0) {
+      return "Не удалось разрешить доменное имя";
+    }
+
+    for (const addr of allAddresses) {
+      if (isPrivateIP(addr)) {
+        return "Доступ к внутренним ресурсам запрещён";
+      }
+    }
+  } catch {
+    return "Не удалось разрешить доменное имя";
+  }
+
+  return null;
+}
 
 /**
  * Extract readable text content from HTML, converting to simple markdown.
@@ -115,21 +199,50 @@ export async function POST(req: NextRequest) {
       return badRequest("Поддерживаются только HTTP/HTTPS ссылки");
     }
 
-    // Fetch the page
+    // SSRF protection: validate that the URL does not point to internal/private resources
+    const ssrfError = await validateUrlTarget(parsedUrl);
+    if (ssrfError) {
+      return badRequest(ssrfError);
+    }
+
+    // Fetch the page (manual redirect to validate each hop)
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
 
+    const MAX_REDIRECTS = 5;
+    let currentUrl = url;
     let response: Response;
     try {
-      response = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (compatible; SnabChat/1.0; +https://snabchat.ru)",
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.5",
-        },
-        redirect: "follow",
-      });
+      for (let i = 0; i <= MAX_REDIRECTS; i++) {
+        response = await fetch(currentUrl, {
+          signal: controller.signal,
+          headers: {
+            "User-Agent": "Mozilla/5.0 (compatible; SnabChat/1.0; +https://snabchat.ru)",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.5",
+          },
+          redirect: "manual",
+        });
+
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get("location");
+          if (!location) break;
+          const redirectUrl = new URL(location, currentUrl);
+          if (!["http:", "https:"].includes(redirectUrl.protocol)) {
+            return badRequest("Некорректный редирект");
+          }
+          // Validate redirect target against SSRF
+          const redirectSsrfError = await validateUrlTarget(redirectUrl);
+          if (redirectSsrfError) {
+            return badRequest(redirectSsrfError);
+          }
+          currentUrl = redirectUrl.href;
+          continue;
+        }
+        break;
+      }
+      // response is set by the loop above
+      response = response!;
     } catch (err) {
       clearTimeout(timeout);
       if (err instanceof DOMException && err.name === "AbortError") {

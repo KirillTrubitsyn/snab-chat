@@ -1,7 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
+import { requireAdmin } from "@/app/lib/auth";
 
-export async function POST() {
+export async function POST(req: NextRequest) {
+  const adminCheck = requireAdmin(req);
+  if (adminCheck instanceof NextResponse) return adminCheck;
+
   try {
     const supabase = createServiceClient();
 
@@ -58,7 +62,7 @@ export async function POST() {
   } catch (err) {
     console.error("Migration error:", err);
     return NextResponse.json(
-      { error: "Migration failed", details: String(err) },
+      { error: "Migration failed" },
       { status: 500 }
     );
   }
