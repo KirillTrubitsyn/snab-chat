@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { useChat } from "ai/react";
+// useChat removed in ai SDK v6 migration — streaming is fully manual
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import InviteGate from "./InviteGate";
@@ -252,29 +252,27 @@ export default function Chat() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
 
-  /* ── useChat ── */
-  const {
-    messages,
-    input,
-    handleInputChange,
-    setMessages: _setMessages,
-    isLoading,
-    setInput,
-  } = useChat({
-    id: activeConvId ?? chatKey,
-    api: "/api/chat",
-    body: { conversationId: convIdRef.current },
-    headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-  });
+  /* ── Message & input state (manual streaming — useChat removed in ai SDK v6) ── */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [messages, setMessagesRaw] = useState<any[]>([]);
+  const [input, setInput] = useState("");
+  const isLoading = false; // streaming state managed by isSending
+  const handleInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setInput(e.target.value),
+    []
+  );
+
+  // Reset messages when active conversation changes
+  useEffect(() => {
+    setMessagesRaw([]);
+  }, [activeConvId, chatKey]);
 
   // Always use the latest setMessages via ref to avoid stale closure issues
-  // when useChat's id changes mid-execution (e.g., new conversation created during handleSubmit)
-  // IMPORTANT: Update ref synchronously during render, NOT in useEffect (which runs after paint
-  // and leaves a window where async callbacks use the stale setter)
-  const setMessagesRef = useRef(_setMessages);
-  setMessagesRef.current = _setMessages;
+  const setMessagesRef = useRef(setMessagesRaw);
+  setMessagesRef.current = setMessagesRaw;
   const setMessages = useCallback(
-    (...args: Parameters<typeof _setMessages>) => setMessagesRef.current(...args),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (updater: any[] | ((prev: any[]) => any[])) => setMessagesRef.current(updater),
     []
   );
 

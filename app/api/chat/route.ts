@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { type CoreMessage } from "ai";
+import { type ModelMessage } from "ai";
 import { GoogleGenAI } from "@google/genai";
 import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, type SearchResult } from "@/app/lib/retrieval";
 import { llmRerank } from "@/app/lib/reranker";
@@ -947,7 +947,7 @@ ${uploadedDocsContext}`;
   // System prompt goes as system, then we build user/assistant messages
   // with images interleaved
 
-  const modelMessages: CoreMessage[] = [];
+  const modelMessages: ModelMessage[] = [];
 
   // Add context messages
   const ctxMsgs = contextMessages.filter((m) => m.role !== "system");
@@ -1060,7 +1060,7 @@ ${uploadedDocsContext}`;
   const modelId = "gemini-3-flash-preview";
   const genaiClient = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
 
-  // Convert CoreMessage[] → @google/genai Content format
+  // Convert ModelMessage[] → @google/genai Content format
   type GenAIPart = { text: string } | { inlineData: { mimeType: string; data: string } };
   const genaiContents: Array<{ role: string; parts: GenAIPart[] }> = [];
   for (const msg of modelMessages) {

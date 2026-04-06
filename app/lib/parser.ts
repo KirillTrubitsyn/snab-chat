@@ -620,7 +620,7 @@ async function parseImageToMarkdown(
           ],
         },
       ],
-      maxTokens: 8000,
+      maxOutputTokens: 8000,
       temperature: 0,
     })
   );
