@@ -607,7 +607,7 @@ export default function Chat() {
   }, [renamingId, renameValue]);
 
   /* ── Chat file attach handlers ── */
-  const MAX_CHAT_FILES = 5;
+  const MAX_CHAT_FILES = 10;
   const MAX_CHAT_PHOTOS = 10;
   const MAX_CHAT_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
   const ACCEPTED_CHAT_TYPES = ".pdf,.doc,.docx,.xlsx,.xls,.pptx,.txt,.md,.mp3,.wav,.jpg,.jpeg,.png,.gif,.bmp,.webp";
