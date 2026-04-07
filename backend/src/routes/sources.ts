@@ -13,18 +13,36 @@ router.get("/api/sources", async (req: Request, res: Response) => {
     const view = req.query.view as string;
 
     const supabase = createServiceClient();
-    let query = supabase
-      .from("sources")
-      .select("id, filename, mime_type, folder_path, tags, content_preview, created_at, storage_path")
-      .order("created_at", { ascending: false });
+    const PAGE = 1000;
+    let allSources: Record<string, unknown>[] = [];
+    let from = 0;
 
     if (view === "chat") {
-      query = query.limit(500);
+      // Chat view: limited to 500
+      const { data, error } = await supabase
+        .from("sources")
+        .select("id, filename, mime_type, folder_path, tags, content_preview, created_at, storage_path")
+        .order("created_at", { ascending: false })
+        .limit(500);
+      if (error) return res.status(500).json({ error: error.message });
+      allSources = data || [];
+    } else {
+      // Admin view: paginate to get ALL sources
+      while (true) {
+        const { data, error } = await supabase
+          .from("sources")
+          .select("id, filename, mime_type, folder_path, tags, content_preview, created_at, storage_path")
+          .order("created_at", { ascending: false })
+          .range(from, from + PAGE - 1);
+
+        if (error) return res.status(500).json({ error: error.message });
+        allSources = allSources.concat(data || []);
+        if (!data || data.length < PAGE) break;
+        from += PAGE;
+      }
     }
 
-    const { data, error } = await query;
-    if (error) return res.status(500).json({ error: error.message });
-    return res.json({ sources: data || [] });
+    return res.json({ sources: allSources });
   } catch (err) {
     console.error("[sources] GET error:", err);
     return res.status(500).json({ error: "Internal error" });
