@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { apiUrl } from "@/app/lib/api";
 
 const ACCEPTED_FILE_TYPES = ".pdf,.doc,.docx,.xlsx,.xls,.pptx,.txt,.md";
-const LARGE_FILE_THRESHOLD = 4 * 1024 * 1024; // 4 MB
 
 const STYLES = [
   { key: "business_infographic", label: "Деловая инфографика", icon: "📊" },
@@ -71,33 +70,27 @@ export default function InfographicPage() {
       const inviteCode = localStorage.getItem("snabchat_invite_code") || "";
       const formData = new FormData();
 
-      if (file.size > LARGE_FILE_THRESHOLD) {
-        const urlRes = await fetch(apiUrl("/api/chat-upload-url"), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-invite-code": encodeURIComponent(inviteCode),
-          },
-          body: JSON.stringify({ filename: file.name, mimeType: file.type }),
-        });
-        if (urlRes.ok) {
-          const { uploadUrl, storagePath } = await urlRes.json();
-          const putRes = await fetch(uploadUrl, {
-            method: "PUT",
-            headers: { "Content-Type": file.type, "x-upsert": "false" },
-            body: file,
-          });
-          if (!putRes.ok) throw new Error("Storage upload failed");
-          formData.append("storagePath", storagePath);
-          formData.append("storageBucket", "chat-uploads");
-          formData.append("filename", file.name);
-          formData.append("mimeType", file.type);
-        } else {
-          throw new Error("Failed to get upload URL");
-        }
-      } else {
-        formData.append("file", file);
-      }
+      // Always upload via Storage to avoid body size limits
+      const urlRes = await fetch(apiUrl("/api/chat-upload-url"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-invite-code": encodeURIComponent(inviteCode),
+        },
+        body: JSON.stringify({ filename: file.name, mimeType: file.type }),
+      });
+      if (!urlRes.ok) throw new Error("Не удалось получить URL для загрузки");
+      const { uploadUrl, storagePath } = await urlRes.json();
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type, "x-upsert": "false" },
+        body: file,
+      });
+      if (!putRes.ok) throw new Error("Ошибка загрузки файла в хранилище");
+      formData.append("storagePath", storagePath);
+      formData.append("storageBucket", "chat-uploads");
+      formData.append("filename", file.name);
+      formData.append("mimeType", file.type);
 
       const res = await fetch(apiUrl("/api/parse"), {
         method: "POST",
