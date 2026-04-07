@@ -1,4 +1,22 @@
 /** @type {import('next').NextConfig} */
+
+// Build connect-src dynamically to include the backend URL
+const connectSrcParts = [
+  "'self'",
+  "https://*.supabase.co",
+  "wss://*.supabase.co",
+  "https://*.up.railway.app",
+];
+const backendUrl = process.env.NEXT_PUBLIC_API_URL || "";
+if (backendUrl) {
+  try {
+    const origin = new URL(backendUrl).origin;
+    if (!connectSrcParts.includes(origin)) {
+      connectSrcParts.push(origin);
+    }
+  } catch { /* invalid URL, skip */ }
+}
+
 const nextConfig = {
   experimental: {
     serverActions: {
@@ -26,7 +44,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob:",
-              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.up.railway.app",
+              `connect-src ${connectSrcParts.join(" ")}`,
               "frame-ancestors 'none'",
             ].join("; "),
           },

@@ -94,8 +94,14 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
           inviteCodeId: data.inviteCodeId,
         });
       }
-    } catch {
-      setError("Ошибка подключения к серверу");
+    } catch (err) {
+      console.error("[login] fetch failed:", err, "url:", apiUrl("/api/auth/login"));
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("TypeError")) {
+        setError("Не удалось подключиться к серверу. Проверьте интернет-соединение или попробуйте позже.");
+      } else {
+        setError("Ошибка подключения к серверу");
+      }
     } finally {
       setLoading(false);
     }
@@ -158,8 +164,14 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         userName: data.name,
         inviteCodeId: data.inviteCodeId,
       });
-    } catch {
-      setError("Ошибка подключения к серверу");
+    } catch (err) {
+      console.error("[register] fetch failed:", err, "url:", apiUrl("/api/auth/register"));
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("TypeError")) {
+        setError("Не удалось подключиться к серверу. Проверьте интернет-соединение или попробуйте позже.");
+      } else {
+        setError("Ошибка подключения к серверу");
+      }
     } finally {
       setLoading(false);
     }

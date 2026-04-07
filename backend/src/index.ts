@@ -31,16 +31,36 @@ const PORT = parseInt(process.env.PORT || "3001", 10);
 app.use(helmet());
 
 // ── CORS ──
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
-// Support both www and non-www origins
-const allowedOrigins: string[] = [FRONTEND_URL];
-if (FRONTEND_URL.includes("://www.")) {
-  allowedOrigins.push(FRONTEND_URL.replace("://www.", "://"));
-} else if (FRONTEND_URL.match(/^https?:\/\/[^/]+/)) {
-  allowedOrigins.push(FRONTEND_URL.replace("://", "://www."));
+// FRONTEND_URLS supports multiple origins separated by comma
+// e.g. "https://www.snabchat.app,https://snab-chat.vercel.app"
+const FRONTEND_URL = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/+$/, "");
+const allowedOrigins: string[] = [];
+
+for (const raw of FRONTEND_URL.split(",")) {
+  const url = raw.trim().replace(/\/+$/, "");
+  if (!url) continue;
+  allowedOrigins.push(url);
+  // Auto-add www / non-www variant
+  if (url.includes("://www.")) {
+    allowedOrigins.push(url.replace("://www.", "://"));
+  } else if (url.match(/^https?:\/\/[^/]+/)) {
+    allowedOrigins.push(url.replace("://", "://www."));
+  }
 }
+
+// Deduplicate
+const uniqueOrigins = [...new Set(allowedOrigins)];
+console.log(`[backend] Allowed CORS origins: ${JSON.stringify(uniqueOrigins)}`);
+
 app.use(cors({
-  origin: allowedOrigins,
+  origin: (origin, callback) => {
+    // Allow requests with no origin (server-to-server, health checks)
+    if (!origin) return callback(null, true);
+    // Exact match
+    if (uniqueOrigins.includes(origin)) return callback(null, true);
+    console.warn(`[CORS] Blocked origin: ${origin}`);
+    callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
   credentials: true,
   exposedHeaders: ["X-Sources", "X-Chunk-Images"],
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
