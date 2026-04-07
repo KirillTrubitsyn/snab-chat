@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import {
   isAdminCode,
+  isDocumentAdmin,
   getAdminName,
   validateInviteCode,
   consumeInviteCodeFallback,
@@ -26,6 +27,7 @@ router.post("/api/auth/login", async (req: Request, res: Response) => {
         type: "admin",
         adminName,
         code: upperCode,
+        isDocumentAdmin: isDocumentAdmin(upperCode),
       });
     }
 
