@@ -12,7 +12,7 @@
     "@ai-sdk/google": "^3.0.59",
     "@ai-sdk/react": "^3.0.149",
     "@google/genai": "^1.48.0",
-    "@supabase/supabase-js": "^2.49.0",
+    "@supabase/supabase-js": "^2.102.1",
     "ai": "^6.0.147",
     "docx": "^9.6.1",
     "exceljs": "^4.4.0",
