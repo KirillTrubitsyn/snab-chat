@@ -338,7 +338,7 @@ router.get("/api/sources/excel-data", async (req: Request, res: Response) => {
     }
 
     // Fallback: parse markdown table from chunks
-    const { parseMarkdownTables } = await import("../lib/markdown-tables");
+    const { parseMarkdownTables } = await import("../lib/markdown-tables.js");
     const { data: chunks } = await supabase
       .from("chunks")
       .select("content, chunk_index")
@@ -351,7 +351,7 @@ router.get("/api/sources/excel-data", async (req: Request, res: Response) => {
 
     const markdown = chunks.map((c: { content: string }) => c.content).join("\n\n");
     const parsed = parseMarkdownTables(markdown, source.filename);
-    const excelSheets: ExcelSheet[] = parsed.map((s) => ({ ...s, merges: [], colWidths: [] }));
+    const excelSheets: ExcelSheet[] = parsed.map((s: { name: string; rows: string[][] }) => ({ ...s, merges: [], colWidths: [] }));
     return res.json({ sheets: excelSheets, filename: source.filename });
   } catch (err) {
     console.error("[sources/excel-data] Error:", err);
@@ -359,14 +359,162 @@ router.get("/api/sources/excel-data", async (req: Request, res: Response) => {
   }
 });
 
-router.get("/api/sources/pptx-slides", async (_req: Request, res: Response) => {
-  // TODO: Implement PPTX slides extraction
-  return res.status(501).json({ error: "Not yet implemented in backend" });
+router.get("/api/sources/pptx-slides", async (req: Request, res: Response) => {
+  try {
+    const id = req.query.id as string;
+    if (!id) return res.status(400).json({ error: "Missing id" });
+
+    const supabase = createServiceClient();
+    const { data: source } = await supabase
+      .from("sources")
+      .select("id, filename, mime_type, storage_path")
+      .eq("id", id)
+      .single();
+
+    if (!source || !source.storage_path) {
+      return res.status(404).json({ error: "Source not found or no original file" });
+    }
+
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from("documents")
+      .download(source.storage_path);
+
+    if (downloadError || !fileData) {
+      return res.status(500).json({ error: "Failed to download file" });
+    }
+
+    const JSZip = (await import("jszip")).default;
+    const buffer = Buffer.from(await fileData.arrayBuffer());
+    const zip = await JSZip.loadAsync(buffer);
+
+    const slideFiles = Object.keys(zip.files)
+      .filter((f) => /^ppt\/slides\/slide\d+\.xml$/i.test(f))
+      .sort((a, b) => {
+        const na = parseInt(a.match(/slide(\d+)/i)?.[1] || "0", 10);
+        const nb = parseInt(b.match(/slide(\d+)/i)?.[1] || "0", 10);
+        return na - nb;
+      });
+
+    const mediaCache = new Map<string, { data: Buffer; mime: string }>();
+    for (const key of Object.keys(zip.files)) {
+      if (/^ppt\/media\//i.test(key) && !zip.files[key].dir) {
+        const ext = key.split(".").pop()?.toLowerCase() || "png";
+        const mime =
+          ext === "jpg" || ext === "jpeg" ? "image/jpeg"
+            : ext === "gif" ? "image/gif"
+            : ext === "emf" ? "image/x-emf"
+            : ext === "wmf" ? "image/x-wmf"
+            : `image/${ext}`;
+        const data = Buffer.from(await zip.files[key].async("arraybuffer"));
+        mediaCache.set(key, { data, mime });
+      }
+    }
+
+    const slides: { number: number; paragraphs: string[]; images: { base64: string; mimeType: string }[] }[] = [];
+
+    for (const slideFile of slideFiles) {
+      const slideNum = parseInt(slideFile.match(/slide(\d+)/i)?.[1] || "0", 10);
+      const slideXml = await zip.files[slideFile].async("text");
+
+      const paragraphs: string[] = [];
+      const pParts = slideXml.split(/<a:p[\s>]/);
+      for (const pp of pParts) {
+        const textRuns: string[] = [];
+        const tRegex = /<a:t>([\s\S]*?)<\/a:t>/g;
+        let m;
+        while ((m = tRegex.exec(pp)) !== null) {
+          const t = m[1]
+            .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+          if (t) textRuns.push(t);
+        }
+        if (textRuns.length > 0) paragraphs.push(textRuns.join(" "));
+      }
+
+      const relsPath = slideFile.replace(/ppt\/slides\/(slide\d+\.xml)/i, "ppt/slides/_rels/$1.rels");
+      const slideImages: { base64: string; mimeType: string }[] = [];
+
+      if (zip.files[relsPath]) {
+        const relsXml = await zip.files[relsPath].async("text");
+        const relRegex = /<Relationship[^>]+Target="([^"]*)"[^>]+Type="[^"]*\/image"[^>]*\/?>/gi;
+        const relRegex2 = /<Relationship[^>]+Type="[^"]*\/image"[^>]+Target="([^"]*)"[^>]*\/?>/gi;
+        const targets = new Set<string>();
+        let rm;
+        while ((rm = relRegex.exec(relsXml)) !== null) targets.add(rm[1]);
+        while ((rm = relRegex2.exec(relsXml)) !== null) targets.add(rm[1]);
+
+        for (const target of targets) {
+          const mediaPath = target.startsWith("../") ? `ppt/${target.slice(3)}`
+            : target.startsWith("/") ? target.slice(1)
+            : `ppt/slides/${target}`;
+          const media = mediaCache.get(mediaPath);
+          if (media && media.data.length >= 2048 && media.mime !== "image/x-emf" && media.mime !== "image/x-wmf") {
+            slideImages.push({ base64: media.data.toString("base64"), mimeType: media.mime });
+          }
+        }
+      }
+
+      if (paragraphs.length > 0 || slideImages.length > 0) {
+        slides.push({ number: slideNum, paragraphs, images: slideImages });
+      }
+    }
+
+    return res.json({ slides });
+  } catch (err) {
+    console.error("[sources/pptx-slides] Error:", err);
+    return res.status(500).json({ error: "Failed to extract slides" });
+  }
 });
 
-router.get("/api/sources/docx-html", async (_req: Request, res: Response) => {
-  // TODO: Implement DOCX to HTML conversion
-  return res.status(501).json({ error: "Not yet implemented in backend" });
+router.get("/api/sources/docx-html", async (req: Request, res: Response) => {
+  try {
+    const id = req.query.id as string;
+    if (!id) return res.status(400).json({ error: "Missing id" });
+
+    const supabase = createServiceClient();
+    const { data: source } = await supabase
+      .from("sources")
+      .select("id, filename, mime_type, storage_path")
+      .eq("id", id)
+      .single();
+
+    if (!source || !source.storage_path) {
+      return res.status(404).json({ error: "Source not found or no original file" });
+    }
+
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from("documents")
+      .download(source.storage_path);
+
+    if (downloadError || !fileData) {
+      return res.status(500).json({ error: "Failed to download file" });
+    }
+
+    const mammoth = (await import("mammoth")).default;
+    const buffer = Buffer.from(await fileData.arrayBuffer());
+
+    const result = await mammoth.convertToHtml(
+      { buffer },
+      {
+        styleMap: [
+          "p[style-name='Heading 1'] => h1:fresh",
+          "p[style-name='Heading 2'] => h2:fresh",
+          "p[style-name='Heading 3'] => h3:fresh",
+          "p[style-name='Title'] => h1.doc-title:fresh",
+        ],
+      }
+    );
+
+    return res.json({
+      html: result.value,
+      messages: result.messages
+        .filter((m) => m.type === "warning")
+        .map((m) => m.message),
+    });
+  } catch (err) {
+    console.error("[sources/docx-html] Error:", err);
+    return res.status(500).json({ error: "Failed to convert document" });
+  }
 });
 
 router.get("/api/sources/resolve", async (req: Request, res: Response) => {
@@ -375,9 +523,34 @@ router.get("/api/sources/resolve", async (req: Request, res: Response) => {
     if (!id) return res.status(400).json({ error: "Missing id" });
 
     const supabase = createServiceClient();
-    const { data, error } = await supabase.from("sources").select("*").eq("id", id).single();
-    if (error || !data) return res.status(404).json({ error: "Not found" });
-    return res.json({ source: data });
+    const { data: source, error } = await supabase
+      .from("sources")
+      .select("id, filename, mime_type, storage_path")
+      .eq("id", id)
+      .single();
+
+    if (error || !source) return res.status(404).json({ error: "Not found" });
+
+    // If source already has storage_path or is not denormalized, no resolution needed
+    if (source.storage_path || source.mime_type !== "application/x-denormalized") {
+      return res.json({ original: null });
+    }
+
+    // Find original source with the same filename that has storage_path
+    const { data: original, error: origError } = await supabase
+      .from("sources")
+      .select("id, filename, mime_type, storage_path")
+      .eq("filename", source.filename)
+      .not("storage_path", "is", null)
+      .neq("mime_type", "application/x-denormalized")
+      .limit(1)
+      .single();
+
+    if (origError || !original) {
+      return res.json({ original: null });
+    }
+
+    return res.json({ original });
   } catch (err) {
     console.error("[sources/resolve] Error:", err);
     return res.status(500).json({ error: "Internal error" });
