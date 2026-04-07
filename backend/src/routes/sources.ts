@@ -136,12 +136,21 @@ router.get("/api/sources/content", async (req: Request, res: Response) => {
     const { data: chunks, error } = await supabase
       .from("chunks")
       .select("content, chunk_index")
-      .eq("source_filename", (await supabase.from("sources").select("filename").eq("id", id).single()).data?.filename)
+      .eq("source_id", id)
       .order("chunk_index", { ascending: true });
 
-    if (error) return res.status(500).json({ error: error.message });
-    const content = (chunks || []).map((c: { content: string }) => c.content).join("\n\n---\n\n");
-    return res.json({ content });
+    if (error || !chunks || chunks.length === 0) {
+      return res.status(404).json({ error: "No content available" });
+    }
+    const markdown = chunks.map((c: { content: string }) => {
+      const text = c.content;
+      const preambleEnd = text.indexOf("\n\n");
+      if (preambleEnd > 0 && preambleEnd < 300 && text.charCodeAt(0) > 127) {
+        return text.slice(preambleEnd + 2);
+      }
+      return text;
+    }).join("\n\n");
+    return res.json({ markdown });
   } catch (err) {
     console.error("[sources/content] Error:", err);
     return res.status(500).json({ error: "Internal error" });
@@ -254,33 +263,96 @@ router.get("/api/sources/excel-data", async (req: Request, res: Response) => {
     if (!id) return res.status(400).json({ error: "Missing id" });
 
     const supabase = createServiceClient();
-    const { data: source } = await supabase.from("sources").select("filename, storage_path").eq("id", id).single();
+    const { data: source } = await supabase.from("sources").select("id, filename, storage_path").eq("id", id).single();
     if (!source) return res.status(404).json({ error: "Not found" });
 
-    const storagePath = source.storage_path || `documents/${source.filename}`;
-    const { data, error } = await supabase.storage.from("documents").download(storagePath);
-    if (error || !data) return res.status(404).json({ error: "File not found" });
-
-    const ExcelJS = await import("exceljs");
-    const buffer = Buffer.from(await data.arrayBuffer());
-    const workbook = new ExcelJS.default.Workbook();
-    await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
-    const sheets: Record<string, unknown[]> = {};
-    for (const ws of workbook.worksheets) {
-      const rows: Record<string, unknown>[] = [];
-      const headers: string[] = [];
-      ws.eachRow((row, rowNumber) => {
-        if (rowNumber === 1) {
-          row.eachCell((cell, colNumber) => { headers[colNumber - 1] = String(cell.value ?? `Col${colNumber}`); });
-        } else {
-          const obj: Record<string, unknown> = {};
-          row.eachCell((cell, colNumber) => { obj[headers[colNumber - 1] ?? `Col${colNumber}`] = cell.value ?? ""; });
-          rows.push(obj);
-        }
-      });
-      sheets[ws.name] = rows;
+    interface ExcelSheet {
+      name: string;
+      rows: string[][];
+      merges: { s: { r: number; c: number }; e: { r: number; c: number } }[];
+      colWidths: number[];
     }
-    return res.json({ sheets });
+
+    if (source.storage_path) {
+      const { data: fileData, error: downloadError } = await supabase.storage.from("documents").download(source.storage_path);
+      if (!downloadError && fileData) {
+        const ExcelJS = await import("exceljs");
+        const buffer = Buffer.from(await fileData.arrayBuffer());
+        const workbook = new ExcelJS.default.Workbook();
+        try {
+          await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+        } catch {
+          // fall through to markdown fallback
+        }
+        const sheets: ExcelSheet[] = [];
+
+        for (const ws of workbook.worksheets) {
+          const totalCols = ws.columnCount;
+          if (ws.rowCount === 0 || totalCols === 0) continue;
+
+          const rows: string[][] = [];
+          ws.eachRow({ includeEmpty: false }, (row) => {
+            const vals: string[] = [];
+            for (let c = 1; c <= totalCols; c++) {
+              const cell = row.getCell(c);
+              let cellText = "";
+              try {
+                cellText = cell.text ?? String(cell.value ?? "");
+              } catch {
+                try { cellText = String(cell.value ?? ""); } catch { cellText = ""; }
+              }
+              vals.push(cellText);
+            }
+            rows.push(vals);
+          });
+
+          if (rows.length === 0) continue;
+
+          const merges: ExcelSheet["merges"] = [];
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const wsAny = ws as any;
+          if (wsAny._merges) {
+            for (const key of Object.keys(wsAny._merges)) {
+              const m = wsAny._merges[key].model;
+              merges.push({ s: { r: m.top - 1, c: m.left - 1 }, e: { r: m.bottom - 1, c: m.right - 1 } });
+            }
+          }
+
+          const colWidths: number[] = [];
+          for (let i = 1; i <= totalCols; i++) {
+            const col = ws.getColumn(i);
+            colWidths.push(col.width ? Math.round(col.width) : 0);
+          }
+
+          const maxCols = Math.max(...rows.map((r) => r.length), 0);
+          sheets.push({
+            name: ws.name,
+            rows: rows.map((row) => Array.from({ length: maxCols }, (_, i) => String(row[i] ?? ""))),
+            merges,
+            colWidths,
+          });
+        }
+
+        return res.json({ sheets, filename: source.filename });
+      }
+    }
+
+    // Fallback: parse markdown table from chunks
+    const { parseMarkdownTables } = await import("../lib/markdown-tables");
+    const { data: chunks } = await supabase
+      .from("chunks")
+      .select("content, chunk_index")
+      .eq("source_id", source.id)
+      .order("chunk_index", { ascending: true });
+
+    if (!chunks || chunks.length === 0) {
+      return res.status(404).json({ error: "No content" });
+    }
+
+    const markdown = chunks.map((c: { content: string }) => c.content).join("\n\n");
+    const parsed = parseMarkdownTables(markdown, source.filename);
+    const excelSheets: ExcelSheet[] = parsed.map((s) => ({ ...s, merges: [], colWidths: [] }));
+    return res.json({ sheets: excelSheets, filename: source.filename });
   } catch (err) {
     console.error("[sources/excel-data] Error:", err);
     return res.status(500).json({ error: "Internal error" });
