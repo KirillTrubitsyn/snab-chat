@@ -222,8 +222,6 @@ router.get("/api/sources/download", async (req: Request, res: Response) => {
     } else {
       res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(source.filename)}`);
     }
-    res.setHeader("X-Frame-Options", "SAMEORIGIN");
-    res.setHeader("Content-Security-Policy", "frame-ancestors 'self'");
     return res.send(buffer);
   } catch (err) {
     console.error("[sources/download] Error:", err);
