@@ -220,7 +220,10 @@ router.get("/api/sources/download", async (req: Request, res: Response) => {
     if (action === "download") {
       res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(source.filename)}`);
     } else {
+      // Inline (iframe view): override helmet's restrictive headers to allow cross-origin embedding
       res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(source.filename)}`);
+      res.removeHeader("X-Frame-Options");
+      res.setHeader("Content-Security-Policy", "frame-ancestors *");
     }
     return res.send(buffer);
   } catch (err) {
