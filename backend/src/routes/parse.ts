@@ -106,7 +106,7 @@ router.post(
         message: errMsg,
         endpoint: "/api/parse",
       }).catch(() => {});
-      return res.status(500).json({ error: "Failed to parse file" });
+      return res.status(500).json({ error: errMsg });
     }
   }
 );
