@@ -644,11 +644,29 @@ function validateMagicBytes(
 }
 
 async function parseExcelToMarkdown(buffer: Buffer, filename: string): Promise<string> {
-  validateMagicBytes(buffer, [ZIP_MAGIC, OLE2_MAGIC], "Excel");
+  const head = buffer.subarray(0, 4);
+
+  // OLE2 magic bytes — это старый бинарный формат Excel 97-2003 (.xls).
+  // ExcelJS поддерживает только .xlsx (ZIP/OOXML).
+  if (head.equals(OLE2_MAGIC)) {
+    throw new Error(
+      "Файл в старом формате Excel 97-2003 (.xls). " +
+      "Откройте его в Microsoft Excel и сохраните как «Книга Excel (.xlsx)», затем загрузите снова."
+    );
+  }
+
+  if (!head.equals(ZIP_MAGIC)) {
+    throw new Error("Файл не является валидным Excel-документом (.xlsx)");
+  }
 
   const workbook = new ExcelJS.Workbook();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await workbook.xlsx.load(buffer as any);
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await workbook.xlsx.load(buffer as any);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Не удалось прочитать файл Excel: ${msg}`);
+  }
 
   const parts: string[] = [];
 
