@@ -161,9 +161,10 @@ export default function Chat() {
   const [activeView, setActiveView] = useState<"chat" | "knowledge-base">("chat");
   const [kbCategoryFilter, setKbCategoryFilter] = useState<string>("all");
 
-  // .doc format warning modal
+  // .doc / .xls format warning modal
   const [showDocFormatModal, setShowDocFormatModal] = useState(false);
   const [docFormatFileName, setDocFormatFileName] = useState("");
+  const [docFormatType, setDocFormatType] = useState<"doc" | "xls">("doc");
 
   // Support modal state
   const [showSupportModal, setShowSupportModal] = useState(false);
@@ -695,7 +696,11 @@ export default function Chat() {
       }
 
       const res = await fetch(apiUrl("/api/parse"), { method: "POST", body: formData, headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) } });
-      if (!res.ok) throw new Error("Parse failed");
+      if (!res.ok) {
+        let serverError = "Parse failed";
+        try { const errData = await res.json(); serverError = errData.error || serverError; } catch { /* ignore */ }
+        throw new Error(serverError);
+      }
       const data = await res.json();
       if (isPhoto) {
         setChatPhotos((prev) =>
@@ -706,12 +711,23 @@ export default function Chat() {
           prev.map((f) => (f.id === fileId ? { ...f, markdown: data.markdown, parsing: false } : f))
         );
       }
-    } catch {
-      // If a legacy .doc file failed to parse, show resave modal
+    } catch (err) {
       const ext = file.name.split(".").pop()?.toLowerCase() || "";
+      const errMsg = err instanceof Error ? err.message : "";
+
+      // Legacy .doc file → show resave modal
       if (ext === "doc") {
         setChatFiles((prev) => prev.filter((f) => f.id !== fileId));
         setDocFormatFileName(file.name);
+        setDocFormatType("doc");
+        setShowDocFormatModal(true);
+        return;
+      }
+      // Old binary .xls format (Excel 97-2003) — may be disguised as .xlsx
+      if (ext === "xls" || errMsg.includes("Excel 97-2003") || errMsg.includes("старый формат")) {
+        setChatFiles((prev) => prev.filter((f) => f.id !== fileId));
+        setDocFormatFileName(file.name);
+        setDocFormatType("xls");
         setShowDocFormatModal(true);
         return;
       }
@@ -2154,23 +2170,40 @@ export default function Chat() {
       )}
 
       {/* ── Support Modal ── */}
-      {/* .doc format warning modal */}
+      {/* .doc / .xls format warning modal */}
       {showDocFormatModal && (
         <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setShowDocFormatModal(false)}>
           <div className="modal-card doc-format-modal" onClick={(e) => e.stopPropagation()}>
             <div className="doc-format-modal-icon">⚠️</div>
             <h3 className="doc-format-modal-title">Устаревший формат файла</h3>
             <p className="doc-format-modal-filename">{docFormatFileName}</p>
-            <p className="doc-format-modal-text">
-              Этот файл сохранён в формате <strong>.doc</strong> (Word 97–2003), который не поддерживается чатом.
-              Пересохраните его в современном формате <strong>.docx</strong>:
-            </p>
-            <ol className="doc-format-modal-steps">
-              <li>Откройте файл в Microsoft Word</li>
-              <li>Нажмите <strong>Файл → Сохранить как</strong></li>
-              <li>В поле «Тип файла» выберите <strong>Документ Word (.docx)</strong></li>
-              <li>Нажмите <strong>Сохранить</strong> и загрузите новый файл в чат</li>
-            </ol>
+            {docFormatType === "xls" ? (
+              <>
+                <p className="doc-format-modal-text">
+                  Этот файл сохранён в формате <strong>.xls</strong> (Excel 97–2003), который не поддерживается чатом.
+                  Пересохраните его в современном формате <strong>.xlsx</strong>:
+                </p>
+                <ol className="doc-format-modal-steps">
+                  <li>Откройте файл в Microsoft Excel</li>
+                  <li>Нажмите <strong>Файл → Сохранить как</strong></li>
+                  <li>В поле «Тип файла» выберите <strong>Книга Excel (.xlsx)</strong></li>
+                  <li>Нажмите <strong>Сохранить</strong> и загрузите новый файл в чат</li>
+                </ol>
+              </>
+            ) : (
+              <>
+                <p className="doc-format-modal-text">
+                  Этот файл сохранён в формате <strong>.doc</strong> (Word 97–2003), который не поддерживается чатом.
+                  Пересохраните его в современном формате <strong>.docx</strong>:
+                </p>
+                <ol className="doc-format-modal-steps">
+                  <li>Откройте файл в Microsoft Word</li>
+                  <li>Нажмите <strong>Файл → Сохранить как</strong></li>
+                  <li>В поле «Тип файла» выберите <strong>Документ Word (.docx)</strong></li>
+                  <li>Нажмите <strong>Сохранить</strong> и загрузите новый файл в чат</li>
+                </ol>
+              </>
+            )}
             <button
               className="doc-format-modal-btn"
               onClick={() => setShowDocFormatModal(false)}
