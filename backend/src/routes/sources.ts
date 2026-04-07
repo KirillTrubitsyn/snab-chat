@@ -15,7 +15,7 @@ router.get("/api/sources", async (req: Request, res: Response) => {
     const supabase = createServiceClient();
     let query = supabase
       .from("sources")
-      .select("id, filename, mime_type, folder_path, tags, content_preview, created_at, parent_source_id, chunk_count, char_count")
+      .select("id, filename, mime_type, folder_path, tags, content_preview, created_at, storage_path")
       .order("created_at", { ascending: false });
 
     if (view === "chat") {
