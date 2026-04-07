@@ -104,11 +104,27 @@ export default function InfographicPage() {
         body: formData,
         headers: { "x-invite-code": encodeURIComponent(inviteCode) },
       });
-      if (!res.ok) throw new Error("Parse failed");
+      if (!res.ok) {
+        let errMsg = `Ошибка сервера (${res.status})`;
+        try {
+          const errData = await res.json();
+          if (errData.error) errMsg = errData.error;
+        } catch {}
+        throw new Error(errMsg);
+      }
       const data = await res.json();
+      if (!data.markdown || data.markdown.trim().length === 0) {
+        throw new Error("Файл не содержит извлекаемого текста");
+      }
       setUploadedFile({ name: file.name, markdown: data.markdown });
-    } catch {
-      setError("Не удалось обработать файл. Попробуйте другой формат.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Ошибка обработки файла";
+      const ext = file.name.split(".").pop()?.toLowerCase() || "";
+      if (ext === "doc") {
+        setError("Формат .doc не поддерживается. Пересохраните файл в .docx и повторите загрузку.");
+      } else {
+        setError(msg);
+      }
     } finally {
       setFileParsing(false);
     }
