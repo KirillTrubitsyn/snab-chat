@@ -18,14 +18,19 @@ router.get("/api/sources", async (req: Request, res: Response) => {
     let from = 0;
 
     if (view === "chat") {
-      // Chat view: limited to 500
-      const { data, error } = await supabase
-        .from("sources")
-        .select("id, filename, mime_type, folder_path, tags, content_preview, created_at, storage_path")
-        .order("created_at", { ascending: false })
-        .limit(500);
-      if (error) return res.status(500).json({ error: error.message });
-      allSources = data || [];
+      // Chat view: paginate all sources too (users need full list for KB)
+      while (true) {
+        const { data, error } = await supabase
+          .from("sources")
+          .select("id, filename, mime_type, folder_path, tags, content_preview, created_at, storage_path")
+          .order("created_at", { ascending: false })
+          .range(from, from + PAGE - 1);
+
+        if (error) return res.status(500).json({ error: error.message });
+        allSources = allSources.concat(data || []);
+        if (!data || data.length < PAGE) break;
+        from += PAGE;
+      }
     } else {
       // Admin view: paginate to get ALL sources
       while (true) {
