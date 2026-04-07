@@ -155,8 +155,11 @@ export default function ChatDocumentViewer({
           }
         })
         .catch(() => {
-          setContent("Не удалось загрузить содержимое");
-          setLoading(false);
+          fetch(apiUrl(`/api/sources/content?id=${source.id}`), { headers: authHeaders })
+            .then((r) => r.json())
+            .then((d) => setContent(d.markdown || "Не удалось загрузить содержимое"))
+            .catch(() => setContent("Не удалось загрузить содержимое"))
+            .finally(() => setLoading(false));
         });
       return;
     }
