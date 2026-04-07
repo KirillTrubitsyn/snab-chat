@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { apiUrl } from "@/app/lib/api";
+
+const ACCEPTED_FILE_TYPES = ".pdf,.doc,.docx,.xlsx,.xls,.pptx,.txt,.md";
+const LARGE_FILE_THRESHOLD = 4 * 1024 * 1024; // 4 MB
 
 const STYLES = [
   { key: "business_infographic", label: "Деловая инфографика", icon: "📊" },
@@ -29,6 +32,9 @@ export default function InfographicPage() {
   const [documentText, setDocumentText] = useState("");
   const [conversationId, setConversationId] = useState("");
   const [is3D, setIs3D] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<{ name: string; markdown: string } | null>(null);
+  const [fileParsing, setFileParsing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [generating, setGenerating] = useState(false);
   const [savedToHistory, setSavedToHistory] = useState(false);
   const [resultImage, setResultImage] = useState("");
@@ -50,7 +56,67 @@ export default function InfographicPage() {
     }
   }, []);
 
-  const hasContext = !!documentText;
+  const hasContext = !!documentText || !!uploadedFile;
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset input so same file can be re-selected
+    e.target.value = "";
+
+    setFileParsing(true);
+    setError("");
+
+    try {
+      const inviteCode = localStorage.getItem("snabchat_invite_code") || "";
+      const formData = new FormData();
+
+      if (file.size > LARGE_FILE_THRESHOLD) {
+        const urlRes = await fetch(apiUrl("/api/chat-upload-url"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-invite-code": encodeURIComponent(inviteCode),
+          },
+          body: JSON.stringify({ filename: file.name, mimeType: file.type }),
+        });
+        if (urlRes.ok) {
+          const { uploadUrl, storagePath } = await urlRes.json();
+          const putRes = await fetch(uploadUrl, {
+            method: "PUT",
+            headers: { "Content-Type": file.type, "x-upsert": "false" },
+            body: file,
+          });
+          if (!putRes.ok) throw new Error("Storage upload failed");
+          formData.append("storagePath", storagePath);
+          formData.append("storageBucket", "chat-uploads");
+          formData.append("filename", file.name);
+          formData.append("mimeType", file.type);
+        } else {
+          throw new Error("Failed to get upload URL");
+        }
+      } else {
+        formData.append("file", file);
+      }
+
+      const res = await fetch(apiUrl("/api/parse"), {
+        method: "POST",
+        body: formData,
+        headers: { "x-invite-code": encodeURIComponent(inviteCode) },
+      });
+      if (!res.ok) throw new Error("Parse failed");
+      const data = await res.json();
+      setUploadedFile({ name: file.name, markdown: data.markdown });
+    } catch {
+      setError("Не удалось обработать файл. Попробуйте другой формат.");
+    } finally {
+      setFileParsing(false);
+    }
+  };
+
+  const removeUploadedFile = () => {
+    setUploadedFile(null);
+  };
 
   const handleGenerate = async () => {
     if (!hasContext && (!topic.trim() || topic.trim().length < 3)) {
@@ -75,7 +141,7 @@ export default function InfographicPage() {
           style,
           aspectRatio,
           is3D,
-          documentText,
+          documentText: [documentText, uploadedFile?.markdown].filter(Boolean).join("\n\n"),
           conversationId: conversationId || undefined,
         }),
       });
@@ -209,6 +275,50 @@ export default function InfographicPage() {
                   Контекст из ответа ассистента загружен
                 </div>
               )}
+
+              {/* File upload */}
+              <div className="infographic-field">
+                <label className="infographic-label">Загрузить файл (необязательно)</label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={ACCEPTED_FILE_TYPES}
+                  onChange={handleFileUpload}
+                  style={{ display: "none" }}
+                />
+                {uploadedFile ? (
+                  <div className="infographic-file-badge">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    <span className="infographic-file-name">{uploadedFile.name}</span>
+                    <button className="infographic-file-remove" onClick={removeUploadedFile} title="Удалить файл">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+                ) : fileParsing ? (
+                  <div className="infographic-file-parsing">
+                    <div className="infographic-spinner small" />
+                    Обработка файла...
+                  </div>
+                ) : (
+                  <button
+                    className="infographic-file-upload-btn"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    Выбрать файл (PDF, DOCX, XLSX, PPTX, TXT)
+                  </button>
+                )}
+              </div>
 
               {/* Style */}
               <div className="infographic-field">
