@@ -690,7 +690,14 @@ async function parseExcelToMarkdown(buffer: Buffer, filename: string): Promise<s
       const vals: string[] = [];
       for (let c = 1; c <= totalCols; c++) {
         const cell = row.getCell(c);
-        vals.push(cell.text ?? String(cell.value ?? ""));
+        let cellText = "";
+        try {
+          cellText = cell.text ?? String(cell.value ?? "");
+        } catch {
+          // ExcelJS bug: SharedStringValue.toString() crashes when model.value is null
+          try { cellText = String(cell.value ?? ""); } catch { cellText = ""; }
+        }
+        vals.push(cellText);
       }
       rows.push(vals);
     });
@@ -705,7 +712,12 @@ async function parseExcelToMarkdown(buffer: Buffer, filename: string): Promise<s
       for (const key of Object.keys(wsAny._merges)) {
         const m = wsAny._merges[key].model;
         const topCell = ws.getRow(m.top).getCell(m.left);
-        const val = topCell.text ?? String(topCell.value ?? "");
+        let val = "";
+        try {
+          val = topCell.text ?? String(topCell.value ?? "");
+        } catch {
+          try { val = String(topCell.value ?? ""); } catch { val = ""; }
+        }
         for (let r = m.top; r <= m.bottom; r++) {
           for (let c = m.left; c <= m.right; c++) {
             mergeMap.set(`${r - 1}:${c - 1}`, val);
