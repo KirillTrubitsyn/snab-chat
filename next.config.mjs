@@ -1,10 +1,14 @@
 /** @type {import('next').NextConfig} */
 
-// Build connect-src dynamically to include the backend URL
+// Build connect-src and frame-src dynamically to include the backend URL
 const connectSrcParts = [
   "'self'",
   "https://*.supabase.co",
   "wss://*.supabase.co",
+  "https://*.up.railway.app",
+];
+const frameSrcParts = [
+  "'self'",
   "https://*.up.railway.app",
 ];
 const backendUrl = process.env.NEXT_PUBLIC_API_URL || "";
@@ -13,6 +17,9 @@ if (backendUrl) {
     const origin = new URL(backendUrl).origin;
     if (!connectSrcParts.includes(origin)) {
       connectSrcParts.push(origin);
+    }
+    if (!frameSrcParts.includes(origin)) {
+      frameSrcParts.push(origin);
     }
   } catch { /* invalid URL, skip */ }
 }
@@ -45,6 +52,7 @@ const nextConfig = {
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob:",
               `connect-src ${connectSrcParts.join(" ")}`,
+              `frame-src ${frameSrcParts.join(" ")}`,
               "frame-ancestors 'none'",
             ].join("; "),
           },
