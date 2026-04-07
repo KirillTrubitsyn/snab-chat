@@ -32,8 +32,15 @@ app.use(helmet());
 
 // ── CORS ──
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+// Support both www and non-www origins
+const allowedOrigins: string[] = [FRONTEND_URL];
+if (FRONTEND_URL.includes("://www.")) {
+  allowedOrigins.push(FRONTEND_URL.replace("://www.", "://"));
+} else if (FRONTEND_URL.match(/^https?:\/\/[^/]+/)) {
+  allowedOrigins.push(FRONTEND_URL.replace("://", "://www."));
+}
 app.use(cors({
-  origin: FRONTEND_URL,
+  origin: allowedOrigins,
   credentials: true,
   exposedHeaders: ["X-Sources", "X-Chunk-Images"],
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
