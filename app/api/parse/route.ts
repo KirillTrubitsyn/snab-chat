@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
     console.error("Parse error:", err);
     logError({ type: "parse", message: errMsg, endpoint: "/api/parse" }).catch(() => {});
     return NextResponse.json(
-      { error: "Failed to parse file" },
+      { error: errMsg },
       { status: 500 }
     );
   }
