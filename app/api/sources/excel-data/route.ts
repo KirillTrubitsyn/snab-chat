@@ -42,8 +42,12 @@ export async function GET(req: NextRequest) {
     if (!downloadError && fileData) {
       const buffer = Buffer.from(await fileData.arrayBuffer());
       const workbook = new ExcelJS.Workbook();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await workbook.xlsx.load(buffer as any);
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await workbook.xlsx.load(buffer as any);
+      } catch {
+        // If ExcelJS can't load the file, fall through to markdown fallback
+      }
       const sheets: ExcelSheet[] = [];
 
       for (const ws of workbook.worksheets) {
@@ -55,7 +59,13 @@ export async function GET(req: NextRequest) {
           const vals: string[] = [];
           for (let c = 1; c <= totalCols; c++) {
             const cell = row.getCell(c);
-            vals.push(cell.text ?? String(cell.value ?? ""));
+            let cellText = "";
+            try {
+              cellText = cell.text ?? String(cell.value ?? "");
+            } catch {
+              try { cellText = String(cell.value ?? ""); } catch { cellText = ""; }
+            }
+            vals.push(cellText);
           }
           rows.push(vals);
         });
