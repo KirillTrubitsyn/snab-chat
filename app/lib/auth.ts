@@ -37,7 +37,7 @@ function loadAdminCodes(): AdminEntry[] {
 
 let _adminEntries: AdminEntry[] | null = null;
 function getAdminEntries(): AdminEntry[] {
-  if (_adminEntries === null) _adminEntries = loadAdminCodes();
+  if (!_adminEntries) _adminEntries = loadAdminCodes();
   return _adminEntries;
 }
 
