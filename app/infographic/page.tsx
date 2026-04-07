@@ -28,6 +28,7 @@ export default function InfographicPage() {
   const [aspectRatio, setAspectRatio] = useState("16:9");
   const [documentText, setDocumentText] = useState("");
   const [conversationId, setConversationId] = useState("");
+  const [is3D, setIs3D] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [savedToHistory, setSavedToHistory] = useState(false);
   const [resultImage, setResultImage] = useState("");
@@ -73,6 +74,7 @@ export default function InfographicPage() {
           topic: topic.trim(),
           style,
           aspectRatio,
+          is3D,
           documentText,
           conversationId: conversationId || undefined,
         }),
@@ -239,6 +241,27 @@ export default function InfographicPage() {
                       <span className="infographic-ratio-desc">{ar.desc}</span>
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* 3D toggle */}
+              <div className="infographic-field">
+                <label className="infographic-label">Стиль изображения</label>
+                <div className="infographic-toggle-group">
+                  <button
+                    className={`infographic-toggle-btn ${!is3D ? "active" : ""}`}
+                    onClick={() => setIs3D(false)}
+                  >
+                    <span className="infographic-toggle-icon">2D</span>
+                    <span className="infographic-toggle-label">Плоский</span>
+                  </button>
+                  <button
+                    className={`infographic-toggle-btn ${is3D ? "active" : ""}`}
+                    onClick={() => setIs3D(true)}
+                  >
+                    <span className="infographic-toggle-icon">3D</span>
+                    <span className="infographic-toggle-label">Объёмный</span>
+                  </button>
                 </div>
               </div>
 

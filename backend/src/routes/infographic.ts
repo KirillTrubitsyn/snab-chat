@@ -62,7 +62,7 @@ function fixCyrillicLookalikes(text: string): string {
 // POST /api/infographic
 router.post("/api/infographic", async (req: Request, res: Response) => {
   try {
-    const { topic, style, aspectRatio, documentText, conversationId } = req.body;
+    const { topic, style, aspectRatio, is3D, documentText, conversationId } = req.body;
 
     const hasDocumentText = documentText && typeof documentText === "string" && documentText.trim().length > 0;
     const topicText = (topic && typeof topic === "string") ? topic.trim() : "";
@@ -99,6 +99,10 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
     };
     if (aspectRatio && arHints[aspectRatio]) {
       userPrompt += `\n\nФормат изображения: ${arHints[aspectRatio]}`;
+    }
+
+    if (is3D) {
+      userPrompt += `\n\nСТИЛЬ РЕНДЕРИНГА: Создай инфографику в объёмном 3D-стиле. Используй трёхмерные элементы: объёмные блоки, 3D-иконки, изометрические графики, тени и глубину. Все элементы должны выглядеть реалистично-объёмными, как в современных 3D-презентациях.`;
     }
 
     // Try each model once with a 50s timeout — no retries, no delays
