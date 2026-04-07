@@ -68,37 +68,49 @@ export default function InfographicPage() {
 
     try {
       const inviteCode = localStorage.getItem("snabchat_invite_code") || "";
+      const parseUrl = apiUrl("/api/parse");
+
+      // For small files (<4MB): send directly via FormData
+      // For large files: upload to Storage first, then send storagePath
       const formData = new FormData();
 
-      // Always upload via Storage to avoid body size limits
-      const urlRes = await fetch(apiUrl("/api/chat-upload-url"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-invite-code": encodeURIComponent(inviteCode),
-        },
-        body: JSON.stringify({ filename: file.name, mimeType: file.type }),
-      });
-      if (!urlRes.ok) throw new Error("Не удалось получить URL для загрузки");
-      const { uploadUrl, storagePath } = await urlRes.json();
-      const putRes = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type, "x-upsert": "false" },
-        body: file,
-      });
-      if (!putRes.ok) throw new Error("Ошибка загрузки файла в хранилище");
-      formData.append("storagePath", storagePath);
-      formData.append("storageBucket", "chat-uploads");
-      formData.append("filename", file.name);
-      formData.append("mimeType", file.type);
+      if (file.size > 4 * 1024 * 1024) {
+        // Large file — go through Storage
+        const urlRes = await fetch(apiUrl("/api/chat-upload-url"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-invite-code": encodeURIComponent(inviteCode),
+          },
+          body: JSON.stringify({ filename: file.name, mimeType: file.type }),
+        });
+        if (!urlRes.ok) {
+          const errText = await urlRes.text().catch(() => "");
+          throw new Error(`Ошибка получения URL загрузки (${urlRes.status}): ${errText}`);
+        }
+        const { uploadUrl, storagePath } = await urlRes.json();
+        const putRes = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": file.type, "x-upsert": "false" },
+          body: file,
+        });
+        if (!putRes.ok) throw new Error("Ошибка загрузки файла в хранилище");
+        formData.append("storagePath", storagePath);
+        formData.append("storageBucket", "chat-uploads");
+        formData.append("filename", file.name);
+        formData.append("mimeType", file.type);
+      } else {
+        // Small file — send directly
+        formData.append("file", file);
+      }
 
-      const res = await fetch(apiUrl("/api/parse"), {
+      const res = await fetch(parseUrl, {
         method: "POST",
         body: formData,
         headers: { "x-invite-code": encodeURIComponent(inviteCode) },
       });
       if (!res.ok) {
-        let errMsg = `Ошибка сервера (${res.status})`;
+        let errMsg = `Ошибка обработки файла (${res.status})`;
         try {
           const errData = await res.json();
           if (errData.error) errMsg = errData.error;
@@ -112,6 +124,7 @@ export default function InfographicPage() {
       setUploadedFile({ name: file.name, markdown: data.markdown });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Ошибка обработки файла";
+      console.error("[infographic] File upload error:", err);
       const ext = file.name.split(".").pop()?.toLowerCase() || "";
       if (ext === "doc") {
         setError("Формат .doc не поддерживается. Пересохраните файл в .docx и повторите загрузку.");
