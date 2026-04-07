@@ -798,6 +798,128 @@ input, textarea {
   border-radius: 0 6px 6px 0;
 }
 
+/* ── Table fullscreen wrapper ── */
+.table-container {
+  position: relative;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.table-container table {
+  margin: 0;
+}
+
+.table-fullscreen-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent, #2563EB);
+  background: var(--accent-soft, rgba(37, 99, 235, 0.07));
+  border: 1px solid var(--accent, #2563EB);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.table-fullscreen-btn:hover {
+  background: var(--accent, #2563EB);
+  color: #fff;
+}
+
+.table-fullscreen-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fadeIn 0.15s ease;
+}
+
+.table-fullscreen-content {
+  background: var(--bg-white, #fff);
+  border-radius: 12px;
+  max-width: 95vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.table-fullscreen-close {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-end;
+  margin: 12px 16px 0;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary, #666);
+  background: var(--bg-main, #f5f5f5);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.table-fullscreen-close:hover {
+  background: var(--border, #e5e7eb);
+}
+
+.table-fullscreen-scroll {
+  overflow: auto;
+  padding: 12px 16px 16px;
+}
+
+.table-fullscreen-scroll table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+
+.table-fullscreen-scroll th {
+  background: var(--accent, #2563EB);
+  color: #fff;
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 12px;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+}
+
+.table-fullscreen-scroll td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  vertical-align: top;
+}
+
+.table-fullscreen-scroll tbody tr:nth-child(even) {
+  background: var(--bg-main, #fafafa);
+}
+
+.table-fullscreen-scroll tbody tr:hover {
+  background: rgba(37, 99, 235, 0.04);
+}
+
+.table-fullscreen-scroll th:first-child,
+.table-fullscreen-scroll td:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.table-fullscreen-scroll th:last-child,
+.table-fullscreen-scroll td:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
 /* User message overrides for code inside accent bubble */
 .message-user .message-content code {
   background: rgba(255, 255, 255, 0.15);
@@ -3608,6 +3730,84 @@ input, textarea {
   margin-bottom: 16px;
 }
 
+.infographic-file-upload-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 14px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-main, #f9fafb);
+  border: 2px dashed var(--border, #e5e7eb);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.infographic-file-upload-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft, rgba(37, 99, 235, 0.05));
+}
+
+.infographic-file-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--success, #059669);
+  background: rgba(5, 150, 105, 0.08);
+  border: 1px solid rgba(5, 150, 105, 0.2);
+  border-radius: var(--radius-sm);
+}
+
+.infographic-file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.infographic-file-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.infographic-file-remove:hover {
+  color: var(--error, #dc2626);
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.infographic-file-parsing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-main, #f9fafb);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: var(--radius-sm);
+}
+
+.infographic-spinner.small {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+
 .infographic-styles-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -3692,6 +3892,54 @@ input, textarea {
 .infographic-ratio-desc {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.infographic-toggle-group {
+  display: flex;
+  gap: 8px;
+}
+
+.infographic-toggle-btn {
+  flex: 1;
+  padding: 12px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transition: border-color var(--transition), background var(--transition);
+  cursor: pointer;
+}
+
+.infographic-toggle-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.infographic-toggle-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.infographic-toggle-icon {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+}
+
+.infographic-toggle-btn.active .infographic-toggle-icon {
+  color: var(--accent);
+}
+
+.infographic-toggle-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.infographic-toggle-btn.active .infographic-toggle-label {
+  color: var(--accent);
 }
 
 .infographic-error {
