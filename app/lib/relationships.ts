@@ -75,7 +75,7 @@ export function parseRelationshipHints(
 
   // Infer from filename patterns:
   // "Прил_1_(к_Приказу_НМГРЭС-355_от_16.10.2025)_..." → parent is the Приказ
-  if (!parentHint) {
+  if (!parentHint && filename) {
     const fnMatch = filename.match(
       /Прил(?:ожение)?[_\s]*\d*[_\s]*\((?:к[_\s]+)?([^)]+)\)/i
     );
