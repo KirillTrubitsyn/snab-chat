@@ -157,23 +157,8 @@ export async function checkAndRegisterDevice(
   deviceId: string,
   deviceLimit: number | null,
   userAgent: string = ""
-): Promise<string | null> {
+): Promise<{ error: string | null; isNewDevice: boolean }> {
   const supabase = createServiceClient();
-
-  if (deviceLimit === null) {
-    await supabase
-      .from("devices")
-      .upsert(
-        {
-          invite_code_id: inviteCodeId,
-          device_id: deviceId,
-          user_agent: userAgent,
-          last_seen_at: new Date().toISOString(),
-        },
-        { onConflict: "invite_code_id,device_id" }
-      );
-    return null;
-  }
 
   const { data: existing } = await supabase
     .from("devices")
@@ -187,16 +172,21 @@ export async function checkAndRegisterDevice(
       .from("devices")
       .update({ last_seen_at: new Date().toISOString(), user_agent: userAgent })
       .eq("id", existing.id);
-    return null;
+    return { error: null, isNewDevice: false };
   }
 
-  const { count } = await supabase
-    .from("devices")
-    .select("id", { count: "exact", head: true })
-    .eq("invite_code_id", inviteCodeId);
+  if (deviceLimit !== null) {
+    const { count } = await supabase
+      .from("devices")
+      .select("id", { count: "exact", head: true })
+      .eq("invite_code_id", inviteCodeId);
 
-  if (count !== null && count >= deviceLimit) {
-    return `Превышен лимит устройств (${deviceLimit}). Обратитесь к администратору.`;
+    if (count !== null && count >= deviceLimit) {
+      return {
+        error: `Превышен лимит устройств (${deviceLimit}). Обратитесь к администратору.`,
+        isNewDevice: false,
+      };
+    }
   }
 
   await supabase.from("devices").insert({
@@ -205,7 +195,7 @@ export async function checkAndRegisterDevice(
     user_agent: userAgent,
   });
 
-  return null;
+  return { error: null, isNewDevice: true };
 }
 
 export async function getDeviceCount(inviteCodeId: string): Promise<number> {

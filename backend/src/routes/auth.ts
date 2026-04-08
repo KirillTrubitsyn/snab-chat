@@ -42,7 +42,7 @@ router.post("/api/auth/login", async (req: Request, res: Response) => {
     // 3. Проверка лимита устройств
     if (device_id) {
       const userAgent = req.headers["user-agent"] || "";
-      const deviceError = await checkAndRegisterDevice(
+      const { error: deviceError } = await checkAndRegisterDevice(
         invite.id,
         device_id,
         invite.device_limit ?? null,

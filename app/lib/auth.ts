@@ -166,32 +166,15 @@ export async function consumeInviteCodeFallback(
 
 /**
  * Проверяет лимит устройств и регистрирует устройство.
- * Возвращает null если всё ок, или строку с ошибкой.
+ * Возвращает { error } если превышен лимит, { isNewDevice } = true если устройство новое.
  */
 export async function checkAndRegisterDevice(
   inviteCodeId: string,
   deviceId: string,
   deviceLimit: number | null,
   userAgent: string = ""
-): Promise<string | null> {
+): Promise<{ error: string | null; isNewDevice: boolean }> {
   const supabase = createServiceClient();
-
-  // null = безлимит
-  if (deviceLimit === null) {
-    // Просто регистрируем/обновляем устройство без проверки лимита
-    await supabase
-      .from("devices")
-      .upsert(
-        {
-          invite_code_id: inviteCodeId,
-          device_id: deviceId,
-          user_agent: userAgent,
-          last_seen_at: new Date().toISOString(),
-        },
-        { onConflict: "invite_code_id,device_id" }
-      );
-    return null;
-  }
 
   // Проверяем, есть ли уже это устройство
   const { data: existing } = await supabase
@@ -207,17 +190,22 @@ export async function checkAndRegisterDevice(
       .from("devices")
       .update({ last_seen_at: new Date().toISOString(), user_agent: userAgent })
       .eq("id", existing.id);
-    return null;
+    return { error: null, isNewDevice: false };
   }
 
-  // Новое устройство — проверяем лимит
-  const { count } = await supabase
-    .from("devices")
-    .select("id", { count: "exact", head: true })
-    .eq("invite_code_id", inviteCodeId);
+  // Новое устройство — проверяем лимит (если задан)
+  if (deviceLimit !== null) {
+    const { count } = await supabase
+      .from("devices")
+      .select("id", { count: "exact", head: true })
+      .eq("invite_code_id", inviteCodeId);
 
-  if (count !== null && count >= deviceLimit) {
-    return `Превышен лимит устройств (${deviceLimit}). Обратитесь к администратору.`;
+    if (count !== null && count >= deviceLimit) {
+      return {
+        error: `Превышен лимит устройств (${deviceLimit}). Обратитесь к администратору.`,
+        isNewDevice: false,
+      };
+    }
   }
 
   // Регистрируем новое устройство
@@ -227,7 +215,7 @@ export async function checkAndRegisterDevice(
     user_agent: userAgent,
   });
 
-  return null;
+  return { error: null, isNewDevice: true };
 }
 
 /**

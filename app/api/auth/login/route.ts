@@ -6,7 +6,6 @@ import {
   validateInviteCode,
   consumeInviteCodeFallback,
   checkAndRegisterDevice,
-  getDeviceCount,
 } from "@/app/lib/auth";
 import { loginSchema, parseBody } from "@/app/lib/validation";
 import { notifyNewUser } from "@/app/lib/telegram";
@@ -41,13 +40,10 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Проверка лимита устройств
-    let isFirstActivation = false;
+    let isNewDevice = false;
     if (device_id) {
-      const deviceCount = await getDeviceCount(invite.id);
-      isFirstActivation = deviceCount === 0;
-
       const userAgent = req.headers.get("user-agent") || "";
-      const deviceError = await checkAndRegisterDevice(
+      const { error: deviceError, isNewDevice: newDevice } = await checkAndRegisterDevice(
         invite.id,
         device_id,
         invite.device_limit ?? null,
@@ -59,13 +55,14 @@ export async function POST(req: NextRequest) {
           { status: 403 }
         );
       }
+      isNewDevice = newDevice;
     }
 
     // 4. Уменьшаем счётчик использований
     await consumeInviteCodeFallback(invite.id);
 
-    // 5. Уведомление о первой активации кода
-    if (isFirstActivation) {
+    // 5. Уведомление при активации кода с нового устройства
+    if (isNewDevice) {
       notifyNewUser(invite.name, invite.organization).catch(() => {});
     }
 

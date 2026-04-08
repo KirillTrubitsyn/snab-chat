@@ -75,15 +75,17 @@ export default function AdminPanel({ adminCode, userName, isDocAdmin, onLogout }
             </button>
           ))}
         </nav>
-        <div className="admin-sidebar-bottom">
-          <button
-            className={`admin-sidebar-nav-item${tab === "settings" ? " active" : ""}`}
-            onClick={() => { setTab("settings"); setSidebarOpen(false); }}
-          >
-            <span className="material-symbols-outlined">settings</span>
-            <span>Настройки</span>
-          </button>
-        </div>
+        {userName === "Трубицын Кирилл" && (
+          <div className="admin-sidebar-bottom">
+            <button
+              className={`admin-sidebar-nav-item${tab === "settings" ? " active" : ""}`}
+              onClick={() => { setTab("settings"); setSidebarOpen(false); }}
+            >
+              <span className="material-symbols-outlined">settings</span>
+              <span>Настройки</span>
+            </button>
+          </div>
+        )}
       </aside>
 
       {/* Main area */}
