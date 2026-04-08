@@ -128,21 +128,53 @@ export async function notifyError(
   await notifyAllAdmins(text);
 }
 
+/** Отправить файл одному получателю через sendDocument */
+export async function sendTelegramDocument(
+  chatId: string,
+  file: Blob,
+  fileName: string,
+  caption?: string
+): Promise<boolean> {
+  if (!BOT_TOKEN || !chatId) return false;
+  try {
+    const form = new FormData();
+    form.append("chat_id", chatId);
+    form.append("document", file, fileName);
+    if (caption) form.append("caption", caption.slice(0, 1024));
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
+      method: "POST",
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error(`[Telegram] Ошибка sendDocument в ${chatId}: ${err}`);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error(`[Telegram] Ошибка sendDocument:`, e);
+    return false;
+  }
+}
+
 /** Уведомление о новом обращении в поддержку (с REF для ответа через ТГ) */
 export async function notifySupportMessage(
   userName: string,
   message: string,
   organization?: string | null,
-  supportMessageId?: string | null
+  supportMessageId?: string | null,
+  files?: File[]
 ): Promise<void> {
   const orgLine = organization ? `\n🏢 <b>Организация:</b> ${escapeHtml(organization)}` : "";
   const truncMsg = message.length > 1000 ? message.slice(0, 1000) + "..." : message;
   const refLine = supportMessageId ? `\n\n🔖 <code>REF:${supportMessageId}</code>` : "";
+  const fileCountLine = files && files.length > 0 ? `\n📎 Прикреплено файлов: ${files.length}` : "";
   const text =
     `📩 <b>Новое обращение в поддержку</b>\n\n` +
     `👤 <b>Пользователь:</b> ${escapeHtml(userName)}${orgLine}\n\n` +
     `💬 ${escapeHtml(truncMsg)}\n\n` +
     `🕐 ${getMoscowTime()}` +
+    `${fileCountLine}` +
     `${refLine}`;
   const replyMarkup = supportMessageId
     ? {
@@ -152,6 +184,16 @@ export async function notifySupportMessage(
       }
     : undefined;
   await notifyAllAdmins(text, replyMarkup);
+
+  // Send attached files to all admins
+  if (files && files.length > 0) {
+    const caption = supportMessageId ? `📎 REF:${supportMessageId}` : undefined;
+    for (const file of files) {
+      await Promise.allSettled(
+        ADMIN_CHAT_IDS.map((chatId) => sendTelegramDocument(chatId, file, file.name, caption))
+      );
+    }
+  }
 }
 
 /** Уведомление о регистрации нового пользователя */

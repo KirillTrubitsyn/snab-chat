@@ -10,6 +10,7 @@ const connectSrcParts = [
 const frameSrcParts = [
   "'self'",
   "https://*.up.railway.app",
+  "https://disk.yandex.ru",
 ];
 const backendUrl = process.env.NEXT_PUBLIC_API_URL || "";
 if (backendUrl) {

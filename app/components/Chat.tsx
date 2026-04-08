@@ -173,8 +173,10 @@ export default function Chat() {
   const [supportModalTab, setSupportModalTab] = useState<"help" | "support">("support");
   const [supportMessage, setSupportMessage] = useState("");
   const [supportSending, setSupportSending] = useState(false);
+  const [supportFiles, setSupportFiles] = useState<File[]>([]);
   const [supportHistory, setSupportHistory] = useState<{ id: string; message: string; admin_reply: string | null; admin_number: number | null; status: string; created_at: string; replied_at: string | null }[]>([]);
   const [unreadSupportCount, setUnreadSupportCount] = useState(0);
+  const [showPresentation, setShowPresentation] = useState(false);
 
   const router = useRouter();
 
@@ -384,16 +386,20 @@ export default function Chat() {
     if (!supportMessage.trim() || supportSending) return;
     setSupportSending(true);
     try {
+      const formData = new FormData();
+      formData.append("message", supportMessage.trim());
+      supportFiles.forEach((f) => formData.append("files", f));
       const res = await fetch(apiUrl("/api/support"), {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-        body: JSON.stringify({ message: supportMessage.trim() }),
+        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+        body: formData,
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         console.error("[Support] POST error:", err);
       }
       setSupportMessage("");
+      setSupportFiles([]);
       await loadSupportHistory();
     } catch (e) { console.error("[Support] send error:", e); }
     setSupportSending(false);
@@ -2429,6 +2435,32 @@ export default function Chat() {
               />
             ) : (
               <>
+                {/* Video presentation banner */}
+                <div style={{ padding: "10px 16px 0", flexShrink: 0 }}>
+                  <button
+                    onClick={() => setShowPresentation(true)}
+                    style={{
+                      width: "100%", display: "flex", alignItems: "center", gap: 10,
+                      background: "linear-gradient(135deg, #1D4ED8 0%, #2563EB 100%)",
+                      border: "none", borderRadius: 10, padding: "10px 14px",
+                      color: "#fff", cursor: "pointer", textAlign: "left",
+                    }}
+                  >
+                    <span style={{
+                      width: 32, height: 32, borderRadius: "50%", background: "rgba(255,255,255,0.2)",
+                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                    }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                        <polygon points="5 3 19 12 5 21 5 3"/>
+                      </svg>
+                    </span>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>Видео-презентация СнабЧата</div>
+                      <div style={{ fontSize: 11, opacity: 0.85 }}>Смотреть обзор системы · ~5 мин</div>
+                    </div>
+                  </button>
+                </div>
+
                 {/* Messages history */}
                 <div style={{
                   flex: 1, overflowY: "auto", padding: 16,
@@ -2436,7 +2468,8 @@ export default function Chat() {
                 }}>
                   {supportHistory.length === 0 && (
                     <div style={{ textAlign: "center", color: "var(--text-muted)", padding: 24, fontSize: 14 }}>
-                      Здесь будут ваши обращения в поддержку
+                      <div style={{ marginBottom: 8 }}>Здесь будут ваши обращения в поддержку</div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Обратная связь помогает сделать систему лучше — пишите смело!</div>
                     </div>
                   )}
                   {supportHistory.map((m) => (
@@ -2469,7 +2502,7 @@ export default function Chat() {
                   <textarea
                     value={supportMessage}
                     onChange={(e) => setSupportMessage(e.target.value)}
-                    placeholder="Опишите вашу проблему или вопрос..."
+                    placeholder="Опишите проблему или идею по улучшению..."
                     rows={3}
                     style={{
                       width: "100%", borderRadius: 10, border: "1px solid var(--border, #ddd)",
@@ -2478,22 +2511,97 @@ export default function Chat() {
                       boxSizing: "border-box",
                     }}
                   />
-                  <button
-                    onClick={sendSupportMessage}
-                    disabled={supportSending || !supportMessage.trim()}
-                    style={{
-                      marginTop: 8, width: "100%", padding: "10px 16px",
-                      borderRadius: 10, border: "none", fontSize: 14, fontWeight: 600,
-                      background: supportSending || !supportMessage.trim() ? "#ccc" : "#1976d2",
-                      color: "#fff", cursor: supportSending ? "wait" : "pointer",
-                    }}
-                  >
-                    {supportSending ? "Отправка..." : "Отправить"}
-                  </button>
+                  {/* File attachments */}
+                  {supportFiles.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "8px 0 4px" }}>
+                      {supportFiles.map((f, i) => (
+                        <div key={i} style={{
+                          display: "flex", alignItems: "center", gap: 4,
+                          background: "var(--bg-secondary, #f5f5f5)", borderRadius: 8,
+                          padding: "3px 8px 3px 6px", fontSize: 12, color: "var(--text-secondary)",
+                          border: "1px solid var(--border, #ddd)", maxWidth: 160,
+                        }}>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                          <button
+                            onClick={() => setSupportFiles((prev) => prev.filter((_, j) => j !== i))}
+                            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 0, lineHeight: 1, flexShrink: 0 }}
+                          >×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <label style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      padding: "10px 14px", borderRadius: 10, fontSize: 13, fontWeight: 600,
+                      border: "1px solid var(--border, #ddd)", cursor: "pointer",
+                      color: "var(--text-secondary)", background: "var(--bg-primary, #fff)",
+                      whiteSpace: "nowrap",
+                    }} title="Прикрепить файл (скриншот, PDF, DOCX, XLSX)">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                      </svg>
+                      Файл
+                      <input
+                        type="file"
+                        multiple
+                        accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.docx,.xlsx"
+                        style={{ display: "none" }}
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files ?? []).slice(0, 5);
+                          setSupportFiles((prev) => [...prev, ...files].slice(0, 5));
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    <button
+                      onClick={sendSupportMessage}
+                      disabled={supportSending || !supportMessage.trim()}
+                      style={{
+                        flex: 1, padding: "10px 16px",
+                        borderRadius: 10, border: "none", fontSize: 14, fontWeight: 600,
+                        background: supportSending || !supportMessage.trim() ? "#ccc" : "#1976d2",
+                        color: "#fff", cursor: supportSending ? "wait" : "pointer",
+                      }}
+                    >
+                      {supportSending ? "Отправка..." : "Отправить"}
+                    </button>
+                  </div>
                 </div>
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Fullscreen video presentation overlay */}
+      {showPresentation && (
+        <div
+          onClick={() => setShowPresentation(false)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.96)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowPresentation(false); }}
+            style={{
+              position: "absolute", top: 16, right: 20,
+              background: "none", border: "none", color: "#fff",
+              fontSize: 36, cursor: "pointer", lineHeight: 1, zIndex: 1,
+              padding: 4,
+            }}
+            aria-label="Закрыть"
+          >×</button>
+          <iframe
+            src="https://disk.yandex.ru/i/B0aYz0_6pakpMw"
+            style={{ width: "90vw", height: "90vh", maxWidth: 1200, border: "none", borderRadius: 8 }}
+            allow="autoplay; fullscreen"
+            allowFullScreen
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </>

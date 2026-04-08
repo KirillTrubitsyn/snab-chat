@@ -318,6 +318,32 @@ const sections: Section[] = [
     ),
   },
   {
+    id: "training",
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>,
+    title: "Раздел «Обучение» — три курса для старта",
+    content: (
+      <>
+        <P>В верхней панели приложения есть кнопка <strong>«Обучение»</strong>. Нажмите её — откроется образовательная платформа СнабЧат с тремя короткими курсами. Они помогут быстро разобраться с системой и работать эффективнее с первых дней.</P>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, margin: "14px 0" }}>
+          {[
+            { num: "01", title: "Основы работы с СнабЧатом", desc: "Что такое система, как она работает, как задавать вопросы и читать ответы. Идеально для первого знакомства." },
+            { num: "02", title: "Работа с документами и файлами", desc: "Загрузка документов, аудиозаписей и изображений в чат. Анализ файлов, вставка ссылок, экспорт ответов." },
+            { num: "03", title: "Инфографика и презентации", desc: "Как превратить ответ ассистента в инфографику, выбрать стиль и формат, сохранить и поделиться результатом." },
+          ].map(({ num, title, desc }) => (
+            <div key={num} style={{ display: "flex", gap: 14, background: "#F8FAFF", borderRadius: 10, padding: 14, border: "1px solid #DBEAFE" }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: ACCENT, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 13, flexShrink: 0 }}>{num}</div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: "#111827", marginBottom: 4 }}>{title}</div>
+                <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.5 }}>{desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <Note type="tip">Каждый курс занимает 10–15 минут. Рекомендуем пройти первый курс до начала работы, остальные — по мере освоения функций.</Note>
+      </>
+    ),
+  },
+  {
     id: "history",
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 15 15"/></svg>,
     title: "История диалогов",
@@ -393,7 +419,7 @@ const sections: Section[] = [
             <li key={i} style={{ fontSize: 14, color: "#374151", marginBottom: 8, lineHeight: 1.6 }}>{t}</li>
           ))}
         </ul>
-        <Note type="info">Если что-то не работает или возникли вопросы — обратитесь в поддержку через кнопку «Поддержка» в шапке приложения.</Note>
+        <Note type="tip">Ваша обратная связь — это очень важно. Каждое сообщение о проблеме или идее помогает сделать систему лучше для всех. Напишите в поддержку через кнопку «Поддержка» → вкладка «Написать в поддержку». Можно прикрепить скриншот или документ, чтобы наглядно показать проблему.</Note>
       </>
     ),
   },
