@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type, FunctionCallingConfigMode, type Content, type FunctionDeclaration } from "@google/genai";
 import { hybridSearch, filterByRelevance, type SearchResult } from "./retrieval";
 import { fetchChunksBySection, fetchChunksByDocument } from "./retrieval";
-import { llmRerank } from "./reranker";
+import { rerank } from "./reranker";
 import { withGoogleApiLimit } from "./google-ai";
 import type { SectionReference, DocumentReference } from "./query-analyzer";
 import type { IntentResult } from "./intent-classifier";
@@ -286,7 +286,7 @@ export async function finalizeAgenticResults(
     return { results: [], lowConfidence: true };
   }
 
-  const reranked = await llmRerank(query, allChunks);
+  const reranked = await rerank(query, allChunks);
 
   // ── Entity-balanced selection for multi-entity queries ──
   // Without balancing, one entity can dominate the top-N results,

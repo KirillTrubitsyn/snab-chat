@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { type ModelMessage } from "ai";
 import { GoogleGenAI } from "@google/genai";
 import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, type SearchResult } from "../lib/retrieval.js";
-import { llmRerank } from "../lib/reranker.js";
+import { rerank } from "../lib/reranker.js";
 import { classifyIntent } from "../lib/intent-classifier.js";
 import { loadConversationContext, saveMessage } from "../lib/memory.js";
 import { getInviteCodeFromHeader, isAdminCode } from "../lib/auth.js";
@@ -272,8 +272,8 @@ ${userMessage.content}
       // Fallback: run a simple hybrid search
       const fallbackResults = await hybridSearch(searchQuery, 20, searchHints);
       const reranked = intentAwareRerank(fallbackResults, intentResult);
-      const llmReranked = await llmRerank(userMessage.content, reranked);
-      const filtered = filterByRelevance(llmReranked);
+      const rerankResult = await rerank(userMessage.content, reranked);
+      const filtered = filterByRelevance(rerankResult);
       relevantChunks = filtered.results;
       lowConfidence = filtered.lowConfidence;
     }
@@ -499,8 +499,8 @@ ${userMessage.content}
 
   // Rerank and filter
   const rerankedResults = intentAwareRerank(combinedResults, intentResult);
-  const llmReranked = await llmRerank(userMessage.content, rerankedResults);
-  const filtered = filterByRelevance(llmReranked);
+  const rerankResult = await rerank(userMessage.content, rerankedResults);
+  const filtered = filterByRelevance(rerankResult);
   relevantChunks = filtered.results;
   lowConfidence = filtered.lowConfidence;
 
