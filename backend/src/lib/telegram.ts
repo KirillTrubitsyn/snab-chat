@@ -12,6 +12,7 @@ const ADMIN_CHAT_IDS: string[] = [
   process.env.TELEGRAM_ADMIN_CHAT_ID_1 ?? "",
   process.env.TELEGRAM_ADMIN_CHAT_ID_2 ?? "",
   process.env.TELEGRAM_ADMIN_CHAT_ID_3 ?? "",
+  process.env.TELEGRAM_ADMIN_CHAT_ID_4 ?? "",
 ].filter(Boolean);
 
 // Reverse lookup: chat_id → { number, name }
@@ -20,6 +21,7 @@ const ADMIN_BY_CHAT_ID: Record<string, { number: number; name: string }> = {};
   process.env.TELEGRAM_ADMIN_CHAT_ID_1,
   process.env.TELEGRAM_ADMIN_CHAT_ID_2,
   process.env.TELEGRAM_ADMIN_CHAT_ID_3,
+  process.env.TELEGRAM_ADMIN_CHAT_ID_4,
 ].forEach((chatId, i) => {
   if (chatId) {
     ADMIN_BY_CHAT_ID[chatId] = {
