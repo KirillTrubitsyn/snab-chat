@@ -162,6 +162,8 @@ export default function Chat() {
   const [chatError, setChatError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<"chat" | "knowledge-base">("chat");
   const [kbCategoryFilter, setKbCategoryFilter] = useState<string>("all");
+  const [kbPage, setKbPage] = useState(1);
+  const KB_PAGE_SIZE = 20;
 
   // .doc / .xls format warning modal
   const [showDocFormatModal, setShowDocFormatModal] = useState(false);
@@ -1542,7 +1544,7 @@ export default function Chat() {
                 <div className="kb-pills">
                   <button
                     className={`kb-pill ${kbCategoryFilter === "all" ? "active" : ""}`}
-                    onClick={() => setKbCategoryFilter("all")}
+                    onClick={() => { setKbCategoryFilter("all"); setKbPage(1); }}
                   >
                     Все ({sources.length})
                   </button>
@@ -1562,7 +1564,7 @@ export default function Chat() {
                       <button
                         key={cat.key}
                         className={`kb-pill ${kbCategoryFilter === cat.key ? "active" : ""}`}
-                        onClick={() => setKbCategoryFilter(cat.key)}
+                        onClick={() => { setKbCategoryFilter(cat.key); setKbPage(1); }}
                       >
                         {cat.label} ({count})
                       </button>
@@ -1593,10 +1595,14 @@ export default function Chat() {
                     window.open(apiUrl(endpoint + "?id=" + sourceId + "&action=download&token=" + encodeURIComponent(inviteCodeRef.current)), "_blank");
                   }}
                 />
+                  {(() => {
+                    const kbFiltered = sources.filter((s) => kbCategoryFilter === "all" || (s.folder_path || "standards") === kbCategoryFilter);
+                    const kbTotalPages = Math.max(1, Math.ceil(kbFiltered.length / KB_PAGE_SIZE));
+                    const kbSafePage = Math.min(kbPage, kbTotalPages);
+                    const kbPaginated = kbFiltered.slice((kbSafePage - 1) * KB_PAGE_SIZE, kbSafePage * KB_PAGE_SIZE);
+                    return (<>
                   <div className="kb-list">
-                    {sources
-                      .filter((s) => kbCategoryFilter === "all" || (s.folder_path || "standards") === kbCategoryFilter)
-                      .map((doc) => {
+                    {kbPaginated.map((doc) => {
                         const ext = doc.mime_type?.includes("x-denormalized") || doc.filename.endsWith(".md") ? "md"
                           : doc.mime_type?.includes("pdf") ? "pdf"
                           : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx"
@@ -1690,6 +1696,33 @@ export default function Chat() {
                         );
                       })}
                   </div>
+                  {kbTotalPages > 1 && (
+                    <div className="kb-pagination">
+                      <button className="kb-pagination-btn" disabled={kbSafePage <= 1} onClick={() => setKbPage(kbSafePage - 1)}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+                      </button>
+                      {Array.from({ length: kbTotalPages }, (_, i) => i + 1)
+                        .filter((p) => p === 1 || p === kbTotalPages || Math.abs(p - kbSafePage) <= 2)
+                        .reduce<(number | "...")[]>((acc, p, idx, arr) => {
+                          if (idx > 0 && p - arr[idx - 1] > 1) acc.push("...");
+                          acc.push(p);
+                          return acc;
+                        }, [])
+                        .map((p, i) =>
+                          p === "..." ? (
+                            <span key={`dots-${i}`} className="kb-pagination-dots">&hellip;</span>
+                          ) : (
+                            <button key={p} className={`kb-pagination-btn${p === kbSafePage ? " active" : ""}`} onClick={() => setKbPage(p as number)}>{p}</button>
+                          )
+                        )}
+                      <button className="kb-pagination-btn" disabled={kbSafePage >= kbTotalPages} onClick={() => setKbPage(kbSafePage + 1)}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+                      </button>
+                      <span className="kb-pagination-info">{(kbSafePage - 1) * KB_PAGE_SIZE + 1}–{Math.min(kbSafePage * KB_PAGE_SIZE, kbFiltered.length)} из {kbFiltered.length}</span>
+                    </div>
+                  )}
+                  </>);
+                  })()}
                 </>
                 )}
               </div>

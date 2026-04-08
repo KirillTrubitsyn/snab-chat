@@ -32,6 +32,8 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
   const [selectedSourceIds, setSelectedSourceIds] = useState<Set<number>>(new Set());
   const [viewingSource, setViewingSource] = useState<DocumentSource | null>(null);
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 20;
 
   // Upload state
   const [showUpload, setShowUpload] = useState(false);
@@ -291,6 +293,13 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
     .filter((s) => docCategoryFilter === "all" || normalizeFolderPath(s.folder_path) === docCategoryFilter)
     .filter((s) => docTypeFilter === "all" || getFileExt(s) === docTypeFilter);
 
+  const totalPages = Math.max(1, Math.ceil(filteredSources.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedSources = filteredSources.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  // Reset page when filters change
+  useEffect(() => { setCurrentPage(1); }, [docCategoryFilter, docTypeFilter]);
+
   const categoryCounts = DOC_CATEGORIES.reduce((acc, cat) => {
     acc[cat.key] = sources.filter((s) => normalizeFolderPath(s.folder_path) === cat.key).length;
     return acc;
@@ -397,7 +406,7 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
             }}
           />
           <div className="admin-doc-list-view">
-            {filteredSources.map((doc) => {
+            {paginatedSources.map((doc) => {
               const ext = doc.mime_type?.includes("x-denormalized") || doc.filename?.endsWith(".md") ? "md" : doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : doc.mime_type?.includes("presentationml") || doc.filename?.endsWith(".pptx") || doc.filename?.endsWith(".ppt") ? "pptx" : doc.mime_type?.includes("html") || doc.filename?.endsWith(".html") || doc.filename?.endsWith(".htm") ? "html" : "docx";
               const isMenuOpen = openMenuId === doc.id;
               return (
@@ -549,6 +558,48 @@ export default function DocumentsTab({ adminCode }: { adminCode: string }) {
               );
             })}
           </div>
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="admin-pagination">
+              <button
+                className="admin-pagination-btn"
+                disabled={safePage <= 1}
+                onClick={() => setCurrentPage(safePage - 1)}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>chevron_left</span>
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 2)
+                .reduce<(number | "...")[]>((acc, p, idx, arr) => {
+                  if (idx > 0 && p - arr[idx - 1] > 1) acc.push("...");
+                  acc.push(p);
+                  return acc;
+                }, [])
+                .map((p, i) =>
+                  p === "..." ? (
+                    <span key={`dots-${i}`} className="admin-pagination-dots">&hellip;</span>
+                  ) : (
+                    <button
+                      key={p}
+                      className={`admin-pagination-btn${p === safePage ? " active" : ""}`}
+                      onClick={() => setCurrentPage(p as number)}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+              <button
+                className="admin-pagination-btn"
+                disabled={safePage >= totalPages}
+                onClick={() => setCurrentPage(safePage + 1)}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>chevron_right</span>
+              </button>
+              <span className="admin-pagination-info">
+                {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filteredSources.length)} из {filteredSources.length}
+              </span>
+            </div>
+          )}
         </>)}
 
         {/* Upload Modal */}
