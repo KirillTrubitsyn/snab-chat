@@ -2451,6 +2451,38 @@ export default function Chat() {
               />
             ) : (
               <>
+                {/* Presentation link */}
+                <div style={{ padding: "10px 16px 0", flexShrink: 0 }}>
+                  <a
+                    href="https://disk.yandex.ru/i/B0aYz0_6pakpMw"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      width: "100%", display: "flex", alignItems: "center", gap: 10,
+                      background: "var(--bg-secondary, #F5F5F5)", boxSizing: "border-box",
+                      border: "1px solid var(--border, #E2E8F0)", borderRadius: 10, padding: "10px 14px",
+                      color: "var(--text-primary, #333)", cursor: "pointer", textDecoration: "none",
+                    }}
+                  >
+                    <span style={{
+                      width: 32, height: 32, borderRadius: 10, background: "#EFF6FF",
+                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                      color: "#2563EB",
+                    }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+                      </svg>
+                    </span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>Презентация СнабЧата</div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted, #94A3B8)" }}>Обзор системы · ~5 мин</div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted, #94A3B8)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                    </svg>
+                  </a>
+                </div>
+
                 {/* Messages history */}
                 <div style={{
                   flex: 1, overflowY: "auto", padding: 16,
