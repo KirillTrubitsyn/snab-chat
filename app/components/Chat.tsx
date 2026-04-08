@@ -152,6 +152,8 @@ export default function Chat() {
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
   const [convBulkMode, setConvBulkMode] = useState(false);
+  const [selectedInfographicIds, setSelectedInfographicIds] = useState<Set<string>>(new Set());
+  const [infoBulkMode, setInfoBulkMode] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"chats" | "infographics">("chats");
   const [infographics, setInfographics] = useState<Array<{ id: string; topic: string; style: string; aspect_ratio: string; description: string; created_at: string; conversation_id: string | null }>>([]);
   const [viewingInfographic, setViewingInfographic] = useState<{ id: string; topic: string; image_base64: string; description: string; created_at: string } | null>(null);
@@ -175,8 +177,15 @@ export default function Chat() {
 
   const router = useRouter();
 
+  const CONV_LIMIT = 20;
+  const INFO_LIMIT = 20;
+
   /* ── Infographic navigation ── */
   const navigateToInfographic = useCallback((content?: string) => {
+    if (infographics.length >= INFO_LIMIT) {
+      setChatError(`Достигнут лимит инфографик (${INFO_LIMIT}). Удалите старые, чтобы создать новую.`);
+      return;
+    }
     const ctx: Record<string, string> = {};
     if (content) ctx.documentText = content;
     if (convIdRef.current) ctx.conversationId = convIdRef.current;
@@ -184,7 +193,7 @@ export default function Chat() {
       sessionStorage.setItem("infographic_context", JSON.stringify(ctx));
     }
     router.push("/infographic");
-  }, [router]);
+  }, [router, infographics.length, INFO_LIMIT]);
 
   const [docxDownloading, setDocxDownloading] = useState(false);
   const handleExportDocx = useCallback(async (answerContent: string, questionContent: string) => {
@@ -613,6 +622,20 @@ export default function Chat() {
     setInfographics((prev) => prev.filter((i) => i.id !== id));
   }, []);
 
+  const deleteSelectedInfographics = useCallback(async () => {
+    if (selectedInfographicIds.size === 0) return;
+    const ids = Array.from(selectedInfographicIds);
+    await Promise.all(ids.map((id) =>
+      fetch(apiUrl(`/api/infographics?id=${id}`), {
+        method: "DELETE",
+        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+      })
+    ));
+    setInfographics((prev) => prev.filter((i) => !selectedInfographicIds.has(i.id)));
+    setSelectedInfographicIds(new Set());
+    setInfoBulkMode(false);
+  }, [selectedInfographicIds]);
+
   /* ── Rename helpers ── */
   const startRename = useCallback((id: string, currentName: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -878,6 +901,12 @@ export default function Chat() {
       const hasFiles = chatFiles.filter((f) => !f.parsing && !f.error && f.markdown).length > 0;
       const hasPhotos = chatPhotos.filter((p) => !p.parsing && !p.error && p.markdown).length > 0;
       if ((!text && !hasFiles && !hasPhotos) || isLoading || isSending) return;
+
+      // Block new conversations if limit reached
+      if (!convIdRef.current && conversations.length >= CONV_LIMIT) {
+        setChatError(`Достигнут лимит диалогов (${CONV_LIMIT}). Удалите старые диалоги, чтобы начать новый.`);
+        return;
+      }
 
       setIsSending(true);
       setChatError(null);
@@ -1147,7 +1176,7 @@ export default function Chat() {
         if (convIdRef.current) reloadMessagesFromServer(convIdRef.current, messages.length + 2); // +user +assistant
       }
     },
-    [input, isLoading, isSending, messages, chatFiles, chatPhotos, setInput, createConversation, loadConversations, reloadMessagesFromServer]
+    [input, isLoading, isSending, messages, chatFiles, chatPhotos, setInput, createConversation, loadConversations, reloadMessagesFromServer, conversations]
   );
 
   /* ── Auto-scroll ── */
@@ -1858,6 +1887,7 @@ export default function Chat() {
                   <span>ДИАЛОГИ</span>
                   <button
                     onClick={() => {
+                      if (conversations.length >= CONV_LIMIT) return;
                       setActiveConvId(null);
                       convIdRef.current = null;
                       setChatKey(`new-${Date.now()}`);
@@ -1865,12 +1895,27 @@ export default function Chat() {
                       setHasSummary(false);
                       sessionDocsRef.current = [];
                     }}
-                    title="Новый диалог"
-                    style={{ fontSize: 16, color: "var(--text-secondary)", lineHeight: 1 }}
+                    title={conversations.length >= CONV_LIMIT ? "Лимит диалогов достигнут" : "Новый диалог"}
+                    style={{ fontSize: 16, color: conversations.length >= CONV_LIMIT ? "var(--error)" : "var(--text-secondary)", lineHeight: 1 }}
+                    disabled={conversations.length >= CONV_LIMIT}
                   >
                     +
                   </button>
                 </div>
+                {/* Limit indicator */}
+                <div style={{ padding: "0 12px 6px", display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ flex: 1, height: 3, borderRadius: 2, background: "var(--border)", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${Math.min(100, (conversations.length / CONV_LIMIT) * 100)}%`, background: conversations.length >= CONV_LIMIT ? "var(--error)" : conversations.length >= CONV_LIMIT * 0.8 ? "var(--warning)" : "var(--accent)", borderRadius: 2, transition: "width 0.3s" }} />
+                  </div>
+                  <span style={{ fontSize: 10, color: conversations.length >= CONV_LIMIT ? "var(--error)" : "var(--text-muted)", fontWeight: 600, whiteSpace: "nowrap" }}>
+                    {conversations.length}/{CONV_LIMIT}
+                  </span>
+                </div>
+                {conversations.length >= CONV_LIMIT && (
+                  <div style={{ margin: "0 12px 8px", padding: "6px 10px", background: "rgba(220,38,38,0.08)", border: "1px solid rgba(220,38,38,0.2)", borderRadius: 8, fontSize: 11, color: "var(--error)", fontWeight: 500 }}>
+                    Лимит достигнут. Удалите старые диалоги.
+                  </div>
+                )}
                 {conversations.length > 0 && (
                   <div style={{ display: "flex", gap: 4, padding: "0 12px 8px" }}>
                     {!convBulkMode ? (
@@ -2021,11 +2066,70 @@ export default function Chat() {
                   <button
                     onClick={() => navigateToInfographic()}
                     title="Создать инфографику"
-                    style={{ fontSize: 16, color: "var(--text-secondary)", lineHeight: 1 }}
+                    style={{ fontSize: 16, color: infographics.length >= INFO_LIMIT ? "var(--error)" : "var(--text-secondary)", lineHeight: 1 }}
+                    disabled={infographics.length >= INFO_LIMIT}
                   >
                     +
                   </button>
                 </div>
+                {/* Limit indicator */}
+                <div style={{ padding: "0 12px 6px", display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ flex: 1, height: 3, borderRadius: 2, background: "var(--border)", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${Math.min(100, (infographics.length / INFO_LIMIT) * 100)}%`, background: infographics.length >= INFO_LIMIT ? "var(--error)" : infographics.length >= INFO_LIMIT * 0.8 ? "var(--warning)" : "var(--accent)", borderRadius: 2, transition: "width 0.3s" }} />
+                  </div>
+                  <span style={{ fontSize: 10, color: infographics.length >= INFO_LIMIT ? "var(--error)" : "var(--text-muted)", fontWeight: 600, whiteSpace: "nowrap" }}>
+                    {infographics.length}/{INFO_LIMIT}
+                  </span>
+                </div>
+                {infographics.length >= INFO_LIMIT && (
+                  <div style={{ margin: "0 12px 8px", padding: "6px 10px", background: "rgba(220,38,38,0.08)", border: "1px solid rgba(220,38,38,0.2)", borderRadius: 8, fontSize: 11, color: "var(--error)", fontWeight: 500 }}>
+                    Лимит достигнут. Удалите старые инфографики.
+                  </div>
+                )}
+                {infographics.length > 0 && (
+                  <div style={{ display: "flex", gap: 4, padding: "0 12px 8px" }}>
+                    {!infoBulkMode ? (
+                      <button
+                        className="btn-secondary"
+                        style={{ flex: 1, fontSize: 11, padding: "4px 8px" }}
+                        onClick={() => setInfoBulkMode(true)}
+                      >
+                        Выбрать
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          className="btn-secondary"
+                          style={{ flex: 1, fontSize: 11, padding: "4px 8px" }}
+                          onClick={() => {
+                            if (selectedInfographicIds.size === infographics.length) {
+                              setSelectedInfographicIds(new Set());
+                            } else {
+                              setSelectedInfographicIds(new Set(infographics.map((i) => i.id)));
+                            }
+                          }}
+                        >
+                          {selectedInfographicIds.size === infographics.length ? "Снять всё" : "Выбрать все"}
+                        </button>
+                        <button
+                          className="btn-secondary"
+                          style={{ flex: 1, fontSize: 11, padding: "4px 8px", color: selectedInfographicIds.size > 0 ? "var(--error)" : undefined }}
+                          disabled={selectedInfographicIds.size === 0}
+                          onClick={deleteSelectedInfographics}
+                        >
+                          Удалить ({selectedInfographicIds.size})
+                        </button>
+                        <button
+                          className="btn-secondary"
+                          style={{ fontSize: 11, padding: "4px 8px" }}
+                          onClick={() => { setSelectedInfographicIds(new Set()); setInfoBulkMode(false); }}
+                        >
+                          ✕
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
                 {infographics.length === 0 ? (
                   <div style={{ padding: "20px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
                     Нет сохранённых инфографик
@@ -2035,12 +2139,39 @@ export default function Chat() {
                   {infographics.map((ig) => (
                     <div
                       className="sidebar-item infographic-card-item"
-                      onClick={() => viewInfographic(ig.id)}
+                      onClick={() => {
+                        if (infoBulkMode) {
+                          setSelectedInfographicIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(ig.id)) next.delete(ig.id); else next.add(ig.id);
+                            return next;
+                          });
+                          return;
+                        }
+                        viewInfographic(ig.id);
+                      }}
                       key={ig.id}
                     >
-                      <div className="infographic-card-icon">
-                        <InfographicIcon size={16} />
-                      </div>
+                      {infoBulkMode && (
+                        <input
+                          type="checkbox"
+                          checked={selectedInfographicIds.has(ig.id)}
+                          onChange={() => {
+                            setSelectedInfographicIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(ig.id)) next.delete(ig.id); else next.add(ig.id);
+                              return next;
+                            });
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ flexShrink: 0 }}
+                        />
+                      )}
+                      {!infoBulkMode && (
+                        <div className="infographic-card-icon">
+                          <InfographicIcon size={16} />
+                        </div>
+                      )}
                       <div style={{ flex: 1, minWidth: 0 }}>
                         {renamingId === ig.id ? (
                           <input
@@ -2070,7 +2201,7 @@ export default function Chat() {
                           {formatDate(ig.created_at)}
                         </div>
                       </div>
-                      {renamingId !== ig.id && (
+                      {!infoBulkMode && renamingId !== ig.id && (
                       <div className="sidebar-item-actions">
                         <button
                           className="doc-delete-btn"
