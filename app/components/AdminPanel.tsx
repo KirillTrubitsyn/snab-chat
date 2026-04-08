@@ -75,7 +75,7 @@ export default function AdminPanel({ adminCode, userName, isDocAdmin, onLogout }
             </button>
           ))}
         </nav>
-        {userName === "Трубицын Кирилл" && (
+        {userName.startsWith("Трубицын Кирилл") && (
           <div className="admin-sidebar-bottom">
             <button
               className={`admin-sidebar-nav-item${tab === "settings" ? " active" : ""}`}
