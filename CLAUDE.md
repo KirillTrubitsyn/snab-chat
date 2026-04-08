@@ -125,6 +125,7 @@ app/
 | Макс. чанков из поиска | 20 (запрос) → 8 (после фильтрации) | `lib/retrieval.ts` |
 | Порог релевантности | 0.35 | `lib/retrieval.ts` |
 | Коэффициент обрыва | 0.7 | `lib/retrieval.ts` |
+| Реранкер | `gemini` (LLM) или `voyage` (rerank-2.5) | `lib/reranker.ts` |
 | Temperature | 0 | `api/chat/route.ts` |
 | Токен-бюджет памяти | 30000 | `lib/memory.ts` |
 | Порог суммаризации | 25000 | `lib/memory.ts` |
@@ -146,6 +147,8 @@ NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
 GOOGLE_API_KEY=AIza...
+VOYAGE_API_KEY=pa-...              # (опционально) для Voyage rerank-2.5
+RERANKER_MODEL=gemini              # "gemini" (default) или "voyage"
 ```
 
 ## Команды

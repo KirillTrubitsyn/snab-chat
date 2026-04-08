@@ -2,6 +2,26 @@ import { google, withGoogleApiLimit } from "./google-ai.js";
 import { generateObject } from "ai";
 import { z } from "zod";
 import type { SearchResult } from "./retrieval.js";
+import { voyageRerank } from "./voyage-reranker.js";
+
+/**
+ * Unified rerank dispatcher.
+ * Set RERANKER_MODEL env var to switch:
+ *   "voyage"  → Voyage AI rerank-2.5 (cross-encoder, requires VOYAGE_API_KEY)
+ *   "gemini"  → Gemini Flash LLM reranker (default, current behavior)
+ */
+export async function rerank(
+  query: string,
+  results: SearchResult[]
+): Promise<SearchResult[]> {
+  const model = (process.env.RERANKER_MODEL ?? "gemini").toLowerCase();
+
+  if (model === "voyage") {
+    return voyageRerank(query, results);
+  }
+
+  return llmRerank(query, results);
+}
 
 const RERANK_MODEL = "gemini-3.1-flash-lite-preview";
 const MAX_CHUNKS_TO_RERANK = 20;
