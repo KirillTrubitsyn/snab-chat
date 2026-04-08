@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = createServiceClient();
+    const isAdmin = isAdminCode(invite.code);
 
     let viewQuery = supabase
       .from("infographics")
