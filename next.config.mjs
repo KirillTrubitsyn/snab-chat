@@ -63,10 +63,15 @@ const nextConfig = {
         source: "/api/sources/download",
         headers: [
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
-          {
-            key: "Content-Security-Policy",
-            value: "frame-ancestors 'self'",
-          },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+        ],
+      },
+      // Allow /help to be embedded as iframe inside the app (support modal)
+      {
+        source: "/help",
+        headers: [
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
         ],
       },
     ];
