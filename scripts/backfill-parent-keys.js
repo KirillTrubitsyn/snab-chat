@@ -12,12 +12,12 @@
  * принадлежности к одной таблице.
  *
  * Использование (browser console):
- *   1. Откройте https://supabase.com/dashboard/project/hjjfugvnhjnvbchfjsbm
+ *   1. Откройте https://supabase.com/dashboard/project/YOUR_PROJECT_ID
  *   2. Откройте Console (F12)
  *   3. Вставьте этот скрипт и нажмите Enter
  *
  * Использование (Node.js):
- *   SUPABASE_URL=https://hjjfugvnhjnvbchfjsbm.supabase.co \
+ *   SUPABASE_URL=https://your-project.supabase.co \
  *   SUPABASE_SERVICE_KEY=... \
  *   node backfill-parent-keys.js
  */
@@ -25,7 +25,7 @@
 // ── Конфигурация ──
 const SUPABASE_URL = typeof process !== 'undefined'
   ? process.env.SUPABASE_URL
-  : 'https://hjjfugvnhjnvbchfjsbm.supabase.co';
+  : null; // укажите SUPABASE_URL через переменную окружения
 
 const SUPABASE_KEY = typeof process !== 'undefined'
   ? process.env.SUPABASE_SERVICE_KEY
