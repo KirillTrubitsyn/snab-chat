@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiUrl } from "@/app/lib/api";
 import AdminPanel from "@/app/components/AdminPanel";
 
 export default function AdminPage() {
   const [adminCode, setAdminCode] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
+  const [isDocAdmin, setIsDocAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
@@ -22,7 +24,22 @@ export default function AdminPage() {
 
     setAdminCode(code);
     setUserName(name || "Администратор");
-    setLoading(false);
+
+    // Fetch isDocAdmin from server (localStorage may be stale/missing)
+    fetch(apiUrl("/api/auth/login"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.isDocumentAdmin) {
+          setIsDocAdmin(true);
+          localStorage.setItem("snabchat_is_doc_admin", "true");
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [router]);
 
   const handleLogout = () => {
@@ -46,6 +63,7 @@ export default function AdminPage() {
     <AdminPanel
       adminCode={adminCode!}
       userName={userName}
+      isDocAdmin={isDocAdmin}
       onLogout={handleLogout}
     />
   );
