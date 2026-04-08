@@ -2422,6 +2422,23 @@ export default function Chat() {
                     )}
                   </button>
                 ))}
+                <button
+                  onClick={() => window.open("https://disk.yandex.ru/i/B0aYz0_6pakpMw", "_blank")}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "8px 14px", fontSize: 13, fontWeight: 500,
+                    background: "none", border: "none", cursor: "pointer",
+                    borderBottom: "2px solid transparent",
+                    color: "var(--text-secondary)",
+                    transition: "color 0.15s",
+                    position: "relative", top: 1,
+                  }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                  </svg>
+                  Видео-презентация
+                </button>
               </div>
             </div>
 
