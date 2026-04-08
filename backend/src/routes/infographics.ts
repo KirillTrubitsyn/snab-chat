@@ -18,15 +18,16 @@ router.get("/api/infographics", async (req: Request, res: Response) => {
     const supabase = createServiceClient();
     const isAdmin = isAdminCode(invite.code);
 
-    // For admins, we get infographics from conversations owned by this admin.
-    // For users, filter by invite_code_id directly.
     let query = supabase
       .from("infographics")
       .select("id, topic, style, aspect_ratio, description, created_at, conversation_id")
       .order("created_at", { ascending: false })
       .limit(100);
 
-    if (!isAdmin) {
+    if (isAdmin) {
+      // Admins see only infographics with no invite_code_id (created by admins)
+      query = query.is("invite_code_id", null);
+    } else {
       query = query.eq("invite_code_id", invite.id);
     }
 
@@ -61,11 +62,15 @@ router.post("/api/infographics", async (req: Request, res: Response) => {
 
     const supabase = createServiceClient();
 
-    const { data, error } = await supabase
+    const isAdmin = isAdminCode(invite.code);
+    let viewQuery = supabase
       .from("infographics")
       .select("id, topic, style, aspect_ratio, description, image_base64, created_at")
-      .eq("id", id)
-      .single();
+      .eq("id", id);
+    if (!isAdmin) {
+      viewQuery = viewQuery.eq("invite_code_id", invite.id);
+    }
+    const { data, error } = await viewQuery.single();
 
     if (error || !data) {
       return res.status(404).json({ error: "Не найдено" });
@@ -95,10 +100,12 @@ router.delete("/api/infographics", async (req: Request, res: Response) => {
 
     const supabase = createServiceClient();
 
-    const { error } = await supabase
-      .from("infographics")
-      .delete()
-      .eq("id", id);
+    const isAdmin = isAdminCode(invite.code);
+    let delQuery = supabase.from("infographics").delete().eq("id", id);
+    if (!isAdmin) {
+      delQuery = delQuery.eq("invite_code_id", invite.id);
+    }
+    const { error } = await delQuery;
 
     if (error) {
       console.error("Infographics DELETE error:", error.message);
@@ -129,10 +136,15 @@ router.patch("/api/infographics", async (req: Request, res: Response) => {
 
     const supabase = createServiceClient();
 
-    const { error } = await supabase
+    const isAdmin = isAdminCode(invite.code);
+    let patchQuery = supabase
       .from("infographics")
       .update({ topic: topic.trim().slice(0, 200) })
       .eq("id", id);
+    if (!isAdmin) {
+      patchQuery = patchQuery.eq("invite_code_id", invite.id);
+    }
+    const { error } = await patchQuery;
 
     if (error) {
       console.error("Rename infographic error:", error.message);
