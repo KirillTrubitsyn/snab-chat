@@ -152,7 +152,7 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
         try {
           const invite = await getInviteCodeFromHeader(req);
           const supabase = createServiceClient();
-          // Admin IDs are not UUIDs (e.g. "admin-КИРИЛЛ-АДМИН"), so skip FK
+          // Admin IDs are not UUIDs (e.g. "admin-КОЗЛОВ-4831"), so skip FK
           const isRealInviteCode = invite?.id && !invite.id.startsWith("admin-");
           const { data: saved, error: saveError } = await supabase
             .from("infographics")

@@ -14,7 +14,7 @@
  *   node scripts/test-uploads/run-tests.mjs <BASE_URL> <INVITE_CODE>
  *
  * Пример:
- *   node scripts/test-uploads/run-tests.mjs http://localhost:3000 КИРИЛЛ-АДМИН
+ *   node scripts/test-uploads/run-tests.mjs http://localhost:3000 ФАМИЛИЯ-1234
  *   node scripts/test-uploads/run-tests.mjs https://snab-chat.vercel.app МОЙ-КОД
  */
 
@@ -30,7 +30,7 @@ const INVITE_CODE = process.argv[3] || "";
 
 if (!INVITE_CODE) {
   console.error("Использование: node run-tests.mjs <BASE_URL> <INVITE_CODE>");
-  console.error("Пример: node run-tests.mjs http://localhost:3000 КИРИЛЛ-АДМИН");
+  console.error("Пример: node run-tests.mjs http://localhost:3000 ФАМИЛИЯ-1234");
   process.exit(1);
 }
 
@@ -426,7 +426,7 @@ async function testChatUploadUrlAuth() {
 async function testDocumentAdminRestriction() {
   console.log("\n📋 12. Ограничение загрузки в базу знаний");
 
-  // Test /api/ingest (should require КИРИЛЛ-АДМИН)
+  // Test /api/ingest (should require isDocAdmin=true)
   const formData = new FormData();
   formData.append("filename", "test.txt");
   formData.append("mimeType", "text/plain");
@@ -437,14 +437,14 @@ async function testDocumentAdminRestriction() {
     method: "POST",
     body: formData,
     headers: {
-      "x-admin-code": encodeURIComponent("ИВАН-АДМИН"),
+      "x-admin-code": encodeURIComponent("FAKE-NON-DOC-ADMIN"),
     },
   });
 
   if (res.status === 401 || res.status === 403) {
-    pass("Ingest отклонён для не-КИРИЛЛ админа", `status=${res.status}`);
+    pass("Ingest отклонён для не-docAdmin", `status=${res.status}`);
   } else {
-    fail("Ingest для не-КИРИЛЛ админа", `Ожидали 401/403, получили ${res.status}`);
+    fail("Ingest для не-docAdmin", `Ожидали 401/403, получили ${res.status}`);
   }
 
   // Test /api/upload-url
@@ -452,7 +452,7 @@ async function testDocumentAdminRestriction() {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-admin-code": encodeURIComponent("ИВАН-АДМИН"),
+      "x-admin-code": encodeURIComponent("FAKE-NON-DOC-ADMIN"),
     },
     body: JSON.stringify({ filename: "test.txt", mimeType: "text/plain" }),
   });
