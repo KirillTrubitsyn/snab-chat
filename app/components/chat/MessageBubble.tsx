@@ -88,6 +88,7 @@ interface MessageBubbleProps {
   onExportDocx?: (content: string) => void;
   onExportExcel?: (content: string) => void;
   onFollowUpClick?: (text: string) => void;
+  onOpenSupport?: () => void;
 }
 
 function findSource(name: string, allSources: Source[]): Source | undefined {
@@ -216,6 +217,7 @@ export default function MessageBubble({
   onExportDocx,
   onExportExcel,
   onFollowUpClick,
+  onOpenSupport,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
 
@@ -311,6 +313,17 @@ export default function MessageBubble({
               <TableWrapper {...props}>{children}</TableWrapper>
             ),
             a: ({ children, href }) => {
+              if (href === "#open-support") {
+                return (
+                  <button
+                    className="source-link-btn"
+                    onClick={() => onOpenSupport?.()}
+                    style={{ fontWeight: 600 }}
+                  >
+                    {children}
+                  </button>
+                );
+              }
               if (href?.startsWith("source:")) {
                 const id = parseInt(href.replace("source:", ""), 10);
                 const src = allSources.find((s) => s.id === id);

@@ -1716,6 +1716,7 @@ export default function Chat() {
                       onExportDocx={m.role === "assistant" ? (content: string) => handleExportDocx(content, prevUserMsg?.content || "Запрос") : undefined}
                       onExportExcel={m.role === "assistant" && containsMarkdownTable(m.content) ? (content: string) => handleExportExcel(content, prevUserMsg?.content || "Запрос") : undefined}
                       onFollowUpClick={m.role === "assistant" ? (text: string) => handleSubmit(undefined, text) : undefined}
+                      onOpenSupport={m.role === "assistant" ? () => openSupportModal("support") : undefined}
                     />
                   );
                 })}
