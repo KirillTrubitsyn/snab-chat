@@ -7,6 +7,7 @@ import {
   checkAndRegisterDevice,
 } from "../lib/auth.js";
 import { loginSchema, parseBody } from "../lib/validation.js";
+import { notifyNewUser } from "../lib/telegram.js";
 
 const router = Router();
 
@@ -38,9 +39,10 @@ router.post("/api/auth/login", async (req: Request, res: Response) => {
     }
 
     // 3. Проверка лимита устройств
+    let isNewDevice = false;
     if (device_id) {
       const userAgent = req.headers["user-agent"] || "";
-      const { error: deviceError } = await checkAndRegisterDevice(
+      const { error: deviceError, isNewDevice: newDevice } = await checkAndRegisterDevice(
         invite.id,
         device_id,
         invite.device_limit ?? null,
@@ -49,10 +51,16 @@ router.post("/api/auth/login", async (req: Request, res: Response) => {
       if (deviceError) {
         return res.status(403).json({ error: deviceError });
       }
+      isNewDevice = newDevice;
     }
 
     // 4. Уменьшаем счётчик использований
     await consumeInviteCodeFallback(invite.id);
+
+    // 5. Уведомление при активации кода с нового устройства
+    if (isNewDevice) {
+      notifyNewUser(invite.name, invite.organization).catch(() => {});
+    }
 
     return res.json({
       type: "user",
