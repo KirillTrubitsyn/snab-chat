@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 
 const ACCENT = "#2563EB";
@@ -400,46 +400,55 @@ const sections: Section[] = [
 ];
 
 export default function HelpPage() {
+  const [embedded, setEmbedded] = useState(false);
+  useEffect(() => {
+    setEmbedded(new URLSearchParams(window.location.search).get("embedded") === "1");
+  }, []);
+
   return (
     <div style={{ minHeight: "100dvh", background: "#FAFAFA", fontFamily: "'Source Sans 3', system-ui, sans-serif" }}>
-      {/* Header */}
-      <div style={{
-        position: "sticky", top: 0, zIndex: 100, background: "#fff",
-        borderBottom: "1px solid #E5E7EB", padding: "0 20px",
-        height: 56, display: "flex", alignItems: "center", justifyContent: "space-between",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Link href="/" style={{
-            display: "flex", alignItems: "center", gap: 8, color: ACCENT,
-            textDecoration: "none", fontSize: 14, fontWeight: 600,
-          }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="19" y1="12" x2="5" y2="12"/>
-              <polyline points="12 19 5 12 12 5"/>
-            </svg>
-            В чат
-          </Link>
-          <span style={{ color: "#D1D5DB" }}>|</span>
-          <span style={{ fontWeight: 700, fontSize: 16, color: "#1A1A1A" }}>Инструкция пользователя</span>
-        </div>
-        <span style={{ fontSize: 12, color: "#9CA3AF" }}>СнабЧат · Дирекция по закупкам</span>
-      </div>
-
-      <div style={{ maxWidth: 760, margin: "0 auto", padding: "32px 20px 64px" }}>
-        {/* Hero */}
+      {/* Header — hidden in embedded mode */}
+      {!embedded && (
         <div style={{
-          background: "linear-gradient(135deg, #1D4ED8 0%, #2563EB 60%, #3B82F6 100%)",
-          borderRadius: 16, padding: "32px 28px", marginBottom: 32, color: "#fff",
-          boxShadow: "0 8px 32px rgba(37,99,235,0.25)",
+          position: "sticky", top: 0, zIndex: 100, background: "#fff",
+          borderBottom: "1px solid #E5E7EB", padding: "0 20px",
+          height: 56, display: "flex", alignItems: "center", justifyContent: "space-between",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
         }}>
-          <div style={{ fontSize: 28, fontWeight: 800, marginBottom: 8, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-            СнабЧат — инструкция
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <Link href="/" style={{
+              display: "flex", alignItems: "center", gap: 8, color: ACCENT,
+              textDecoration: "none", fontSize: 14, fontWeight: 600,
+            }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"/>
+                <polyline points="12 19 5 12 12 5"/>
+              </svg>
+              В чат
+            </Link>
+            <span style={{ color: "#D1D5DB" }}>|</span>
+            <span style={{ fontWeight: 700, fontSize: 16, color: "#1A1A1A" }}>Инструкция пользователя</span>
           </div>
-          <div style={{ fontSize: 15, opacity: 0.85, lineHeight: 1.6, maxWidth: 560 }}>
-            Здесь вы найдёте всё необходимое для эффективной работы с ассистентом: от правил формулировки вопросов до работы с документами и инфографикой.
-          </div>
+          <span style={{ fontSize: 12, color: "#9CA3AF" }}>СнабЧат · Дирекция по закупкам</span>
         </div>
+      )}
+
+      <div style={{ maxWidth: embedded ? "100%" : 760, margin: "0 auto", padding: embedded ? "16px 16px 32px" : "32px 20px 64px" }}>
+        {/* Hero — full page only */}
+        {!embedded && (
+          <div style={{
+            background: "linear-gradient(135deg, #1D4ED8 0%, #2563EB 60%, #3B82F6 100%)",
+            borderRadius: 16, padding: "32px 28px", marginBottom: 32, color: "#fff",
+            boxShadow: "0 8px 32px rgba(37,99,235,0.25)",
+          }}>
+            <div style={{ fontSize: 28, fontWeight: 800, marginBottom: 8, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+              СнабЧат — инструкция
+            </div>
+            <div style={{ fontSize: 15, opacity: 0.85, lineHeight: 1.6, maxWidth: 560 }}>
+              Здесь вы найдёте всё необходимое для эффективной работы с ассистентом: от правил формулировки вопросов до работы с документами и инфографикой.
+            </div>
+          </div>
+        )}
 
         {/* Quick nav pills */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 28 }}>
