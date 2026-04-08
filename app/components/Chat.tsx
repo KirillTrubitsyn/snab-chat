@@ -176,7 +176,6 @@ export default function Chat() {
   const [supportFiles, setSupportFiles] = useState<File[]>([]);
   const [supportHistory, setSupportHistory] = useState<{ id: string; message: string; admin_reply: string | null; admin_number: number | null; status: string; created_at: string; replied_at: string | null }[]>([]);
   const [unreadSupportCount, setUnreadSupportCount] = useState(0);
-  const [showPresentation, setShowPresentation] = useState(false);
 
   const router = useRouter();
 
@@ -2423,6 +2422,23 @@ export default function Chat() {
                     )}
                   </button>
                 ))}
+                <button
+                  onClick={() => window.open("https://disk.yandex.ru/i/B0aYz0_6pakpMw", "_blank")}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "8px 14px", fontSize: 13, fontWeight: 500,
+                    background: "none", border: "none", cursor: "pointer",
+                    borderBottom: "2px solid transparent",
+                    color: "var(--text-secondary)",
+                    transition: "color 0.15s",
+                    position: "relative", top: 1,
+                  }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                  </svg>
+                  Видео-презентация
+                </button>
               </div>
             </div>
 
@@ -2435,32 +2451,6 @@ export default function Chat() {
               />
             ) : (
               <>
-                {/* Video presentation banner */}
-                <div style={{ padding: "10px 16px 0", flexShrink: 0 }}>
-                  <button
-                    onClick={() => setShowPresentation(true)}
-                    style={{
-                      width: "100%", display: "flex", alignItems: "center", gap: 10,
-                      background: "linear-gradient(135deg, #1D4ED8 0%, #2563EB 100%)",
-                      border: "none", borderRadius: 10, padding: "10px 14px",
-                      color: "#fff", cursor: "pointer", textAlign: "left",
-                    }}
-                  >
-                    <span style={{
-                      width: 32, height: 32, borderRadius: "50%", background: "rgba(255,255,255,0.2)",
-                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-                    }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                        <polygon points="5 3 19 12 5 21 5 3"/>
-                      </svg>
-                    </span>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700 }}>Видео-презентация СнабЧата</div>
-                      <div style={{ fontSize: 11, opacity: 0.85 }}>Смотреть обзор системы · ~5 мин</div>
-                    </div>
-                  </button>
-                </div>
-
                 {/* Messages history */}
                 <div style={{
                   flex: 1, overflowY: "auto", padding: 16,
@@ -2575,35 +2565,6 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Fullscreen video presentation overlay */}
-      {showPresentation && (
-        <div
-          onClick={() => setShowPresentation(false)}
-          style={{
-            position: "fixed", inset: 0, zIndex: 9999,
-            background: "rgba(0,0,0,0.96)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}
-        >
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowPresentation(false); }}
-            style={{
-              position: "absolute", top: 16, right: 20,
-              background: "none", border: "none", color: "#fff",
-              fontSize: 36, cursor: "pointer", lineHeight: 1, zIndex: 1,
-              padding: 4,
-            }}
-            aria-label="Закрыть"
-          >×</button>
-          <iframe
-            src="https://disk.yandex.ru/i/B0aYz0_6pakpMw"
-            style={{ width: "90vw", height: "90vh", maxWidth: 1200, border: "none", borderRadius: 8 }}
-            allow="autoplay; fullscreen"
-            allowFullScreen
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
     </>
   );
 }
