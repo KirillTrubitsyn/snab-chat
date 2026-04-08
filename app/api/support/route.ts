@@ -37,10 +37,27 @@ export async function POST(req: NextRequest) {
   const invite = await getInviteCodeFromHeader(req);
   if (!invite) return unauthorizedResponse();
 
-  const raw = await req.json();
-  const { data, error: valError } = parseBody(raw, supportMessageSchema);
-  if (valError) return valError;
-  const message = data.message;
+  let message: string;
+  let files: File[] = [];
+
+  const contentType = req.headers.get("content-type") ?? "";
+  if (contentType.includes("multipart/form-data")) {
+    const formData = await req.formData();
+    const msgField = formData.get("message");
+    if (typeof msgField !== "string" || msgField.trim().length < 3) {
+      return NextResponse.json({ error: "Сообщение слишком короткое" }, { status: 400 });
+    }
+    if (msgField.trim().length > 5000) {
+      return NextResponse.json({ error: "Сообщение слишком длинное" }, { status: 400 });
+    }
+    message = msgField.trim();
+    files = formData.getAll("files").filter((f): f is File => f instanceof File).slice(0, 10);
+  } else {
+    const raw = await req.json();
+    const { data, error: valError } = parseBody(raw, supportMessageSchema);
+    if (valError) return valError;
+    message = data.message;
+  }
 
   const supabase = createServiceClient();
   const inviteCodeId = invite.id.startsWith("admin-") ? null : invite.id;
@@ -58,7 +75,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Telegram notification с REF:id для ответа через ТГ (fire-and-forget)
-  notifySupportMessage(invite!.name, message.trim(), invite!.organization, inserted?.id).catch(() => {});
+  notifySupportMessage(invite!.name, message, invite!.organization, inserted?.id, files).catch(() => {});
 
   return NextResponse.json({ success: true });
 }
