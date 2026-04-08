@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { embedQuery } from "@/app/lib/embeddings";
+import { getInviteCodeFromHeader } from "@/app/lib/auth";
+import { unauthorizedResponse } from "@/app/lib/api-helpers";
 
 /**
  * POST /api/kb-search — комбинированный поиск по базе знаний.
@@ -59,6 +61,9 @@ const FTS_BOOST = 0.15;
 const MAX_SIBLINGS = 30;
 
 export async function POST(req: NextRequest) {
+  const invite = await getInviteCodeFromHeader(req);
+  if (!invite) return unauthorizedResponse();
+
   try {
     const body = await req.json();
     const query: string = (body.query ?? "").trim();
