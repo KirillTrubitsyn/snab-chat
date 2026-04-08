@@ -3056,6 +3056,58 @@ input, textarea {
   overflow: hidden;
 }
 
+/* KB Pagination */
+.kb-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 14px 0 4px;
+  flex-wrap: wrap;
+}
+.kb-pagination-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--border, #E2E8F0);
+  border-radius: 8px;
+  background: var(--bg-white, #fff);
+  color: var(--text-secondary, #64748B);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.kb-pagination-btn:hover:not(:disabled):not(.active) {
+  background: var(--bg-hover, #F1F5F9);
+}
+.kb-pagination-btn.active {
+  background: var(--primary, #2563EB);
+  color: #fff;
+  border-color: var(--primary, #2563EB);
+}
+.kb-pagination-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.kb-pagination-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  color: var(--text-secondary, #94A3B8);
+  font-size: 14px;
+}
+.kb-pagination-info {
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--text-secondary, #94A3B8);
+  white-space: nowrap;
+}
+
 .kb-row {
   display: flex;
   align-items: center;
@@ -4898,6 +4950,59 @@ input, textarea {
   border: 1px solid #E2E8F0;
   border-radius: 12px;
   overflow: hidden;
+}
+
+/* Pagination */
+.admin-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 16px 0 8px;
+  flex-wrap: wrap;
+}
+.admin-pagination-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.admin-pagination-btn:hover:not(:disabled):not(.active) {
+  background: #F1F5F9;
+  border-color: #CBD5E1;
+}
+.admin-pagination-btn.active {
+  background: var(--admin-primary, #3b82f6);
+  color: #fff;
+  border-color: var(--admin-primary, #3b82f6);
+}
+.admin-pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.admin-pagination-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  color: #94A3B8;
+  font-size: 14px;
+}
+.admin-pagination-info {
+  margin-left: 12px;
+  font-size: 12px;
+  color: #94A3B8;
+  white-space: nowrap;
 }
 
 .admin-doc-row {
