@@ -1335,7 +1335,7 @@ export default function Chat() {
             </a>
             <button
               className="header-labeled-btn accent desktop-only"
-              onClick={openSupportModal}
+              onClick={() => openSupportModal()}
               title="Поддержка"
               style={{ position: "relative" }}
             >
