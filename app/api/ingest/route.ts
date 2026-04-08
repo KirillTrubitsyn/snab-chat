@@ -28,6 +28,19 @@ export async function POST(req: NextRequest) {
       : [];
     const folderPath = (formData.get("folderPath") as string) || null;
 
+    if (!filename) {
+      return NextResponse.json(
+        { error: "Missing required field: filename" },
+        { status: 400 }
+      );
+    }
+    if (markdown === null || markdown === undefined) {
+      return NextResponse.json(
+        { error: "Missing required field: markdown" },
+        { status: 400 }
+      );
+    }
+
     const supabase = createServiceClient();
 
     // Extract images: either from FormData (small files) or by re-parsing from Storage (large files)
