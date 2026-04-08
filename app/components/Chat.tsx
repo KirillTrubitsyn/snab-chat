@@ -1270,6 +1270,20 @@ export default function Chat() {
                     </svg>
                     База знаний
                   </button>
+                  <a
+                    className="mobile-hamburger-item"
+                    href="/help"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10"/>
+                      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+                      <line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                    Инструкция
+                  </a>
                   <button
                     className="mobile-hamburger-item"
                     onClick={() => { setMobileMenuOpen(false); setRightOpen((o) => !o); }}
@@ -1318,6 +1332,20 @@ export default function Chat() {
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {hasSummary && <span className="memory-pill">Память активна</span>}
             {/* Desktop: nav buttons inline */}
+            <a
+              className="header-labeled-btn accent desktop-only"
+              href="/help"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Инструкция"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              <span className="btn-label">Инструкция</span>
+            </a>
             <a
               className="header-labeled-btn accent desktop-only"
               href="https://academy.snabchat.app/"
