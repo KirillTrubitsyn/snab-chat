@@ -154,6 +154,60 @@ function linkifyContent(text: string, allSources: Source[]): string {
   });
 }
 
+function SourcesAccordion({
+  sources,
+  allSources,
+  onSourceClick,
+}: {
+  sources: string[];
+  allSources: Source[];
+  onSourceClick: (s: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="message-sources-accordion">
+      <button
+        className="message-sources-toggle"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{ transition: "transform 0.2s", transform: open ? "rotate(90deg)" : "rotate(0deg)", flexShrink: 0 }}
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+        <span>Источники</span>
+        <span className="message-sources-count">{sources.length}</span>
+      </button>
+      {open && (
+        <div className="message-sources-list">
+          {sources.map((s, i) => {
+            const src = findSource(s, allSources);
+            return (
+              <button
+                key={i}
+                className={`message-source-tag source-clickable${!src ? " source-unlinked" : ""}`}
+                onClick={() => onSourceClick(s)}
+                title={src ? "Открыть документ" : "Документ не найден в базе"}
+              >
+                {s}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function MessageBubble({
   message,
   allSources,
@@ -333,24 +387,11 @@ export default function MessageBubble({
         </div>
       )}
       {message.sources && message.sources.length > 0 && (
-        <div className="message-sources">
-          <div className="message-sources-label">Источники:</div>
-          <div className="message-sources-list">
-            {message.sources.map((s, i) => {
-              const src = findSource(s, allSources);
-              return (
-                <button
-                  key={i}
-                  className={`message-source-tag source-clickable${!src ? " source-unlinked" : ""}`}
-                  onClick={() => handleSourceClick(s)}
-                  title={src ? "Открыть документ" : "Документ не найден в базе"}
-                >
-                  {s}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <SourcesAccordion
+          sources={message.sources}
+          allSources={allSources}
+          onSourceClick={handleSourceClick}
+        />
       )}
       {(onCreateInfographic || onExportDocx || onExportExcel) && (
         <div className="message-infographic-row">

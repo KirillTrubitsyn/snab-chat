@@ -631,26 +631,55 @@ input, textarea {
   transform: scale(0.98);
 }
 
-.message-sources {
+.message-sources-accordion {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
 }
 
-.message-sources-label {
+.message-sources-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
-  margin-bottom: 6px;
   font-family: var(--font-body);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  transition: color var(--transition);
+}
+
+.message-sources-toggle:hover {
+  color: var(--accent);
+}
+
+.message-sources-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0 6px;
+  min-width: 18px;
+  height: 16px;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .message-sources-list {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  margin-top: 8px;
 }
 
 .message-source-tag {
