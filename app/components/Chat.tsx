@@ -160,7 +160,7 @@ export default function Chat() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [chatError, setChatError] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<"chat" | "knowledge-base">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "knowledge-base" | "training">("chat");
   const [kbCategoryFilter, setKbCategoryFilter] = useState<string>("all");
 
   // .doc / .xls format warning modal
@@ -1236,19 +1236,16 @@ export default function Chat() {
               </button>
               {mobileMenuOpen && (
                 <div className="mobile-hamburger-dropdown">
-                  <a
-                    className="mobile-hamburger-item"
-                    href="https://academy.snabchat.app/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => setMobileMenuOpen(false)}
+                  <button
+                    className={`mobile-hamburger-item${activeView === "training" ? " active" : ""}`}
+                    onClick={() => { setMobileMenuOpen(false); setActiveView(activeView === "training" ? "chat" : "training"); }}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
                       <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                     </svg>
                     Обучение
-                  </a>
+                  </button>
                   <button
                     className="mobile-hamburger-item"
                     onClick={() => { setMobileMenuOpen(false); openSupportModal(); }}
@@ -1326,11 +1323,9 @@ export default function Chat() {
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {hasSummary && <span className="memory-pill">Память активна</span>}
             {/* Desktop: nav buttons inline */}
-            <a
-              className="header-labeled-btn accent desktop-only"
-              href="https://academy.snabchat.app/"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              className={`header-labeled-btn accent desktop-only${activeView === "training" ? " active" : ""}`}
+              onClick={() => setActiveView(activeView === "training" ? "chat" : "training")}
               title="Обучение"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1338,7 +1333,7 @@ export default function Chat() {
                 <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
               </svg>
               <span className="btn-label">Обучение</span>
-            </a>
+            </button>
             <button
               className="header-labeled-btn accent desktop-only"
               onClick={() => openSupportModal()}
@@ -1480,7 +1475,117 @@ export default function Chat() {
           )}
 
           {/* ── Main ── */}
-          {activeView === "knowledge-base" ? (
+          {activeView === "training" ? (
+            <main className="main-area">
+              <div className="training-view">
+                <div className="kb-header">
+                  <h2 className="kb-title">Обучение</h2>
+                  <span className="kb-badge">3 курса</span>
+                </div>
+                <p className="training-subtitle">Интерактивные курсы по закупочной деятельности</p>
+                <div className="training-grid">
+                  {/* Курс 1: Закупки по 223-ФЗ */}
+                  <a href="https://academy.snabchat.app/courses/1/" target="_blank" rel="noopener noreferrer" className="training-card" style={{ "--card-accent": "#f5a623" } as React.CSSProperties}>
+                    <div className="training-card-icon">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="80" height="80">
+                        <rect width="512" height="512" rx="112" ry="112" fill="#FFF3E0"/>
+                        <g>
+                          <rect x="120" y="100" width="200" height="260" rx="28" fill="#E65100"/>
+                          <rect x="160" y="140" width="200" height="260" rx="28" fill="#F57C00"/>
+                          <rect x="200" y="180" width="200" height="260" rx="28" fill="#FFB74D"/>
+                          <rect x="328" y="368" width="52" height="40" rx="12" fill="#FFFFFF"/>
+                          <polygon points="338,408 328,424 348,408" fill="#FFFFFF"/>
+                        </g>
+                      </svg>
+                    </div>
+                    <div className="training-card-body">
+                      <h3 className="training-card-title">Закупки по 223-ФЗ</h3>
+                      <p className="training-card-subtitle">Федеральный закон, способы закупок, пороги, роли участников</p>
+                      <div className="training-card-tags">
+                        <span className="training-tag">223-ФЗ</span>
+                        <span className="training-tag">ЕИС</span>
+                        <span className="training-tag">Конкурентные закупки</span>
+                      </div>
+                      <div className="training-card-meta">
+                        <span>8 разделов</span>
+                        <span>25 мин</span>
+                        <span className="training-level">Базовый</span>
+                      </div>
+                    </div>
+                    <div className="training-card-arrow">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                    </div>
+                  </a>
+
+                  {/* Курс 2: Закупки вне 223-ФЗ */}
+                  <a href="https://academy.snabchat.app/courses/2/" target="_blank" rel="noopener noreferrer" className="training-card" style={{ "--card-accent": "#5b8def" } as React.CSSProperties}>
+                    <div className="training-card-icon">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="80" height="80">
+                        <rect width="512" height="512" rx="112" ry="112" fill="#E3F2FD"/>
+                        <g>
+                          <rect x="120" y="100" width="200" height="260" rx="28" fill="#1565C0"/>
+                          <rect x="160" y="140" width="200" height="260" rx="28" fill="#5b8def"/>
+                          <rect x="200" y="180" width="200" height="260" rx="28" fill="#90CAF9"/>
+                          <rect x="328" y="368" width="52" height="40" rx="12" fill="#FFFFFF"/>
+                          <polygon points="338,408 328,424 348,408" fill="#FFFFFF"/>
+                        </g>
+                      </svg>
+                    </div>
+                    <div className="training-card-body">
+                      <h3 className="training-card-title">Закупки вне 223-ФЗ</h3>
+                      <p className="training-card-subtitle">Стандарт закупок ООО СГК, пороги, процедуры, особые случаи</p>
+                      <div className="training-card-tags">
+                        <span className="training-tag">ООО СГК</span>
+                        <span className="training-tag">Стандарт 2.0</span>
+                        <span className="training-tag">Рамочные договоры</span>
+                      </div>
+                      <div className="training-card-meta">
+                        <span>9 разделов</span>
+                        <span>30 мин</span>
+                        <span className="training-level">Базовый</span>
+                      </div>
+                    </div>
+                    <div className="training-card-arrow">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                    </div>
+                  </a>
+
+                  {/* Курс 3: Планирование закупок */}
+                  <a href="https://academy.snabchat.app/courses/3/" target="_blank" rel="noopener noreferrer" className="training-card" style={{ "--card-accent": "#2d8659" } as React.CSSProperties}>
+                    <div className="training-card-icon">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="80" height="80">
+                        <rect width="512" height="512" rx="112" ry="112" fill="#E8F5E9"/>
+                        <g>
+                          <rect x="120" y="100" width="200" height="260" rx="28" fill="#1B5E20"/>
+                          <rect x="160" y="140" width="200" height="260" rx="28" fill="#2d8659"/>
+                          <rect x="200" y="180" width="200" height="260" rx="28" fill="#81C784"/>
+                          <rect x="328" y="368" width="52" height="40" rx="12" fill="#FFFFFF"/>
+                          <polygon points="338,408 328,424 348,408" fill="#FFFFFF"/>
+                        </g>
+                      </svg>
+                    </div>
+                    <div className="training-card-body">
+                      <h3 className="training-card-title">Планирование закупок</h3>
+                      <p className="training-card-subtitle">Циклы планирования, дедлайны, SAP-коды, нормативные сроки</p>
+                      <div className="training-card-tags">
+                        <span className="training-tag">Планирование</span>
+                        <span className="training-tag">SAP ERP</span>
+                        <span className="training-tag">Потребности</span>
+                      </div>
+                      <div className="training-card-meta">
+                        <span>8 разделов</span>
+                        <span>20 мин</span>
+                        <span className="training-level">Базовый</span>
+                      </div>
+                    </div>
+                    <div className="training-card-arrow">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                    </div>
+                  </a>
+                </div>
+              </div>
+            </main>
+          ) : activeView === "knowledge-base" ? (
             <main className="main-area">
               <div className="kb-view">
                 <div className="kb-header">
