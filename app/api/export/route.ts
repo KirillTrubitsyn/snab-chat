@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as fs from "fs";
 import * as path from "path";
+import { getInviteCodeFromHeader } from "@/app/lib/auth";
+import { unauthorizedResponse } from "@/app/lib/api-helpers";
 import {
   Document,
   Packer,
@@ -729,6 +731,9 @@ function generateFilename(question: string): string {
 /* ── API handler ── */
 
 export async function POST(request: NextRequest) {
+  const invite = await getInviteCodeFromHeader(request);
+  if (!invite) return unauthorizedResponse();
+
   try {
     const body = await request.json();
     const { question, answer } = body;

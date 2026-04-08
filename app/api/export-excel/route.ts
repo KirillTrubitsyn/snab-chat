@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { parseMarkdownTables } from "@/app/lib/markdown-tables";
+import { getInviteCodeFromHeader } from "@/app/lib/auth";
+import { unauthorizedResponse } from "@/app/lib/api-helpers";
 
 /* ── Filename generator (matches DOCX export logic) ── */
 
@@ -48,6 +50,9 @@ function parseNumericValue(val: string): number | null {
 /* ── API handler ── */
 
 export async function POST(request: NextRequest) {
+  const invite = await getInviteCodeFromHeader(request);
+  if (!invite) return unauthorizedResponse();
+
   try {
     const body = await request.json();
     const { question, answer } = body;
