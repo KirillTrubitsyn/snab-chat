@@ -30,6 +30,7 @@ export default function AdminPage() {
     localStorage.removeItem("snabchat_user_name");
     localStorage.removeItem("snabchat_is_admin");
     localStorage.removeItem("snabchat_invite_code");
+    localStorage.removeItem("snabchat_is_doc_admin");
     router.push("/");
   };
 
