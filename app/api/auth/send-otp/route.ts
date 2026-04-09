@@ -3,7 +3,7 @@ import { validateInviteCode } from "@/app/lib/auth";
 import { sendOtpSchema, parseBody } from "@/app/lib/validation";
 import { createServiceClient } from "@/app/lib/supabase";
 import { generateOTP, saveOTP, checkOTPRateLimit } from "@/app/lib/otp";
-import { sendTelegramMessage } from "@/app/lib/telegram";
+import { send2FAMessage } from "@/app/lib/telegram";
 import { sendSMS } from "@/app/lib/sms";
 
 /**
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Telegram не привязан" }, { status: 400 });
       }
       await saveOTP(invite.id, otp, dbMethod);
-      const sent = await sendTelegramMessage(
+      const sent = await send2FAMessage(
         `🔐 Ваш код для входа в СнабЧат: <b>${otp}</b>\n\nКод действителен 5 минут.`,
         codeData.telegram_chat_id
       );
