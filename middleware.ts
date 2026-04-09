@@ -25,6 +25,14 @@ function getClientIP(req: NextRequest): string {
   );
 }
 
+// Mutation endpoints that require valid Origin/Referer
+const ORIGIN_PROTECTED_PATHS = [
+  "/api/infographic",
+  "/api/chat",
+  "/api/parse",
+  "/api/ingest",
+];
+
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -36,6 +44,30 @@ export function middleware(req: NextRequest) {
   // Skip webhook (Telegram sends retries if we reject)
   if (pathname === "/api/telegram/webhook") {
     return NextResponse.next();
+  }
+
+  // Block POST requests without valid Origin/Referer on sensitive endpoints
+  // Prevents direct API calls via curl/Postman/scripts
+  if (req.method === "POST" && ORIGIN_PROTECTED_PATHS.some((p) => pathname.startsWith(p))) {
+    const origin = req.headers.get("origin");
+    const referer = req.headers.get("referer");
+    const host = req.headers.get("host") || "";
+    const hostWithoutPort = host.split(":")[0];
+    // Accept if Origin or Referer contains the same host as the request
+    const matchesHost = (val: string) => {
+      try {
+        const url = new URL(val);
+        return url.hostname === hostWithoutPort || url.hostname === "localhost";
+      } catch { return false; }
+    };
+    const validOrigin = origin && matchesHost(origin);
+    const validReferer = referer && matchesHost(referer);
+    if (!validOrigin && !validReferer) {
+      return NextResponse.json(
+        { error: "Запрос отклонён" },
+        { status: 403 }
+      );
+    }
   }
 
   const ip = getClientIP(req);
