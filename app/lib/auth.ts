@@ -173,6 +173,7 @@ export async function consumeInviteCodeFallback(
 
 /**
  * Проверяет лимит устройств и регистрирует устройство.
+ * Использует RPC-функцию для атомарной проверки и вставки (защита от гонки состояний).
  * Возвращает { error } если превышен лимит, { isNewDevice } = true если устройство новое.
  */
 export async function checkAndRegisterDevice(
@@ -183,7 +184,38 @@ export async function checkAndRegisterDevice(
 ): Promise<{ error: string | null; isNewDevice: boolean }> {
   const supabase = createServiceClient();
 
-  // Проверяем, есть ли уже это устройство
+  const { data, error } = await supabase.rpc("register_device_atomic", {
+    p_invite_code_id: inviteCodeId,
+    p_device_id: deviceId,
+    p_device_limit: deviceLimit,
+    p_user_agent: userAgent,
+  });
+
+  if (error) {
+    console.error("[auth] register_device_atomic RPC error:", error.message);
+    // Fallback: если RPC-функция ещё не развёрнута, используем старую логику
+    return checkAndRegisterDeviceFallback(inviteCodeId, deviceId, deviceLimit, userAgent);
+  }
+
+  const result = data as { error: string | null; isNewDevice: boolean };
+  if (result.error) {
+    return {
+      error: `${result.error} (${deviceLimit}). Обратитесь к администратору.`,
+      isNewDevice: false,
+    };
+  }
+  return { error: null, isNewDevice: result.isNewDevice };
+}
+
+/** Fallback для обратной совместимости, пока RPC не развёрнута */
+async function checkAndRegisterDeviceFallback(
+  inviteCodeId: string,
+  deviceId: string,
+  deviceLimit: number | null,
+  userAgent: string
+): Promise<{ error: string | null; isNewDevice: boolean }> {
+  const supabase = createServiceClient();
+
   const { data: existing } = await supabase
     .from("devices")
     .select("id")
@@ -192,7 +224,6 @@ export async function checkAndRegisterDevice(
     .single();
 
   if (existing) {
-    // Устройство уже зарегистрировано — обновляем last_seen
     await supabase
       .from("devices")
       .update({ last_seen_at: new Date().toISOString(), user_agent: userAgent })
@@ -200,7 +231,6 @@ export async function checkAndRegisterDevice(
     return { error: null, isNewDevice: false };
   }
 
-  // Новое устройство — проверяем лимит (если задан)
   if (deviceLimit !== null) {
     const { count } = await supabase
       .from("devices")
@@ -215,7 +245,6 @@ export async function checkAndRegisterDevice(
     }
   }
 
-  // Регистрируем новое устройство
   await supabase.from("devices").insert({
     invite_code_id: inviteCodeId,
     device_id: deviceId,

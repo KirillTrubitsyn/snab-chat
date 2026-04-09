@@ -81,7 +81,8 @@ export async function POST(req: NextRequest) {
     console.error("Supabase init error:", e); return serverError();
   }
   const body = await req.json().catch(() => ({}));
-  const title = body.title || "Новый диалог";
+  const rawTitle = body.title || "Новый диалог";
+  const title = typeof rawTitle === "string" ? rawTitle.trim().slice(0, 500) : "Новый диалог";
 
   // Для админов invite_code_id = null (они не привязаны к инвайт-кодам в БД)
   const isAdmin = isAdminCode(invite.code);

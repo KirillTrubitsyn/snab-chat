@@ -64,16 +64,26 @@ const ICON = {
 
 /* ── Вспомогательные функции ── */
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
+}
+
 function highlightMatches(text: string, query: string): string {
-  if (!query.trim()) return text;
+  const escaped = escapeHtml(text);
+  if (!query.trim()) return escaped;
   const words = query
     .trim()
     .split(/\s+/)
     .filter((w) => w.length >= 2)
     .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  if (words.length === 0) return text;
+  if (words.length === 0) return escaped;
   const regex = new RegExp(`(${words.join("|")})`, "gi");
-  return text.replace(regex, "<mark>$1</mark>");
+  return escaped.replace(regex, "<mark>$1</mark>");
 }
 
 function formatDate(dateStr: string): string {

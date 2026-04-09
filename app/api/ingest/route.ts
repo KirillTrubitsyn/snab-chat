@@ -23,9 +23,17 @@ export async function POST(req: NextRequest) {
     const mimeType = formData.get("mimeType") as string;
     const markdown = formData.get("markdown") as string;
     const tagsRaw = formData.get("tags") as string;
-    const tags: string[] = tagsRaw
-      ? (JSON.parse(tagsRaw) as string[]).map((t) => t.toLowerCase())
-      : [];
+    let tags: string[] = [];
+    if (tagsRaw) {
+      try {
+        const parsed = JSON.parse(tagsRaw);
+        if (Array.isArray(parsed)) {
+          tags = parsed.filter((t): t is string => typeof t === "string").map((t) => t.toLowerCase());
+        }
+      } catch {
+        return NextResponse.json({ error: "Некорректный формат тегов" }, { status: 400 });
+      }
+    }
     const folderPath = (formData.get("folderPath") as string) || null;
 
     if (!filename) {

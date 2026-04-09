@@ -18,7 +18,25 @@ export async function POST(req: NextRequest) {
     const originalMimeType = (formData.get("mimeType") as string) || file?.type || "application/octet-stream";
     const folderPath = (formData.get("folderPath") as string) || null;
 
-    const storageBucket = (formData.get("storageBucket") as string) || "documents";
+    const ALLOWED_BUCKETS = ["documents", "chat-uploads"];
+    const rawBucket = (formData.get("storageBucket") as string) || "documents";
+    const storageBucket = ALLOWED_BUCKETS.includes(rawBucket) ? rawBucket : "documents";
+
+    // Whitelist допустимых MIME-типов
+    const ALLOWED_MIME_TYPES = new Set([
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-excel",
+      "image/jpeg", "image/png", "image/gif", "image/bmp", "image/webp",
+      "audio/mpeg", "audio/wav", "audio/mp4", "audio/webm",
+      "text/plain", "text/csv", "text/markdown",
+      "application/octet-stream", // fallback для неизвестных типов
+    ]);
+
+    if (!ALLOWED_MIME_TYPES.has(originalMimeType)) {
+      return NextResponse.json({ error: "Неподдерживаемый тип файла" }, { status: 400 });
+    }
 
     let buffer: Buffer;
     let filename: string;
@@ -89,7 +107,7 @@ export async function POST(req: NextRequest) {
     console.error("Parse error:", err);
     logError({ type: "parse", message: errMsg, endpoint: "/api/parse" }).catch(() => {});
     return NextResponse.json(
-      { error: errMsg },
+      { error: "Ошибка обработки файла. Попробуйте ещё раз." },
       { status: 500 }
     );
   }

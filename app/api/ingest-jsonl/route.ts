@@ -191,7 +191,7 @@ export async function POST(req: NextRequest) {
       message: errMsg,
       endpoint: "/api/ingest-jsonl",
     }).catch(() => {});
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+    return NextResponse.json({ error: "Ошибка индексации документа" }, { status: 500 });
   }
 }
 

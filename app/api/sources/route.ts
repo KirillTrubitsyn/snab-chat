@@ -14,6 +14,7 @@ export async function GET(req: NextRequest) {
 
     const supabase = createServiceClient();
     const PAGE = 1000;
+    const MAX_TOTAL_SOURCES = 10000;
     let allSources: any[] = [];
     let from = 0;
 
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
       }
 
       allSources = allSources.concat(data);
-      if (data.length < PAGE) break;
+      if (data.length < PAGE || allSources.length >= MAX_TOTAL_SOURCES) break;
       from += PAGE;
     }
 
