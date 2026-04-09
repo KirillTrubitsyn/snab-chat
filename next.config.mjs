@@ -26,6 +26,7 @@ if (backendUrl) {
 }
 
 const nextConfig = {
+  output: 'standalone',
   experimental: {
     serverActions: {
       bodySizeLimit: '30mb',
