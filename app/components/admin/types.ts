@@ -11,6 +11,11 @@ export interface InviteCode {
   created_at: string;
   conversation_count: number;
   device_count: number;
+  // Password & 2FA
+  password_hash: string | null;
+  telegram_chat_id: string | null;
+  phone_number: string | null;
+  totp_secret: string | null;
 }
 
 export interface ActivityItem {

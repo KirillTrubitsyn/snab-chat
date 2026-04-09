@@ -149,6 +149,16 @@ export async function PATCH(req: NextRequest) {
   if (body.infographic_limit !== undefined) updates.infographic_limit = body.infographic_limit;
   if (body.device_limit !== undefined) updates.device_limit = body.device_limit;
   if (body.is_active !== undefined) updates.is_active = body.is_active;
+  if (body.telegram_chat_id !== undefined) updates.telegram_chat_id = body.telegram_chat_id;
+  if (body.phone_number !== undefined) updates.phone_number = body.phone_number;
+  // Сброс 2FA
+  if (body.reset2FA === true) {
+    updates.telegram_chat_id = null;
+    updates.phone_number = null;
+    updates.totp_secret = null;
+    updates.otp_code = null;
+    updates.otp_expires_at = null;
+  }
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "Нечего обновлять" }, { status: 400 });

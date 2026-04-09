@@ -12,7 +12,30 @@ const uuid = z.string().uuid();
 
 export const loginSchema = z.object({
   code: trimmedString(1, 200),
+  password: z.string().optional(),
   device_id: z.string().optional(),
+});
+
+export const setPasswordSchema = z.object({
+  code: trimmedString(1, 200),
+  password: trimmedString(8, 200),
+  device_id: z.string().optional(),
+});
+
+export const sendOtpSchema = z.object({
+  code: trimmedString(1, 200),
+});
+
+export const verifyOtpSchema = z.object({
+  code: trimmedString(1, 200),
+  otp: z.string().min(6).max(6),
+  device_id: z.string().optional(),
+});
+
+export const setupTotpConfirmSchema = z.object({
+  code: trimmedString(1, 200),
+  otp: z.string().min(6).max(6),
+  secret: trimmedString(1, 200),
 });
 
 export const registerSchema = z.object({

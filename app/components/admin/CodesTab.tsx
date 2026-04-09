@@ -24,6 +24,8 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
   const [editChatLimit, setEditChatLimit] = useState("");
   const [editInfographicLimit, setEditInfographicLimit] = useState("");
   const [editDeviceLimit, setEditDeviceLimit] = useState("");
+  const [editTelegramChatId, setEditTelegramChatId] = useState("");
+  const [editPhoneNumber, setEditPhoneNumber] = useState("");
 
   const headers = { "x-admin-code": encodeURIComponent(adminCode) };
 
@@ -93,6 +95,8 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
     setEditChatLimit(c.chat_limit !== null ? String(c.chat_limit) : "");
     setEditInfographicLimit(c.infographic_limit !== null ? String(c.infographic_limit) : "");
     setEditDeviceLimit(c.device_limit !== null ? String(c.device_limit) : "");
+    setEditTelegramChatId(c.telegram_chat_id || "");
+    setEditPhoneNumber(c.phone_number || "");
   };
 
   const saveEdit = async () => {
@@ -107,9 +111,23 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
           chat_limit: editChatLimit ? parseInt(editChatLimit) : null,
           infographic_limit: editInfographicLimit ? parseInt(editInfographicLimit) : null,
           device_limit: editDeviceLimit ? parseInt(editDeviceLimit) : null,
+          telegram_chat_id: editTelegramChatId.trim() || null,
+          phone_number: editPhoneNumber.trim() || null,
         }),
       });
       setEditingCode(null);
+      loadCodes();
+    } catch { /* ignore */ }
+  };
+
+  const reset2FA = async (id: string) => {
+    if (!confirm("Сбросить 2FA для этого пользователя?")) return;
+    try {
+      await fetch(apiUrl(`/api/admin/invite-codes?id=${id}`), {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ reset2FA: true }),
+      });
       loadCodes();
     } catch { /* ignore */ }
   };
@@ -191,7 +209,7 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
                 <thead>
                   <tr>
                     <th>Код</th><th>Имя</th><th>Организация</th><th>Чат</th>
-                    <th>Инфографика</th><th>Устройства</th><th>Статус</th>
+                    <th>Инфографика</th><th>Устройства</th><th>2FA</th><th>Статус</th>
                     <th>Создан</th><th style={{ textAlign: "right" }}>Действия</th>
                   </tr>
                 </thead>
@@ -223,6 +241,17 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
                         )}
                       </td>
                       <td>
+                        {c.telegram_chat_id ? (
+                          <span title={`Telegram: ${c.telegram_chat_id}`} style={{ cursor: "default" }}>📱 TG</span>
+                        ) : c.totp_secret ? (
+                          <span title="Authenticator App">🔑 TOTP</span>
+                        ) : c.phone_number ? (
+                          <span title={`SMS: ${c.phone_number}`} style={{ cursor: "default" }}>📲 SMS</span>
+                        ) : (
+                          <span className="admin-text-muted">—</span>
+                        )}
+                      </td>
+                      <td>
                         <span className={`admin-status ${c.is_active ? "active" : "inactive"}`}>
                           {c.is_active ? "Активен" : "Отключён"}
                         </span>
@@ -231,6 +260,9 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
                       <td style={{ textAlign: "right" }}>
                         <div className="admin-actions">
                           <button className="admin-action-link" onClick={() => openEdit(c)}>Изменить</button>
+                          {(c.telegram_chat_id || c.totp_secret || c.phone_number) && (
+                            <button className="admin-action-link admin-action-warning" onClick={() => reset2FA(c.id)}>Сбросить 2FA</button>
+                          )}
                           <button className="admin-action-link admin-action-warning" onClick={() => toggleCodeActive(c.id, c.is_active)}>
                             {c.is_active ? "Отключить" : "Включить"}
                           </button>
@@ -274,6 +306,14 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
               <div className="admin-form-group">
                 <label>Лимит устройств</label>
                 <input value={editDeviceLimit} onChange={(e) => setEditDeviceLimit(e.target.value.replace(/\D/g, ""))} placeholder="Пусто = безлимит" />
+              </div>
+              <div className="admin-form-group">
+                <label>Telegram Chat ID (для 2FA)</label>
+                <input value={editTelegramChatId} onChange={(e) => setEditTelegramChatId(e.target.value)} placeholder="напр. 123456789 (пусто = отключено)" />
+              </div>
+              <div className="admin-form-group">
+                <label>Номер телефона (для SMS 2FA)</label>
+                <input value={editPhoneNumber} onChange={(e) => setEditPhoneNumber(e.target.value)} placeholder="напр. 79991234567 (пусто = отключено)" />
               </div>
               <div className="admin-modal-actions">
                 <button className="admin-btn-secondary" onClick={() => setEditingCode(null)}>Отмена</button>

@@ -2873,6 +2873,68 @@ input, textarea {
   cursor: not-allowed;
 }
 
+.invite-gate-password-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.rule-ok {
+  color: var(--success, #22c55e);
+}
+
+.rule-fail {
+  color: var(--text-muted);
+}
+
+.invite-gate-otp-input {
+  text-align: center;
+  letter-spacing: 0.4em;
+  font-size: 22px;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+}
+
+.invite-gate-qr {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+  background: white;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.invite-gate-2fa-banner {
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.invite-gate-2fa-icon {
+  font-size: 32px;
+}
+
+.invite-gate-2fa-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.invite-gate-2fa-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
 /* ══════════════════════════════════════════════════
    QR Code Page
    ══════════════════════════════════════════════════ */

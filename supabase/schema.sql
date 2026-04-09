@@ -308,3 +308,14 @@ create index if not exists idx_infographics_created on infographics(created_at d
 -- alter table chunks enable row level security;
 -- alter table conversations enable row level security;
 -- alter table messages enable row level security;
+
+-- ============================================================
+-- МИГРАЦИЯ: Пароли + 2FA (выполнить в Supabase SQL Editor)
+-- ============================================================
+ALTER TABLE invite_codes
+  ADD COLUMN IF NOT EXISTS password_hash    text DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS telegram_chat_id text DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS phone_number     text DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS otp_code         text DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS otp_expires_at   timestamptz DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS totp_secret      text DEFAULT NULL;

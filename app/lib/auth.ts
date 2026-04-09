@@ -114,6 +114,13 @@ export interface InviteCode {
   device_limit: number | null;
   is_active: boolean;
   created_at: string;
+  // Password & 2FA fields (added by migration)
+  password_hash: string | null;
+  telegram_chat_id: string | null;
+  phone_number: string | null;
+  otp_code: string | null;
+  otp_expires_at: string | null;
+  totp_secret: string | null;
 }
 
 export async function validateInviteCode(
@@ -129,8 +136,9 @@ export async function validateInviteCode(
 
   if (error || !data) return null;
 
-  // Если есть лимит использований и он исчерпан
-  if (data.uses_remaining !== null && data.uses_remaining <= 0) return null;
+  // Если код уже активирован (пароль установлен) — лимит использований не проверяем.
+  // Если не активирован и лимит исчерпан — отклоняем.
+  if (data.password_hash === null && data.uses_remaining !== null && data.uses_remaining <= 0) return null;
 
   return data as InviteCode;
 }
@@ -299,6 +307,12 @@ export async function getInviteCodeFromHeader(
       device_limit: null,
       is_active: true,
       created_at: new Date().toISOString(),
+      password_hash: null,
+      telegram_chat_id: null,
+      phone_number: null,
+      otp_code: null,
+      otp_expires_at: null,
+      totp_secret: null,
     };
   }
 
