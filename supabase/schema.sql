@@ -314,6 +314,14 @@ alter table devices enable row level security;
 alter table invite_codes enable row level security;
 alter table infographics enable row level security;
 
+drop policy if exists "deny_anon_sources" on sources;
+drop policy if exists "deny_anon_chunks" on chunks;
+drop policy if exists "deny_anon_conversations" on conversations;
+drop policy if exists "deny_anon_messages" on messages;
+drop policy if exists "deny_anon_devices" on devices;
+drop policy if exists "deny_anon_invite_codes" on invite_codes;
+drop policy if exists "deny_anon_infographics" on infographics;
+
 create policy "deny_anon_sources" on sources for all to anon using (false);
 create policy "deny_anon_chunks" on chunks for all to anon using (false);
 create policy "deny_anon_conversations" on conversations for all to anon using (false);
