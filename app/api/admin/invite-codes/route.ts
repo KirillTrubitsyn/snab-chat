@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
-import { requireAdmin } from "@/app/lib/auth";
+import { requireAdmin, requirePrimaryAdmin } from "@/app/lib/auth";
 import { logAuditEvent } from "@/app/lib/audit-log";
 
 export async function GET(req: NextRequest) {
@@ -104,7 +104,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const adminCheck = requireAdmin(req);
+  // Удаление кодов доступно только главному администратору
+  const adminCheck = requirePrimaryAdmin(req);
   if (adminCheck instanceof NextResponse) return adminCheck;
 
   const { searchParams } = new URL(req.url);

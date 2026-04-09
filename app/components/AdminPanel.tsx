@@ -118,7 +118,7 @@ export default function AdminPanel({ adminCode, userName, isDocAdmin, onLogout }
         {/* Workspace */}
         <div className="admin-workspace">
           <div className="admin-content">
-            {tab === "codes" && <CodesTab adminCode={adminCode} />}
+            {tab === "codes" && <CodesTab adminCode={adminCode} isPrimaryAdmin={typeof window !== "undefined" && localStorage.getItem("snabchat_is_primary_admin") === "true"} />}
             {tab === "activity" && <ActivityTab adminCode={adminCode} />}
             {tab === "documents" && <DocumentsTab adminCode={adminCode} isDocAdmin={isDocAdmin} />}
             {tab === "nontarget" && <NontargetTab adminCode={adminCode} />}

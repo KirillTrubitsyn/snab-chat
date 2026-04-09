@@ -279,6 +279,23 @@ export function requireAdmin(
 }
 
 /**
+ * Проверяет, что запрос от главного администратора (номер 1).
+ * Используется для операций, доступных только главному админу (удаление кодов и т.д.)
+ */
+export function requirePrimaryAdmin(
+  req: NextRequest
+): { adminName: string } | NextResponse {
+  const rawCode = req.headers.get("x-admin-code") ?? "";
+  const code = decodeURIComponent(rawCode);
+  const name = getAdminName(code);
+  const number = getAdminNumber(code);
+  if (!name || number !== 1) {
+    return adminRequiredResponse();
+  }
+  return { adminName: name };
+}
+
+/**
  * Проверяет, что запрос от администратора с правами управления документами (isDocAdmin)
  */
 export function requireDocumentAdmin(

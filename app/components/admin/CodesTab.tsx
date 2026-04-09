@@ -5,7 +5,7 @@ import { apiUrl } from "@/app/lib/api";
 import { formatDateShort } from "@/app/lib/date-utils";
 import type { InviteCode } from "./types";
 
-export default function CodesTab({ adminCode }: { adminCode: string }) {
+export default function CodesTab({ adminCode, isPrimaryAdmin = false }: { adminCode: string; isPrimaryAdmin?: boolean }) {
   const [codes, setCodes] = useState<InviteCode[]>([]);
   const [codesLoading, setCodesLoading] = useState(false);
   const [newCode, setNewCode] = useState("");
@@ -234,7 +234,9 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
                           <button className="admin-action-link admin-action-warning" onClick={() => toggleCodeActive(c.id, c.is_active)}>
                             {c.is_active ? "Отключить" : "Включить"}
                           </button>
-                          <button className="admin-action-link admin-action-danger" onClick={() => deleteCode(c.id)}>Удалить</button>
+                          {isPrimaryAdmin && (
+                            <button className="admin-action-link admin-action-danger" onClick={() => deleteCode(c.id)}>Удалить</button>
+                          )}
                         </div>
                       </td>
                     </tr>
