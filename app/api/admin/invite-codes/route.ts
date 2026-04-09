@@ -48,6 +48,15 @@ export async function GET(req: NextRequest) {
     ...code,
     conversation_count: convCounts[code.id] || 0,
     device_count: deviceCounts[code.id] || 0,
+    has_password: !!code.password_hash,
+    has_telegram: !!code.telegram_chat_id,
+    has_sms: !!code.phone_number,
+    has_totp: !!code.totp_secret,
+    // Не возвращать секретные поля
+    password_hash: undefined,
+    telegram_chat_id: undefined,
+    phone_number: undefined,
+    totp_secret: undefined,
   }));
 
   return NextResponse.json({ codes: result });
@@ -156,6 +165,16 @@ export async function PATCH(req: NextRequest) {
   if (body.infographic_limit !== undefined) updates.infographic_limit = body.infographic_limit;
   if (body.device_limit !== undefined) updates.device_limit = body.device_limit;
   if (body.is_active !== undefined) updates.is_active = body.is_active;
+  // Сброс 2FA (admin action)
+  if (body.reset_2fa === true) {
+    updates.telegram_chat_id = null;
+    updates.phone_number = null;
+    updates.totp_secret = null;
+  }
+  // Сброс пароля (admin action)
+  if (body.reset_password === true) {
+    updates.password_hash = null;
+  }
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "Нечего обновлять" }, { status: 400 });

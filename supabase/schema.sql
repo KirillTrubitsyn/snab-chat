@@ -367,3 +367,48 @@ begin
   return jsonb_build_object('error', null, 'isNewDevice', true);
 end;
 $$ language plpgsql security definer;
+
+-- ============================================================
+-- Миграция: Пароли + 2FA (Telegram, SMS, TOTP)
+-- Выполнить в Supabase SQL Editor
+-- ============================================================
+
+-- 1. Новые колонки в invite_codes для паролей и 2FA
+ALTER TABLE invite_codes
+  ADD COLUMN IF NOT EXISTS password_hash    text DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS telegram_chat_id text DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS phone_number     text DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS totp_secret      text DEFAULT NULL;
+
+-- 2. Таблица одноразовых OTP-кодов (для входа и настройки 2FA)
+CREATE TABLE IF NOT EXISTS otp_codes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  invite_code_id uuid NOT NULL REFERENCES invite_codes(id) ON DELETE CASCADE,
+  code text NOT NULL,
+  method text NOT NULL,            -- 'telegram' | 'sms' | 'login_telegram' | 'login_sms'
+  expires_at timestamptz NOT NULL,
+  used boolean DEFAULT false,
+  created_at timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS otp_codes_invite_code_id_idx ON otp_codes (invite_code_id);
+
+-- RLS для otp_codes
+ALTER TABLE otp_codes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "deny_anon_otp_codes" ON otp_codes FOR ALL TO anon USING (false);
+
+-- 3. Таблица токенов привязки Telegram (deep link)
+CREATE TABLE IF NOT EXISTS telegram_link_tokens (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  invite_code_id uuid NOT NULL REFERENCES invite_codes(id) ON DELETE CASCADE,
+  token text UNIQUE NOT NULL,
+  expires_at timestamptz NOT NULL,
+  used boolean DEFAULT false,
+  created_at timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS telegram_link_tokens_token_idx ON telegram_link_tokens (token);
+
+-- RLS для telegram_link_tokens
+ALTER TABLE telegram_link_tokens ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "deny_anon_telegram_link_tokens" ON telegram_link_tokens FOR ALL TO anon USING (false);

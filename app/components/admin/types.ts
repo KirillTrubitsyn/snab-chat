@@ -11,6 +11,11 @@ export interface InviteCode {
   created_at: string;
   conversation_count: number;
   device_count: number;
+  // 2FA fields
+  has_password: boolean;
+  has_telegram: boolean;
+  has_sms: boolean;
+  has_totp: boolean;
 }
 
 export interface ActivityItem {

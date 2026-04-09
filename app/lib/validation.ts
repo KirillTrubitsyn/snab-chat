@@ -86,6 +86,56 @@ export const infographicSchema = z.object({
   conversationId: z.string().optional().nullable(),
 });
 
+export const setPasswordSchema = z.object({
+  code: trimmedString(1, 200),
+  password: trimmedString(8, 200),
+});
+
+export const verifyPasswordSchema = z.object({
+  code: trimmedString(1, 200),
+  password: trimmedString(1, 200),
+  device_id: z.string().optional(),
+});
+
+export const sendOtpSchema = z.object({
+  code: trimmedString(1, 200),
+  method: z.enum(["telegram", "sms"]),
+});
+
+export const verifyOtpSchema = z.object({
+  code: trimmedString(1, 200),
+  otp: trimmedString(4, 8),
+  method: z.enum(["telegram", "sms", "totp"]),
+});
+
+export const telegramLinkSchema = z.object({
+  code: trimmedString(1, 200),
+});
+
+export const setupSmsSchema = z.object({
+  code: trimmedString(1, 200),
+  phone: z.string().regex(/^\+7\d{10}$/, "Формат: +7XXXXXXXXXX"),
+});
+
+export const verifySetupOtpSchema = z.object({
+  code: trimmedString(1, 200),
+  otp: trimmedString(4, 8),
+  method: z.enum(["telegram", "sms", "totp"]),
+  phone: z.string().optional(),
+  totpSecret: z.string().optional(),
+});
+
+export const changePasswordSchema = z.object({
+  code: trimmedString(1, 200),
+  oldPassword: trimmedString(1, 200),
+  newPassword: trimmedString(8, 200),
+});
+
+export const twoFactorMethodSchema = z.object({
+  code: trimmedString(1, 200),
+  method: z.enum(["telegram", "sms", "totp"]),
+});
+
 // ── Parse helper ──
 
 /**
