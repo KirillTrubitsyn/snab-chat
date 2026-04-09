@@ -39,6 +39,7 @@ const navItems: { key: TabKey; label: string; icon: string }[] = [
 export default function AdminPanel({ adminCode, userName, isDocAdmin, canDeleteCodes, onLogout }: AdminPanelProps) {
   const [tab, setTab] = useState<TabKey>("activity");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const isPrimaryAdmin = typeof window !== "undefined" && localStorage.getItem("snabchat_is_primary_admin") === "true";
 
   return (
     <div className="admin-layout">
@@ -76,7 +77,7 @@ export default function AdminPanel({ adminCode, userName, isDocAdmin, canDeleteC
             </button>
           ))}
         </nav>
-        {adminCode.toUpperCase() === "ТРУБИЦЫН-1593" && (
+        {isPrimaryAdmin && (
           <div className="admin-sidebar-bottom">
             <button
               className={`admin-sidebar-nav-item${tab === "settings" ? " active" : ""}`}

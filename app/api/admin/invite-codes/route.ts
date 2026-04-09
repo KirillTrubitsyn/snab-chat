@@ -107,6 +107,7 @@ export async function DELETE(req: NextRequest) {
   const adminCheck = requireAdmin(req);
   if (adminCheck instanceof NextResponse) return adminCheck;
 
+  // Удаление кодов доступно только админам с canDeleteCodes=true
   const rawCode = req.headers.get("x-admin-code") ?? "";
   const code = decodeURIComponent(rawCode);
   if (!isCodeDeletionAdmin(code)) {
