@@ -2,7 +2,9 @@ import { Router, Request, Response } from "express";
 import {
   isAdminCode,
   getAdminName,
+  getAdminNumber,
   isDocumentAdmin,
+  isCodeDeletionAdmin,
   validateInviteCode,
   consumeInviteCodeFallback,
   checkAndRegisterDevice,
@@ -29,6 +31,8 @@ router.post("/api/auth/login", async (req: Request, res: Response) => {
         adminName,
         code: upperCode,
         isDocumentAdmin: isDocumentAdmin(upperCode),
+        isPrimaryAdmin: getAdminNumber(upperCode) === 1,
+        canDeleteCodes: isCodeDeletionAdmin(upperCode),
       });
     }
 
