@@ -143,7 +143,13 @@ export async function POST(req: NextRequest) {
 
   const chatId = String(message.chat.id);
   const admin = getAdminByChatId(chatId);
+
+  // Если это не админ — отвечаем chat_id для настройки Telegram 2FA
   if (!admin) {
+    await sendTelegramMessage(
+      `👋 Ваш Telegram ID: <code>${chatId}</code>\n\nПередайте это число вашему администратору для настройки двухфакторной аутентификации в СнабЧат.`,
+      chatId
+    );
     return NextResponse.json({ ok: true });
   }
 
