@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
-import { getAdminByChatId, notifySupportReply, answerCallbackQuery, sendTelegramMessage } from "@/app/lib/telegram";
+import { getAdminByChatId, notifySupportReply, answerCallbackQuery, sendTelegramMessage, send2FAMessage } from "@/app/lib/telegram";
 import { timingSafeEqual } from "crypto";
 
 export const runtime = "nodejs";
@@ -71,13 +71,12 @@ async function saveAdminReply(supportMessageId: string, replyText: string, admin
   return updated;
 }
 
-/** Обработка /start команды для привязки Telegram (2FA) */
+/** Обработка /start команды для привязки Telegram (2FA) — fallback если 2FA-бот не настроен */
 async function handleStartCommand(chatId: string, token: string): Promise<boolean> {
   if (!token || token.length < 10) return false;
 
   const supabase = createServiceClient();
 
-  // Найти токен привязки
   const { data: linkToken, error } = await supabase
     .from("telegram_link_tokens")
     .select("id, invite_code_id, expires_at, used")
@@ -85,7 +84,7 @@ async function handleStartCommand(chatId: string, token: string): Promise<boolea
     .maybeSingle();
 
   if (error || !linkToken) {
-    await sendTelegramMessage(
+    await send2FAMessage(
       "Недействительная ссылка. Пожалуйста, запросите новую ссылку в настройках СнабЧат.",
       chatId
     );
@@ -93,7 +92,7 @@ async function handleStartCommand(chatId: string, token: string): Promise<boolea
   }
 
   if (linkToken.used) {
-    await sendTelegramMessage(
+    await send2FAMessage(
       "Эта ссылка уже была использована. Запросите новую в настройках.",
       chatId
     );
@@ -101,14 +100,13 @@ async function handleStartCommand(chatId: string, token: string): Promise<boolea
   }
 
   if (new Date(linkToken.expires_at) < new Date()) {
-    await sendTelegramMessage(
+    await send2FAMessage(
       "Ссылка истекла. Пожалуйста, запросите новую ссылку в настройках СнабЧат.",
       chatId
     );
     return true;
   }
 
-  // Привязать chat_id к аккаунту
   const { error: updateError } = await supabase
     .from("invite_codes")
     .update({ telegram_chat_id: chatId })
@@ -116,18 +114,17 @@ async function handleStartCommand(chatId: string, token: string): Promise<boolea
 
   if (updateError) {
     console.error("[Telegram Webhook] Error linking Telegram:", updateError.message);
-    await sendTelegramMessage("Ошибка привязки. Попробуйте ещё раз.", chatId);
+    await send2FAMessage("Ошибка привязки. Попробуйте ещё раз.", chatId);
     return true;
   }
 
-  // Пометить токен как использованный
   await supabase
     .from("telegram_link_tokens")
     .update({ used: true })
     .eq("id", linkToken.id);
 
-  await sendTelegramMessage(
-    "Telegram успешно привязан к вашему аккаунту СнабЧат!\n\nТеперь вы будете получать коды для входа через этот чат.",
+  await send2FAMessage(
+    "✅ Telegram успешно привязан к вашему аккаунту СнабЧат!\n\nТеперь вы будете получать коды для входа через этот чат.",
     chatId
   );
 

@@ -4,7 +4,7 @@ import { telegramLinkSchema, parseBody } from "@/app/lib/validation";
 import { createServiceClient } from "@/app/lib/supabase";
 import { randomUUID } from "crypto";
 
-const BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME ?? "";
+const BOT_USERNAME = process.env.TELEGRAM_2FA_BOT_USERNAME || process.env.TELEGRAM_BOT_USERNAME || "";
 
 /**
  * POST /api/auth/telegram-link — генерация deep link для привязки Telegram.
