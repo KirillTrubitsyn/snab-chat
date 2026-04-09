@@ -9,6 +9,7 @@ export default function AdminPage() {
   const [adminCode, setAdminCode] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
   const [isDocAdmin, setIsDocAdmin] = useState(false);
+  const [canDeleteCodes, setCanDeleteCodes] = useState(false);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
@@ -37,6 +38,9 @@ export default function AdminPage() {
           setIsDocAdmin(true);
           localStorage.setItem("snabchat_is_doc_admin", "true");
         }
+        if (data.canDeleteCodes) {
+          setCanDeleteCodes(true);
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -64,6 +68,7 @@ export default function AdminPage() {
       adminCode={adminCode!}
       userName={userName}
       isDocAdmin={isDocAdmin}
+      canDeleteCodes={canDeleteCodes}
       onLogout={handleLogout}
     />
   );

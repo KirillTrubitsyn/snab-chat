@@ -15,6 +15,7 @@ interface AdminPanelProps {
   adminCode: string;
   userName: string;
   isDocAdmin: boolean;
+  canDeleteCodes: boolean;
   onLogout: () => void;
 }
 
@@ -35,7 +36,7 @@ const navItems: { key: TabKey; label: string; icon: string }[] = [
   { key: "errors", label: "Ошибки", icon: "error" },
 ];
 
-export default function AdminPanel({ adminCode, userName, isDocAdmin, onLogout }: AdminPanelProps) {
+export default function AdminPanel({ adminCode, userName, isDocAdmin, canDeleteCodes, onLogout }: AdminPanelProps) {
   const [tab, setTab] = useState<TabKey>("activity");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -118,7 +119,7 @@ export default function AdminPanel({ adminCode, userName, isDocAdmin, onLogout }
         {/* Workspace */}
         <div className="admin-workspace">
           <div className="admin-content">
-            {tab === "codes" && <CodesTab adminCode={adminCode} />}
+            {tab === "codes" && <CodesTab adminCode={adminCode} canDeleteCodes={canDeleteCodes} />}
             {tab === "activity" && <ActivityTab adminCode={adminCode} />}
             {tab === "documents" && <DocumentsTab adminCode={adminCode} isDocAdmin={isDocAdmin} />}
             {tab === "nontarget" && <NontargetTab adminCode={adminCode} />}

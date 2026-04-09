@@ -12,6 +12,7 @@ interface AdminEntry {
   name: string;
   number: number;
   isDocAdmin?: boolean;
+  canDeleteCodes?: boolean;
 }
 
 function loadAdminCodes(): AdminEntry[] {
@@ -28,6 +29,7 @@ function loadAdminCodes(): AdminEntry[] {
       name: String(e.name),
       number: Number(e.number),
       isDocAdmin: Boolean(e.isDocAdmin),
+      canDeleteCodes: Boolean(e.canDeleteCodes),
     }));
   } catch (err) {
     console.error("[auth] Failed to parse ADMIN_CODES_JSON:", err);
@@ -91,6 +93,11 @@ export function isAdminCode(code: string): boolean {
 export function isDocumentAdmin(code: string): boolean {
   const entry = getAdminEntries().find((e) => e.code === code.toUpperCase());
   return entry?.isDocAdmin === true;
+}
+
+export function isCodeDeletionAdmin(code: string): boolean {
+  const entry = getAdminEntries().find((e) => e.code === code.toUpperCase());
+  return entry?.canDeleteCodes === true;
 }
 
 export function getAdminName(code: string): string | null {

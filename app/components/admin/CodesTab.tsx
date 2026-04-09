@@ -5,7 +5,7 @@ import { apiUrl } from "@/app/lib/api";
 import { formatDateShort } from "@/app/lib/date-utils";
 import type { InviteCode } from "./types";
 
-export default function CodesTab({ adminCode }: { adminCode: string }) {
+export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: string; canDeleteCodes: boolean }) {
   const [codes, setCodes] = useState<InviteCode[]>([]);
   const [codesLoading, setCodesLoading] = useState(false);
   const [newCode, setNewCode] = useState("");
@@ -236,7 +236,9 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
                               Отключить
                             </button>
                           )}
-                          <button className="admin-action-link admin-action-danger" onClick={() => deleteCode(c.id)}>Удалить</button>
+                          {canDeleteCodes && (
+                            <button className="admin-action-link admin-action-danger" onClick={() => deleteCode(c.id)}>Удалить</button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -279,7 +281,9 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
               </div>
               <div className="admin-modal-actions">
                 <button className="admin-btn-secondary" onClick={() => setEditingCode(null)}>Отмена</button>
-                <button className="admin-btn-danger" onClick={() => { setEditingCode(null); deleteCode(editingCode.id); }}>Удалить код</button>
+                {canDeleteCodes && (
+                  <button className="admin-btn-danger" onClick={() => { setEditingCode(null); deleteCode(editingCode.id); }}>Удалить код</button>
+                )}
                 <button className="admin-btn-primary" onClick={saveEdit}>Сохранить</button>
               </div>
             </div>
