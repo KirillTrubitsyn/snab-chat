@@ -267,6 +267,8 @@ export async function getInviteCodeFromHeader(
       name: getAdminName(code) ?? "Админ",
       organization: "Админ",
       uses_remaining: null,
+      chat_limit: null,
+      infographic_limit: null,
       device_limit: null,
       is_active: true,
       created_at: new Date().toISOString(),
