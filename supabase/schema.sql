@@ -302,9 +302,60 @@ create table if not exists infographics (
 create index if not exists idx_infographics_invite on infographics(invite_code_id);
 create index if not exists idx_infographics_created on infographics(created_at desc);
 
--- 14. RLS (Row Level Security) — отключено для service role
--- При необходимости включите RLS и настройте политики:
--- alter table sources enable row level security;
--- alter table chunks enable row level security;
--- alter table conversations enable row level security;
--- alter table messages enable row level security;
+-- 14. RLS (Row Level Security)
+-- Service role (используемый бэкендом) обходит RLS автоматически.
+-- Политики ниже блокируют прямой доступ через anon-ключ (защита в глубину).
+
+alter table sources enable row level security;
+alter table chunks enable row level security;
+alter table conversations enable row level security;
+alter table messages enable row level security;
+alter table devices enable row level security;
+alter table invite_codes enable row level security;
+alter table infographics enable row level security;
+
+create policy "deny_anon_sources" on sources for all to anon using (false);
+create policy "deny_anon_chunks" on chunks for all to anon using (false);
+create policy "deny_anon_conversations" on conversations for all to anon using (false);
+create policy "deny_anon_messages" on messages for all to anon using (false);
+create policy "deny_anon_devices" on devices for all to anon using (false);
+create policy "deny_anon_invite_codes" on invite_codes for all to anon using (false);
+create policy "deny_anon_infographics" on infographics for all to anon using (false);
+
+-- 15. RPC-функция для атомарной регистрации устройств (защита от гонки состояний)
+create or replace function register_device_atomic(
+  p_invite_code_id uuid,
+  p_device_id text,
+  p_device_limit int default null,
+  p_user_agent text default ''
+) returns jsonb as $$
+declare
+  v_existing_id uuid;
+  v_count int;
+begin
+  -- Проверяем, есть ли уже это устройство
+  select id into v_existing_id from devices
+  where invite_code_id = p_invite_code_id and device_id = p_device_id;
+
+  if v_existing_id is not null then
+    update devices set last_seen_at = now(), user_agent = p_user_agent
+    where id = v_existing_id;
+    return jsonb_build_object('error', null, 'isNewDevice', false);
+  end if;
+
+  -- Проверяем лимит устройств (если задан)
+  if p_device_limit is not null then
+    select count(*) into v_count from devices
+    where invite_code_id = p_invite_code_id;
+    if v_count >= p_device_limit then
+      return jsonb_build_object('error', 'Превышен лимит устройств', 'isNewDevice', false);
+    end if;
+  end if;
+
+  -- Регистрируем новое устройство
+  insert into devices (invite_code_id, device_id, user_agent)
+  values (p_invite_code_id, p_device_id, p_user_agent);
+
+  return jsonb_build_object('error', null, 'isNewDevice', true);
+end;
+$$ language plpgsql security definer;

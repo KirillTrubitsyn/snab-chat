@@ -29,7 +29,12 @@ export async function GET(req: NextRequest) {
   if (!invite) return unauthorizedResponse();
 
   const id = req.nextUrl.searchParams.get("id");
+  const ALLOWED_ACTIONS = ["view", "download"];
   const action = req.nextUrl.searchParams.get("action") || "download";
+
+  if (!ALLOWED_ACTIONS.includes(action)) {
+    return new NextResponse("Недопустимое действие", { status: 400 });
+  }
 
   if (!id) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });

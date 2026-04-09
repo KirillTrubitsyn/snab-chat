@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { getInviteCodeFromHeader, isAdminCode } from "@/app/lib/auth";
+import { verifyDownloadToken } from "@/app/lib/download-token";
 
 export const runtime = "nodejs";
 
 /**
  * Proxy endpoint for serving chunk images from private Supabase Storage.
- * Usage: GET /api/chunk-image?path=1541/img_0.png&token=invite_code
- * Auth: x-invite-code header OR ?token= query param (for <img src>)
+ * Usage: GET /api/chunk-image?path=1541/img_0.png&token=signed_token
+ * Auth: x-invite-code header OR ?token= query param (signed download token or invite code)
  */
 export async function GET(req: NextRequest) {
   // Support auth via header or query param (img tags can't send headers)
@@ -15,18 +16,25 @@ export async function GET(req: NextRequest) {
   let authorized = false;
 
   if (tokenParam) {
-    const code = decodeURIComponent(tokenParam);
-    if (isAdminCode(code)) {
+    // Сначала проверяем подписанный download-токен (новый формат)
+    const verified = verifyDownloadToken(tokenParam);
+    if (verified) {
       authorized = true;
     } else {
-      const supabase = createServiceClient();
-      const { data } = await supabase
-        .from("invite_codes")
-        .select("id")
-        .eq("code", code)
-        .eq("is_active", true)
-        .single();
-      if (data) authorized = true;
+      // Fallback: обратная совместимость с инвайт-кодами
+      const code = decodeURIComponent(tokenParam);
+      if (isAdminCode(code)) {
+        authorized = true;
+      } else {
+        const supabase = createServiceClient();
+        const { data } = await supabase
+          .from("invite_codes")
+          .select("id")
+          .eq("code", code)
+          .eq("is_active", true)
+          .single();
+        if (data) authorized = true;
+      }
     }
   }
 
@@ -40,8 +48,8 @@ export async function GET(req: NextRequest) {
   }
 
   const path = req.nextUrl.searchParams.get("path");
-  if (!path) {
-    return new NextResponse("Missing path parameter", { status: 400 });
+  if (!path || path.includes("..") || path.startsWith("/")) {
+    return new NextResponse("Invalid path", { status: 400 });
   }
 
   try {
@@ -69,7 +77,7 @@ export async function GET(req: NextRequest) {
     return new NextResponse(arrayBuffer, {
       headers: {
         "Content-Type": mimeType,
-        "Cache-Control": "public, max-age=86400, immutable",
+        "Cache-Control": "private, max-age=3600",
       },
     });
   } catch (e) {

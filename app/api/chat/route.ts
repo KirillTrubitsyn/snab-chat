@@ -17,6 +17,7 @@ import { expandByRelationships } from "@/app/lib/relationships";
 import { generateRegistryPromptBlock, findEntity } from "@/app/lib/sgk-registry";
 import { getMatchingDirectives, generateDirectivesPromptBlock } from "@/app/lib/directives-registry";
 import { classifyDocumentIntent, getDocumentIntentPrompt } from "@/app/lib/document-intent";
+import { createDownloadToken } from "@/app/lib/download-token";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -31,6 +32,14 @@ function escapeXmlAttr(str: string): string {
     .replace(/'/g, "&apos;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+/** Санитизация содержимого документов для защиты от промпт-инъекций */
+function sanitizeDocContent(content: string): string {
+  return content
+    .replace(/<\/?(?:system|instructions?|prompt|override|admin|role)\b[^>]*>/gi, "[filtered]")
+    .replace(/(?:ignore|forget|disregard|забудь|игнорируй|отбрось)\s+(?:all\s+|все\s+)?(?:previous|above|prior|предыдущие|прошлые|выше)\s+(?:instructions?|rules?|prompts?|инструкции|правила|промпт)/gi, "[filtered]")
+    .replace(/(?:SYSTEM\s*OVERRIDE|ADMIN\s*MODE|NEW\s*INSTRUCTIONS?|НОВЫЕ\s*ИНСТРУКЦИИ)/gi, "[filtered]");
 }
 const MAX_CHUNK_IMAGES = 3; // Max images to include per chunk in prompt
 const MAX_TOTAL_IMAGES = 12; // Max total images in entire prompt
@@ -688,7 +697,7 @@ ${userMessage.content}
     ? `<documents>\n${chunksWithImages
         .map(
           (r, i) =>
-            `<document id="${i + 1}" filename="${escapeXmlAttr(r.source_filename)}" chunk="${r.chunk_index}" similarity="${r.similarity.toFixed(2)}" has_screenshots="${r.imageBase64.length > 0 ? "yes" : "no"}">\n${r.content}\n</document>`
+            `<document id="${i + 1}" filename="${escapeXmlAttr(r.source_filename)}" chunk="${r.chunk_index}" similarity="${r.similarity.toFixed(2)}" has_screenshots="${r.imageBase64.length > 0 ? "yes" : "no"}">\n${sanitizeDocContent(r.content)}\n</document>`
         )
         .join("\n")}\n</documents>`
     : "";
@@ -706,7 +715,7 @@ ${userMessage.content}
         const content = wasTruncated
           ? d.markdown.slice(0, MAX_UPLOADED_DOC_CHARS) + `\n\n[... документ обрезан: показано ${MAX_UPLOADED_DOC_CHARS} из ${d.markdown.length} символов. Для работы с оставшейся частью попросите пользователя уточнить конкретный раздел ...]`
           : d.markdown;
-        return `<uploaded_document id="${i + 1}" filename="${escapeXmlAttr(d.filename)}" total_chars="${d.markdown.length}" truncated="${wasTruncated}">\n${content}\n</uploaded_document>`;
+        return `<uploaded_document id="${i + 1}" filename="${escapeXmlAttr(d.filename)}" total_chars="${d.markdown.length}" truncated="${wasTruncated}">\n${sanitizeDocContent(content)}\n</uploaded_document>`;
       }
     );
     uploadedDocsContext = `<uploaded_documents>\n${docs.join("\n")}\n</uploaded_documents>`;
@@ -1069,7 +1078,7 @@ ${uploadedDocsContext}`;
     const pathsToProxy = originalChunk.image_paths.slice(0, MAX_CHUNK_IMAGES);
     for (const path of pathsToProxy) {
       chunkImageUrls.push({
-        url: `/api/chunk-image?path=${encodeURIComponent(path)}&token=${encodeURIComponent(invite.code)}`,
+        url: `/api/chunk-image?path=${encodeURIComponent(path)}&token=${encodeURIComponent(createDownloadToken(invite.id))}`,
         source: cw.source_filename,
         chunk: cw.chunk_index,
       });
