@@ -557,7 +557,10 @@ export default function Chat() {
           });
           if (!res.ok) {
             // 401 is not retryable
-            if (res.status === 401) throw new Error(`Не удалось создать диалог: ${res.status}`);
+            if (res.status === 401) {
+              handleLogout();
+              throw new Error(`Не удалось создать диалог: ${res.status}`);
+            }
             throw new Error(`Не удалось создать диалог: ${res.status}`);
           }
           const conv = await res.json();
@@ -582,7 +585,7 @@ export default function Chat() {
       }
       throw lastError!;
     },
-    []  // setMessages is stable via ref wrapper
+    [handleLogout]  // setMessages is stable via ref wrapper
   );
 
   /* ── Delete conversation ── */
@@ -979,7 +982,7 @@ export default function Chat() {
         } catch (err) {
           console.error("Failed to create conversation:", err);
           const errMsg = err instanceof Error ? err.message : "Не удалось создать диалог";
-          setChatError(errMsg.includes("401") ? "Ошибка авторизации. Попробуйте перелогиниться." : errMsg);
+          if (!errMsg.includes("401")) setChatError(errMsg);
           setInput(messageText);
           pendingSubmitRef.current = null;
           setIsSending(false);
@@ -1012,7 +1015,7 @@ export default function Chat() {
 
           if (!res.ok || !res.body) {
             if (res.status === 401) {
-              setChatError("Ошибка авторизации. Попробуйте перелогиниться.");
+              handleLogout();
             } else if (res.status === 429) {
               setChatError("Слишком много запросов. Подождите немного и попробуйте снова.");
             } else if (res.status >= 500) {
@@ -1116,7 +1119,7 @@ export default function Chat() {
 
         if (!res.ok || !res.body) {
           if (res.status === 401) {
-            setChatError("Ошибка авторизации. Попробуйте перелогиниться.");
+            handleLogout();
           } else if (res.status === 429) {
             setChatError("Слишком много запросов. Подождите немного и попробуйте снова.");
           } else if (res.status >= 500) {
