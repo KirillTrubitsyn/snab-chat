@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { GoogleGenAI } from "@google/genai";
 import { withGoogleApiLimit } from "../lib/google-ai.js";
 import { createServiceClient } from "../lib/supabase.js";
-import { getInviteCodeFromHeader } from "../lib/auth.js";
+import { getInviteCodeFromHeader, requireAuth } from "../lib/auth.js";
 
 const router = Router();
 
@@ -61,6 +61,19 @@ function fixCyrillicLookalikes(text: string): string {
 
 // POST /api/infographic
 router.post("/api/infographic", async (req: Request, res: Response) => {
+  const authCheck = await requireAuth(req, res);
+  if (!authCheck) return;
+
+  // Enforce infographic_limit for non-admin users
+  const invite = await getInviteCodeFromHeader(req);
+  if (!authCheck.isAdmin && invite) {
+    if (invite.infographic_limit !== null && invite.infographic_limit <= 0) {
+      return res.status(403).json({
+        error: "Лимит генераций инфографики исчерпан. Обратитесь к администратору.",
+      });
+    }
+  }
+
   try {
     const { topic, style, aspectRatio, is3D, documentText, conversationId } = req.body;
 
@@ -150,7 +163,6 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
         // Save infographic to dedicated infographics table
         let savedId: string | null = null;
         try {
-          const invite = await getInviteCodeFromHeader(req);
           const supabase = createServiceClient();
           // Admin IDs are not UUIDs (e.g. "admin-ФАМИЛИЯ-1234"), so skip FK
           const isRealInviteCode = invite?.id && !invite.id.startsWith("admin-");
@@ -171,6 +183,14 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
             console.error("Infographic DB save error:", saveError.message);
           }
           savedId = saved?.id || null;
+
+          // Decrement infographic_limit for non-admin users
+          if (isRealInviteCode && invite!.infographic_limit !== null) {
+            await supabase
+              .from("invite_codes")
+              .update({ infographic_limit: Math.max(0, invite!.infographic_limit - 1) })
+              .eq("id", invite!.id);
+          }
         } catch (saveErr) {
           console.error("Failed to save infographic:", saveErr);
         }
