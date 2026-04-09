@@ -80,6 +80,11 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         } else {
           localStorage.removeItem("snabchat_is_doc_admin");
         }
+        if (data.isPrimaryAdmin) {
+          localStorage.setItem("snabchat_is_primary_admin", "true");
+        } else {
+          localStorage.removeItem("snabchat_is_primary_admin");
+        }
         router.push("/admin");
       } else {
         localStorage.setItem("snabchat_invite_code", data.code);

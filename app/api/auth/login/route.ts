@@ -3,6 +3,7 @@ import {
   isAdminCode,
   isDocumentAdmin,
   getAdminName,
+  getAdminNumber,
   validateInviteCode,
   consumeInviteCodeFallback,
   checkAndRegisterDevice,
@@ -27,6 +28,7 @@ export async function POST(req: NextRequest) {
         adminName,
         code: upperCode,
         isDocumentAdmin: isDocumentAdmin(upperCode),
+        isPrimaryAdmin: getAdminNumber(upperCode) === 1,
       });
     }
 

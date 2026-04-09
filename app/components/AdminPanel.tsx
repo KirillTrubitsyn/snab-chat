@@ -75,7 +75,7 @@ export default function AdminPanel({ adminCode, userName, isDocAdmin, onLogout }
             </button>
           ))}
         </nav>
-        {adminCode.toUpperCase() === "ТРУБИЦЫН-1593" && (
+        {typeof window !== "undefined" && localStorage.getItem("snabchat_is_primary_admin") === "true" && (
           <div className="admin-sidebar-bottom">
             <button
               className={`admin-sidebar-nav-item${tab === "settings" ? " active" : ""}`}
