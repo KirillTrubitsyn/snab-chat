@@ -38,6 +38,7 @@ const navItems: { key: TabKey; label: string; icon: string }[] = [
 export default function AdminPanel({ adminCode, userName, isDocAdmin, onLogout }: AdminPanelProps) {
   const [tab, setTab] = useState<TabKey>("activity");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const isPrimaryAdmin = typeof window !== "undefined" && localStorage.getItem("snabchat_is_primary_admin") === "true";
 
   return (
     <div className="admin-layout">
@@ -75,7 +76,7 @@ export default function AdminPanel({ adminCode, userName, isDocAdmin, onLogout }
             </button>
           ))}
         </nav>
-        {typeof window !== "undefined" && localStorage.getItem("snabchat_is_primary_admin") === "true" && (
+        {isPrimaryAdmin && (
           <div className="admin-sidebar-bottom">
             <button
               className={`admin-sidebar-nav-item${tab === "settings" ? " active" : ""}`}
@@ -118,7 +119,7 @@ export default function AdminPanel({ adminCode, userName, isDocAdmin, onLogout }
         {/* Workspace */}
         <div className="admin-workspace">
           <div className="admin-content">
-            {tab === "codes" && <CodesTab adminCode={adminCode} isPrimaryAdmin={typeof window !== "undefined" && localStorage.getItem("snabchat_is_primary_admin") === "true"} />}
+            {tab === "codes" && <CodesTab adminCode={adminCode} isPrimaryAdmin={isPrimaryAdmin} />}
             {tab === "activity" && <ActivityTab adminCode={adminCode} />}
             {tab === "documents" && <DocumentsTab adminCode={adminCode} isDocAdmin={isDocAdmin} />}
             {tab === "nontarget" && <NontargetTab adminCode={adminCode} />}
