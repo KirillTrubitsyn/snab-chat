@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
 
   const body: Record<string, unknown> = {
     url: webhookUrl,
-    allowed_updates: ["message"],
+    allowed_updates: ["message", "callback_query"],
   };
   if (webhookSecret) {
     body.secret_token = webhookSecret;

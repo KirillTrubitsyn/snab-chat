@@ -114,6 +114,30 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
     } catch { /* ignore */ }
   };
 
+  const reset2FA = async (id: string) => {
+    if (!confirm("Сбросить все методы 2FA у этого пользователя?")) return;
+    try {
+      await fetch(apiUrl(`/api/admin/invite-codes?id=${id}`), {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ reset_2fa: true }),
+      });
+      loadCodes();
+    } catch { /* ignore */ }
+  };
+
+  const resetPassword = async (id: string) => {
+    if (!confirm("Сбросить пароль? Пользователю придётся создать новый при следующем входе.")) return;
+    try {
+      await fetch(apiUrl(`/api/admin/invite-codes?id=${id}`), {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ reset_password: true }),
+      });
+      loadCodes();
+    } catch { /* ignore */ }
+  };
+
   const filteredCodes = codes.filter((c) => {
     if (searchName && !c.name.toLowerCase().includes(searchName.toLowerCase()) && !c.code.toLowerCase().includes(searchName.toLowerCase())) return false;
     return true;
@@ -191,7 +215,7 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
                 <thead>
                   <tr>
                     <th>Код</th><th>Имя</th><th>Организация</th><th>Чат</th>
-                    <th>Инфографика</th><th>Устройства</th><th>Статус</th>
+                    <th>Инфографика</th><th>Устройства</th><th>2FA</th><th>Статус</th>
                     <th>Создан</th><th style={{ textAlign: "right" }}>Действия</th>
                   </tr>
                 </thead>
@@ -221,6 +245,18 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
                         ) : (
                           <span className={c.device_count >= c.device_limit ? "admin-text-danger" : ""}>{c.device_count}/{c.device_limit}</span>
                         )}
+                      </td>
+                      <td>
+                        {(() => {
+                          const methods = [
+                            c.has_telegram && "TG",
+                            c.has_sms && "SMS",
+                            c.has_totp && "OTP",
+                          ].filter(Boolean);
+                          return methods.length > 0
+                            ? <span style={{ fontSize: 11, color: "var(--success, #4caf50)" }}>{methods.join(", ")}</span>
+                            : <span className="admin-text-muted">—</span>;
+                        })()}
                       </td>
                       <td>
                         <span className={`admin-status ${c.is_active ? "active" : "inactive"}`}>
@@ -277,6 +313,30 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
                 <label>Лимит устройств</label>
                 <input value={editDeviceLimit} onChange={(e) => setEditDeviceLimit(e.target.value.replace(/\D/g, ""))} placeholder="Пусто = безлимит" />
               </div>
+              {/* 2FA/Password Status */}
+              {(editingCode.has_password || editingCode.has_telegram || editingCode.has_sms || editingCode.has_totp) && (
+                <div style={{ marginBottom: 16, padding: "12px", background: "var(--bg-secondary, #f5f7fa)", borderRadius: 8, fontSize: 13 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>Безопасность</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+                    {editingCode.has_password && <span style={{ padding: "2px 8px", background: "#e3f2fd", borderRadius: 4, fontSize: 11 }}>Пароль</span>}
+                    {editingCode.has_telegram && <span style={{ padding: "2px 8px", background: "#e8f5e9", borderRadius: 4, fontSize: 11 }}>Telegram</span>}
+                    {editingCode.has_sms && <span style={{ padding: "2px 8px", background: "#fff3e0", borderRadius: 4, fontSize: 11 }}>SMS</span>}
+                    {editingCode.has_totp && <span style={{ padding: "2px 8px", background: "#f3e5f5", borderRadius: 4, fontSize: 11 }}>Authenticator</span>}
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {(editingCode.has_telegram || editingCode.has_sms || editingCode.has_totp) && (
+                      <button className="admin-action-link admin-action-warning" style={{ fontSize: 12 }} onClick={() => reset2FA(editingCode.id)}>
+                        Сбросить 2FA
+                      </button>
+                    )}
+                    {editingCode.has_password && (
+                      <button className="admin-action-link admin-action-warning" style={{ fontSize: 12 }} onClick={() => resetPassword(editingCode.id)}>
+                        Сбросить пароль
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               <div className="admin-modal-actions">
                 <button className="admin-btn-secondary" onClick={() => setEditingCode(null)}>Отмена</button>
                 {canDeleteCodes && (

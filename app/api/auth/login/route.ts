@@ -11,6 +11,7 @@ import {
 } from "@/app/lib/auth";
 import { loginSchema, parseBody } from "@/app/lib/validation";
 import { notifyNewUser } from "@/app/lib/telegram";
+import { createServiceClient } from "@/app/lib/supabase";
 
 export async function POST(req: NextRequest) {
   try {
@@ -43,7 +44,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Проверка лимита устройств
+    // 3. Получить данные о 2FA и пароле
+    const supabase = createServiceClient();
+    const { data: codeData } = await supabase
+      .from("invite_codes")
+      .select("password_hash, telegram_chat_id, phone_number, totp_secret")
+      .eq("id", invite.id)
+      .single();
+
+    const hasPassword = !!codeData?.password_hash;
+    const twoFactorMethods: string[] = [];
+    if (codeData?.telegram_chat_id) twoFactorMethods.push("telegram");
+    if (codeData?.phone_number) twoFactorMethods.push("sms");
+    if (codeData?.totp_secret) twoFactorMethods.push("totp");
+
+    // 4. Проверка лимита устройств
     let isNewDevice = false;
     if (device_id) {
       const userAgent = req.headers.get("user-agent") || "";
@@ -62,10 +77,10 @@ export async function POST(req: NextRequest) {
       isNewDevice = newDevice;
     }
 
-    // 4. Уменьшаем счётчик использований
+    // 5. Уменьшаем счётчик использований
     await consumeInviteCodeFallback(invite.id);
 
-    // 5. Уведомление при активации кода с нового устройства
+    // 6. Уведомление при активации кода с нового устройства
     if (isNewDevice) {
       notifyNewUser(invite.name, invite.organization).catch(() => {});
     }
@@ -75,6 +90,8 @@ export async function POST(req: NextRequest) {
       inviteCodeId: invite.id,
       name: invite.name,
       code: upperCode,
+      hasPassword,
+      twoFactorMethods,
     });
   } catch {
     return NextResponse.json(

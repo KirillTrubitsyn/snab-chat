@@ -1,8 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { apiUrl } from "@/app/lib/api";
+import { QRCodeSVG } from "qrcode.react";
+
+type Step =
+  | "code"
+  | "set-password"
+  | "password"
+  | "recommend-2fa"
+  | "setup-2fa"
+  | "2fa-choose"
+  | "2fa-verify";
 
 interface InviteGateProps {
   onSuccess: (data: {
@@ -13,24 +23,42 @@ interface InviteGateProps {
   }) => void;
 }
 
-// Self-registration via СГК code is paused until further notice.
-// Only administrators can create invite codes (via admin panel).
-const ONE_TIME_PASSWORD: string | null = null;
-
 export default function InviteGate({ onSuccess }: InviteGateProps) {
-  const [step, setStep] = useState<"code" | "register">("code");
+  const [step, setStep] = useState<Step>("code");
   const [code, setCode] = useState("");
   const [showCode, setShowCode] = useState(false);
+  const [password, setPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  // Registration fields
-  const [password, setPassword] = useState("");
-  const [passwordConfirm, setPasswordConfirm] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [fullName, setFullName] = useState("");
-  const [organization, setOrganization] = useState("");
+  // Данные пользователя после первого шага
+  const [inviteCodeId, setInviteCodeId] = useState("");
+  const [userName, setUserName] = useState("");
+  const [savedCode, setSavedCode] = useState("");
+  const [twoFactorMethods, setTwoFactorMethods] = useState<string[]>([]);
+  const [chosen2FAMethod, setChosen2FAMethod] = useState("");
+
+  // TOTP setup
+  const [totpSecret, setTotpSecret] = useState("");
+  const [totpUrl, setTotpUrl] = useState("");
+
+  // Telegram linking
+  const [telegramBotUrl, setTelegramBotUrl] = useState("");
+  const telegramPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // SMS setup
+  const [phone, setPhone] = useState("+7");
+
+  // 2FA status (для setup)
+  const [twoFAStatus, setTwoFAStatus] = useState({ telegram: false, sms: false, totp: false });
+
+  // Setup 2FA sub-step
+  const [setupMethod, setSetupMethod] = useState<"" | "telegram" | "sms" | "totp">("");
+  const [setupSubStep, setSetupSubStep] = useState<"choose" | "configure" | "verify">("choose");
 
   const getOrCreateDeviceId = (): string => {
     const key = "snabchat_device_id";
@@ -42,19 +70,47 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     return deviceId;
   };
 
+  // Очистка поллинга при размонтировании
+  useEffect(() => {
+    return () => {
+      if (telegramPollRef.current) clearInterval(telegramPollRef.current);
+    };
+  }, []);
+
+  // На входе проверяем сохранённый код
+  useEffect(() => {
+    const stored = localStorage.getItem("snabchat_invite_code");
+    if (stored) {
+      setCode(stored);
+      setSavedCode(stored);
+    }
+  }, []);
+
+  const completeLogin = useCallback((data: {
+    inviteCodeId: string;
+    name: string;
+    code: string;
+  }) => {
+    localStorage.setItem("snabchat_invite_code", data.code);
+    localStorage.setItem("snabchat_invite_code_id", data.inviteCodeId);
+    localStorage.setItem("snabchat_user_name", data.name);
+    localStorage.removeItem("snabchat_is_admin");
+    localStorage.removeItem("snabchat_admin_code");
+    onSuccess({
+      type: "user",
+      code: data.code,
+      userName: data.name,
+      inviteCodeId: data.inviteCodeId,
+    });
+  }, [onSuccess]);
+
+  /* ── Шаг 1: Ввод инвайт-кода ── */
   const handleCodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     const trimmed = code.trim().toUpperCase();
-
-    // Check if it's the one-time password for registration (currently paused)
-    if (ONE_TIME_PASSWORD && trimmed === ONE_TIME_PASSWORD) {
-      setStep("register");
-      return;
-    }
-
-    // Otherwise, try normal login (existing invite code or admin code)
     setLoading(true);
+
     try {
       const deviceId = getOrCreateDeviceId();
       const res = await fetch(apiUrl("/api/auth/login"), {
@@ -70,6 +126,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         return;
       }
 
+      // Админ
       if (data.type === "admin") {
         localStorage.setItem("snabchat_admin_code", data.code);
         localStorage.setItem("snabchat_user_name", data.adminName);
@@ -86,24 +143,28 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
           localStorage.removeItem("snabchat_is_primary_admin");
         }
         router.push("/admin");
+        return;
+      }
+
+      // Пользователь
+      setInviteCodeId(data.inviteCodeId);
+      setUserName(data.name);
+      setSavedCode(data.code);
+      localStorage.setItem("snabchat_invite_code", data.code);
+
+      if (!data.hasPassword) {
+        // Первый вход — создать пароль
+        setStep("set-password");
       } else {
-        localStorage.setItem("snabchat_invite_code", data.code);
-        localStorage.setItem("snabchat_invite_code_id", data.inviteCodeId);
-        localStorage.setItem("snabchat_user_name", data.name);
-        localStorage.removeItem("snabchat_is_admin");
-        localStorage.removeItem("snabchat_admin_code");
-        onSuccess({
-          type: "user",
-          code: data.code,
-          userName: data.name,
-          inviteCodeId: data.inviteCodeId,
-        });
+        // Есть пароль — ввести его
+        setTwoFactorMethods(data.twoFactorMethods || []);
+        setStep("password");
       }
     } catch (err) {
-      console.error("[login] fetch failed:", err, "url:", apiUrl("/api/auth/login"));
+      console.error("[login] fetch failed:", err);
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("TypeError")) {
-        setError("Не удалось подключиться к серверу. Проверьте интернет-соединение или попробуйте позже.");
+        setError("Не удалось подключиться к серверу. Проверьте интернет-соединение.");
       } else {
         setError("Ошибка подключения к серверу");
       }
@@ -112,75 +173,281 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     }
   };
 
-  const handleRegisterSubmit = async (e: React.FormEvent) => {
+  /* ── Шаг 2: Установка пароля (первый вход) ── */
+  const handleSetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    const trimmedName = fullName.trim();
-    const trimmedOrg = organization.trim();
-    const trimmedPassword = password.trim();
-
-    if (!trimmedName) {
-      setError("Введите ФИО");
-      return;
-    }
-    if (!trimmedOrg) {
-      setError("Введите организацию");
-      return;
-    }
-    if (trimmedPassword.length < 8) {
+    if (password.length < 8) {
       setError("Пароль должен быть не менее 8 символов");
       return;
     }
-    if (trimmedPassword !== passwordConfirm.trim()) {
+    if (password !== passwordConfirm) {
       setError("Пароли не совпадают");
       return;
     }
 
     setLoading(true);
     try {
-      const deviceId = getOrCreateDeviceId();
-      const res = await fetch(apiUrl("/api/auth/register"), {
+      const res = await fetch(apiUrl("/api/auth/set-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          password: trimmedPassword,
-          name: trimmedName,
-          organization: trimmedOrg,
-          device_id: deviceId,
-        }),
+        body: JSON.stringify({ code: savedCode, password }),
       });
 
       const data = await res.json();
-
       if (!res.ok) {
-        setError(data.error || "Ошибка регистрации");
+        setError(data.error || "Ошибка");
         return;
       }
 
-      localStorage.setItem("snabchat_invite_code", data.code);
-      localStorage.setItem("snabchat_invite_code_id", data.inviteCodeId);
-      localStorage.setItem("snabchat_user_name", data.name);
-      localStorage.removeItem("snabchat_is_admin");
-      localStorage.removeItem("snabchat_admin_code");
-      onSuccess({
-        type: "user",
-        code: data.code,
-        userName: data.name,
-        inviteCodeId: data.inviteCodeId,
-      });
-    } catch (err) {
-      console.error("[register] fetch failed:", err, "url:", apiUrl("/api/auth/register"));
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("TypeError")) {
-        setError("Не удалось подключиться к серверу. Проверьте интернет-соединение или попробуйте позже.");
-      } else {
-        setError("Ошибка подключения к серверу");
-      }
+      setPassword("");
+      setPasswordConfirm("");
+      setStep("recommend-2fa");
+    } catch {
+      setError("Ошибка подключения к серверу");
     } finally {
       setLoading(false);
     }
   };
+
+  /* ── Шаг 3: Ввод пароля (повторные входы) ── */
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      const deviceId = getOrCreateDeviceId();
+      const res = await fetch(apiUrl("/api/auth/verify-password"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: savedCode, password, device_id: deviceId }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Ошибка");
+        return;
+      }
+
+      setInviteCodeId(data.inviteCodeId);
+      setUserName(data.name);
+      setTwoFactorMethods(data.twoFactorMethods || []);
+      setPassword("");
+
+      if (data.twoFactorMethods && data.twoFactorMethods.length > 0) {
+        setStep("2fa-choose");
+      } else {
+        setStep("recommend-2fa");
+      }
+    } catch {
+      setError("Ошибка подключения к серверу");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ── Шаг 5: Отправка OTP для входа ── */
+  const handleSendLoginOTP = async (method: string) => {
+    setError("");
+    setLoading(true);
+    setChosen2FAMethod(method);
+
+    if (method === "totp") {
+      setStep("2fa-verify");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(apiUrl("/api/auth/send-otp"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: savedCode, method }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Ошибка отправки кода");
+        return;
+      }
+
+      setStep("2fa-verify");
+    } catch {
+      setError("Ошибка подключения к серверу");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ── Шаг 6: Проверка OTP при входе ── */
+  const handleVerifyLoginOTP = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      const res = await fetch(apiUrl("/api/auth/verify-otp"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: savedCode, otp, method: chosen2FAMethod }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Неверный код");
+        return;
+      }
+
+      completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code });
+    } catch {
+      setError("Ошибка подключения к серверу");
+    } finally {
+      setLoading(false);
+      setOtp("");
+    }
+  };
+
+  /* ── Загрузка статуса 2FA ── */
+  const loadTwoFAStatus = useCallback(async () => {
+    try {
+      const res = await fetch(apiUrl(`/api/auth/2fa-status?code=${encodeURIComponent(savedCode)}`));
+      if (res.ok) {
+        const data = await res.json();
+        setTwoFAStatus(data);
+        return data;
+      }
+    } catch { /* ignore */ }
+    return null;
+  }, [savedCode]);
+
+  /* ── Настройка Telegram ── */
+  const handleTelegramSetup = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch(apiUrl("/api/auth/telegram-link"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: savedCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Ошибка");
+        return;
+      }
+      setTelegramBotUrl(data.botUrl);
+      setSetupSubStep("configure");
+
+      // Начать поллинг статуса
+      if (telegramPollRef.current) clearInterval(telegramPollRef.current);
+      telegramPollRef.current = setInterval(async () => {
+        const status = await loadTwoFAStatus();
+        if (status?.telegram) {
+          if (telegramPollRef.current) clearInterval(telegramPollRef.current);
+          setTwoFAStatus(status);
+          setSetupSubStep("choose");
+          setSetupMethod("");
+          setTelegramBotUrl("");
+        }
+      }, 3000);
+    } catch {
+      setError("Ошибка подключения к серверу");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ── Настройка SMS: отправка кода ── */
+  const handleSmsSetup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch(apiUrl("/api/auth/setup-sms"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: savedCode, phone }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Ошибка");
+        return;
+      }
+      setSetupSubStep("verify");
+    } catch {
+      setError("Ошибка подключения к серверу");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ── Настройка TOTP: генерация секрета ── */
+  const handleTotpSetup = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch(apiUrl(`/api/auth/setup-totp?code=${encodeURIComponent(savedCode)}`));
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Ошибка");
+        return;
+      }
+      setTotpSecret(data.secret);
+      setTotpUrl(data.otpauthUrl);
+      setSetupSubStep("verify");
+    } catch {
+      setError("Ошибка подключения к серверу");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ── Верификация OTP при настройке 2FA ── */
+  const handleVerifySetupOTP = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const body: Record<string, string> = {
+        code: savedCode,
+        otp,
+        method: setupMethod,
+      };
+      if (setupMethod === "sms") body.phone = phone;
+      if (setupMethod === "totp") body.totpSecret = totpSecret;
+
+      const res = await fetch(apiUrl("/api/auth/verify-setup-otp"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Неверный код");
+        return;
+      }
+      // Обновить статус
+      await loadTwoFAStatus();
+      setOtp("");
+      setSetupSubStep("choose");
+      setSetupMethod("");
+      setTotpSecret("");
+      setTotpUrl("");
+    } catch {
+      setError("Ошибка подключения к серверу");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ── Загрузить статус при входе в setup-2fa ── */
+  useEffect(() => {
+    if (step === "setup-2fa" && savedCode) {
+      loadTwoFAStatus();
+    }
+  }, [step, savedCode, loadTwoFAStatus]);
 
   const EyeIcon = ({ open }: { open: boolean }) =>
     open ? (
@@ -193,6 +460,12 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
       </svg>
     );
+
+  const MethodLabel: Record<string, string> = {
+    telegram: "Telegram",
+    sms: "SMS",
+    totp: "Authenticator",
+  };
 
   return (
     <div className="invite-gate">
@@ -212,6 +485,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
           ИИ-ассистент Дирекции по закупкам
         </p>
 
+        {/* ══ Шаг 1: Ввод кода ══ */}
         {step === "code" && (
           <form onSubmit={handleCodeSubmit} className="invite-gate-form">
             <div className="invite-gate-input-wrapper">
@@ -219,7 +493,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
                 type={showCode ? "text" : "password"}
                 value={code}
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder="Введите пароль"
+                placeholder="Введите код доступа"
                 className="invite-gate-input"
                 disabled={loading}
                 autoFocus
@@ -233,50 +507,19 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
                 <EyeIcon open={showCode} />
               </button>
             </div>
-
             {error && <p className="invite-gate-error">{error}</p>}
-
-            <button
-              type="submit"
-              disabled={!code.trim() || loading}
-              className="invite-gate-submit"
-            >
-              {loading ? "Проверка..." : "Войти"}
+            <button type="submit" disabled={!code.trim() || loading} className="invite-gate-submit">
+              {loading ? "Проверка..." : "Далее"}
             </button>
           </form>
         )}
 
-        {step === "register" && (
-          <form onSubmit={handleRegisterSubmit} className="invite-gate-form">
+        {/* ══ Шаг 2: Установка пароля ══ */}
+        {step === "set-password" && (
+          <form onSubmit={handleSetPassword} className="invite-gate-form">
             <p className="invite-gate-register-hint">
-              Создайте учётную запись для доступа к СнабЧат
+              Создайте пароль для входа в СнабЧат
             </p>
-
-            <div className="invite-gate-field">
-              <label className="invite-gate-label">ФИО</label>
-              <input
-                type="text"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Иванов Иван Иванович"
-                className="invite-gate-input invite-gate-input-text"
-                disabled={loading}
-                autoFocus
-              />
-            </div>
-
-            <div className="invite-gate-field">
-              <label className="invite-gate-label">Организация</label>
-              <input
-                type="text"
-                value={organization}
-                onChange={(e) => setOrganization(e.target.value)}
-                placeholder="Название организации"
-                className="invite-gate-input invite-gate-input-text"
-                disabled={loading}
-              />
-            </div>
-
             <div className="invite-gate-field">
               <label className="invite-gate-label">Пароль (не менее 8 символов)</label>
               <div className="invite-gate-input-wrapper">
@@ -287,18 +530,13 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
                   placeholder="Придумайте пароль"
                   className="invite-gate-input"
                   disabled={loading}
+                  autoFocus
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="invite-gate-toggle"
-                  tabIndex={-1}
-                >
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="invite-gate-toggle" tabIndex={-1}>
                   <EyeIcon open={showPassword} />
                 </button>
               </div>
             </div>
-
             <div className="invite-gate-field">
               <label className="invite-gate-label">Подтвердите пароль</label>
               <div className="invite-gate-input-wrapper">
@@ -312,26 +550,312 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
                 />
               </div>
             </div>
-
             {error && <p className="invite-gate-error">{error}</p>}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="invite-gate-submit"
-            >
-              {loading ? "Регистрация..." : "Зарегистрироваться"}
+            <button type="submit" disabled={loading} className="invite-gate-submit">
+              {loading ? "Сохранение..." : "Создать пароль"}
             </button>
+          </form>
+        )}
 
+        {/* ══ Шаг 3: Ввод пароля ══ */}
+        {step === "password" && (
+          <form onSubmit={handlePasswordSubmit} className="invite-gate-form">
+            <p className="invite-gate-register-hint" style={{ marginBottom: 8 }}>
+              Введите пароль
+            </p>
+            <div className="invite-gate-input-wrapper">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Пароль"
+                className="invite-gate-input"
+                disabled={loading}
+                autoFocus
+              />
+              <button type="button" onClick={() => setShowPassword(!showPassword)} className="invite-gate-toggle" tabIndex={-1}>
+                <EyeIcon open={showPassword} />
+              </button>
+            </div>
+            {error && <p className="invite-gate-error">{error}</p>}
+            <button type="submit" disabled={!password || loading} className="invite-gate-submit">
+              {loading ? "Проверка..." : "Войти"}
+            </button>
             <button
               type="button"
-              onClick={() => { setStep("code"); setError(""); }}
+              onClick={() => { setStep("code"); setError(""); setPassword(""); setSavedCode(""); localStorage.removeItem("snabchat_invite_code"); }}
+              className="invite-gate-back"
+              disabled={loading}
+            >
+              Другой код
+            </button>
+          </form>
+        )}
+
+        {/* ══ Шаг 4: Рекомендация 2FA ══ */}
+        {step === "recommend-2fa" && (
+          <div className="invite-gate-form">
+            <div style={{ textAlign: "center", marginBottom: 16 }}>
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                <path d="M9 12l2 2 4-4" />
+              </svg>
+            </div>
+            <p className="invite-gate-register-hint" style={{ fontWeight: 500 }}>
+              Рекомендуем настроить двухфакторную аутентификацию
+            </p>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginBottom: 16 }}>
+              Это защитит ваш аккаунт от несанкционированного доступа.
+              Доступны: Telegram, SMS, Google Authenticator.
+            </p>
+            <button
+              className="invite-gate-submit"
+              onClick={() => { setStep("setup-2fa"); setSetupSubStep("choose"); setSetupMethod(""); }}
+            >
+              Настроить
+            </button>
+            <button
+              className="invite-gate-back"
+              onClick={() => completeLogin({ inviteCodeId, name: userName, code: savedCode })}
+            >
+              Пропустить
+            </button>
+          </div>
+        )}
+
+        {/* ══ Шаг 5: Выбор метода 2FA для входа ══ */}
+        {step === "2fa-choose" && (
+          <div className="invite-gate-form">
+            <p className="invite-gate-register-hint" style={{ marginBottom: 12 }}>
+              Подтвердите вход
+            </p>
+            {error && <p className="invite-gate-error">{error}</p>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {twoFactorMethods.map((method) => (
+                <button
+                  key={method}
+                  className="invite-gate-submit"
+                  onClick={() => handleSendLoginOTP(method)}
+                  disabled={loading}
+                  style={{ margin: 0 }}
+                >
+                  {loading && chosen2FAMethod === method ? "Отправка..." : `Через ${MethodLabel[method] || method}`}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => { setStep("password"); setError(""); }}
               className="invite-gate-back"
               disabled={loading}
             >
               Назад
             </button>
+          </div>
+        )}
+
+        {/* ══ Шаг 6: Проверка OTP при входе ══ */}
+        {step === "2fa-verify" && (
+          <form onSubmit={handleVerifyLoginOTP} className="invite-gate-form">
+            <p className="invite-gate-register-hint" style={{ marginBottom: 8 }}>
+              {chosen2FAMethod === "totp"
+                ? "Введите код из приложения Authenticator"
+                : chosen2FAMethod === "telegram"
+                  ? "Код отправлен в Telegram"
+                  : "Код отправлен по SMS"}
+            </p>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+              placeholder="Введите 6-значный код"
+              className="invite-gate-input invite-gate-input-text"
+              style={{ textAlign: "center", letterSpacing: 8, fontSize: 24 }}
+              disabled={loading}
+              autoFocus
+              autoComplete="one-time-code"
+            />
+            {error && <p className="invite-gate-error">{error}</p>}
+            <button type="submit" disabled={otp.length !== 6 || loading} className="invite-gate-submit">
+              {loading ? "Проверка..." : "Подтвердить"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setStep("2fa-choose"); setError(""); setOtp(""); }}
+              className="invite-gate-back"
+              disabled={loading}
+            >
+              Другой метод
+            </button>
           </form>
+        )}
+
+        {/* ══ Шаг 7: Настройка 2FA ══ */}
+        {step === "setup-2fa" && (
+          <div className="invite-gate-form">
+            {setupSubStep === "choose" && (
+              <>
+                <p className="invite-gate-register-hint" style={{ marginBottom: 12 }}>
+                  Настройка двухфакторной аутентификации
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {/* Telegram */}
+                  <button
+                    className="invite-gate-submit"
+                    style={{ margin: 0, background: twoFAStatus.telegram ? "var(--success, #4caf50)" : undefined }}
+                    onClick={() => { if (!twoFAStatus.telegram) { setSetupMethod("telegram"); handleTelegramSetup(); } }}
+                    disabled={twoFAStatus.telegram || loading}
+                  >
+                    {twoFAStatus.telegram ? "Telegram (привязан)" : "Привязать Telegram"}
+                  </button>
+                  {/* SMS */}
+                  <button
+                    className="invite-gate-submit"
+                    style={{ margin: 0, background: twoFAStatus.sms ? "var(--success, #4caf50)" : undefined }}
+                    onClick={() => { if (!twoFAStatus.sms) { setSetupMethod("sms"); setSetupSubStep("configure"); } }}
+                    disabled={twoFAStatus.sms || loading}
+                  >
+                    {twoFAStatus.sms ? "SMS (привязан)" : "Привязать SMS"}
+                  </button>
+                  {/* TOTP */}
+                  <button
+                    className="invite-gate-submit"
+                    style={{ margin: 0, background: twoFAStatus.totp ? "var(--success, #4caf50)" : undefined }}
+                    onClick={() => { if (!twoFAStatus.totp) { setSetupMethod("totp"); handleTotpSetup(); } }}
+                    disabled={twoFAStatus.totp || loading}
+                  >
+                    {twoFAStatus.totp ? "Authenticator (настроен)" : "Настроить Authenticator"}
+                  </button>
+                </div>
+                {error && <p className="invite-gate-error">{error}</p>}
+                <button
+                  className="invite-gate-back"
+                  onClick={() => completeLogin({ inviteCodeId, name: userName, code: savedCode })}
+                  style={{ marginTop: 12 }}
+                >
+                  {twoFAStatus.telegram || twoFAStatus.sms || twoFAStatus.totp ? "Готово" : "Пропустить"}
+                </button>
+              </>
+            )}
+
+            {/* Telegram configure: показать ссылку */}
+            {setupSubStep === "configure" && setupMethod === "telegram" && (
+              <>
+                <p className="invite-gate-register-hint">Привязка Telegram</p>
+                <p style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginBottom: 12 }}>
+                  Нажмите кнопку ниже, чтобы открыть бот в Telegram.
+                  После этого нажмите &quot;Start&quot; в боте.
+                </p>
+                <a
+                  href={telegramBotUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="invite-gate-submit"
+                  style={{ display: "block", textAlign: "center", textDecoration: "none" }}
+                >
+                  Открыть Telegram
+                </a>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", marginTop: 8 }}>
+                  Ожидание привязки...
+                </p>
+                {error && <p className="invite-gate-error">{error}</p>}
+                <button
+                  className="invite-gate-back"
+                  onClick={() => {
+                    if (telegramPollRef.current) clearInterval(telegramPollRef.current);
+                    setSetupSubStep("choose");
+                    setSetupMethod("");
+                  }}
+                >
+                  Назад
+                </button>
+              </>
+            )}
+
+            {/* SMS configure: ввод номера */}
+            {setupSubStep === "configure" && setupMethod === "sms" && (
+              <form onSubmit={handleSmsSetup}>
+                <p className="invite-gate-register-hint">Привязка SMS</p>
+                <div className="invite-gate-field">
+                  <label className="invite-gate-label">Номер телефона</label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+7XXXXXXXXXX"
+                    className="invite-gate-input invite-gate-input-text"
+                    disabled={loading}
+                    autoFocus
+                  />
+                </div>
+                {error && <p className="invite-gate-error">{error}</p>}
+                <button type="submit" disabled={!/^\+7\d{10}$/.test(phone) || loading} className="invite-gate-submit">
+                  {loading ? "Отправка..." : "Отправить код"}
+                </button>
+                <button
+                  type="button"
+                  className="invite-gate-back"
+                  onClick={() => { setSetupSubStep("choose"); setSetupMethod(""); setError(""); }}
+                >
+                  Назад
+                </button>
+              </form>
+            )}
+
+            {/* TOTP/SMS verify: ввод кода */}
+            {setupSubStep === "verify" && (setupMethod === "totp" || setupMethod === "sms") && (
+              <form onSubmit={handleVerifySetupOTP}>
+                <p className="invite-gate-register-hint">
+                  {setupMethod === "totp"
+                    ? "Настройка Authenticator"
+                    : "Подтверждение номера"}
+                </p>
+                {setupMethod === "totp" && totpUrl && (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 12 }}>
+                    <div style={{ background: "#fff", padding: 12, borderRadius: 8, marginBottom: 8 }}>
+                      <QRCodeSVG value={totpUrl} size={180} />
+                    </div>
+                    <p style={{ fontSize: 11, color: "var(--text-muted)", wordBreak: "break-all", textAlign: "center" }}>
+                      Секрет: {totpSecret}
+                    </p>
+                  </div>
+                )}
+                {setupMethod === "sms" && (
+                  <p style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginBottom: 8 }}>
+                    Код отправлен на {phone}
+                  </p>
+                )}
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                  placeholder="Введите 6-значный код"
+                  className="invite-gate-input invite-gate-input-text"
+                  style={{ textAlign: "center", letterSpacing: 8, fontSize: 24 }}
+                  disabled={loading}
+                  autoFocus
+                  autoComplete="one-time-code"
+                />
+                {error && <p className="invite-gate-error">{error}</p>}
+                <button type="submit" disabled={otp.length !== 6 || loading} className="invite-gate-submit">
+                  {loading ? "Проверка..." : "Подтвердить"}
+                </button>
+                <button
+                  type="button"
+                  className="invite-gate-back"
+                  onClick={() => { setSetupSubStep("choose"); setSetupMethod(""); setError(""); setOtp(""); }}
+                >
+                  Назад
+                </button>
+              </form>
+            )}
+          </div>
         )}
       </div>
     </div>

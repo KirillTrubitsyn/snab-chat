@@ -71,12 +71,77 @@ async function saveAdminReply(supportMessageId: string, replyText: string, admin
   return updated;
 }
 
+/** Обработка /start команды для привязки Telegram (2FA) */
+async function handleStartCommand(chatId: string, token: string): Promise<boolean> {
+  if (!token || token.length < 10) return false;
+
+  const supabase = createServiceClient();
+
+  // Найти токен привязки
+  const { data: linkToken, error } = await supabase
+    .from("telegram_link_tokens")
+    .select("id, invite_code_id, expires_at, used")
+    .eq("token", token)
+    .maybeSingle();
+
+  if (error || !linkToken) {
+    await sendTelegramMessage(
+      "Недействительная ссылка. Пожалуйста, запросите новую ссылку в настройках СнабЧат.",
+      chatId
+    );
+    return true;
+  }
+
+  if (linkToken.used) {
+    await sendTelegramMessage(
+      "Эта ссылка уже была использована. Запросите новую в настройках.",
+      chatId
+    );
+    return true;
+  }
+
+  if (new Date(linkToken.expires_at) < new Date()) {
+    await sendTelegramMessage(
+      "Ссылка истекла. Пожалуйста, запросите новую ссылку в настройках СнабЧат.",
+      chatId
+    );
+    return true;
+  }
+
+  // Привязать chat_id к аккаунту
+  const { error: updateError } = await supabase
+    .from("invite_codes")
+    .update({ telegram_chat_id: chatId })
+    .eq("id", linkToken.invite_code_id);
+
+  if (updateError) {
+    console.error("[Telegram Webhook] Error linking Telegram:", updateError.message);
+    await sendTelegramMessage("Ошибка привязки. Попробуйте ещё раз.", chatId);
+    return true;
+  }
+
+  // Пометить токен как использованный
+  await supabase
+    .from("telegram_link_tokens")
+    .update({ used: true })
+    .eq("id", linkToken.id);
+
+  await sendTelegramMessage(
+    "Telegram успешно привязан к вашему аккаунту СнабЧат!\n\nТеперь вы будете получать коды для входа через этот чат.",
+    chatId
+  );
+
+  console.log(`[Telegram Webhook] Telegram linked for invite_code_id: ${linkToken.invite_code_id}`);
+  return true;
+}
+
 /**
  * Telegram Webhook — обработка входящих сообщений от бота.
  * Поддерживает:
- * 1. Callback-кнопку "Ответить" → помечает обращение pending + prompt
- * 2. Reply на сообщение с REF → сохраняет ответ
- * 3. Обычное сообщение от админа с pending → сохраняет ответ
+ * 1. /start <token> — привязка Telegram для 2FA
+ * 2. Callback-кнопку "Ответить" → помечает обращение pending + prompt
+ * 3. Reply на сообщение с REF → сохраняет ответ
+ * 4. Обычное сообщение от админа с pending → сохраняет ответ
  */
 export async function POST(req: NextRequest) {
   // Проверка секрета (обязательна)
@@ -135,19 +200,41 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // ── Обработка сообщений от админа ──
+  // ── Обработка сообщений ──
   const message = update?.message;
   if (!message?.text) {
     return NextResponse.json({ ok: true });
   }
 
   const chatId = String(message.chat.id);
-  const admin = getAdminByChatId(chatId);
-  if (!admin) {
+  const messageText = message.text.trim();
+
+  // ── Обработка /start команды (привязка Telegram для 2FA) ──
+  if (messageText.startsWith("/start ")) {
+    const token = messageText.slice(7).trim();
+    const handled = await handleStartCommand(chatId, token);
+    if (handled) {
+      return NextResponse.json({ ok: true });
+    }
+  }
+
+  // Просто /start без параметра — приветствие
+  if (messageText === "/start") {
+    await sendTelegramMessage(
+      "Добро пожаловать в бот СнабЧат!\n\nДля привязки Telegram к вашему аккаунту используйте ссылку из настроек на сайте snabchat.app.",
+      chatId
+    );
     return NextResponse.json({ ok: true });
   }
 
-  const replyText = message.text.trim().slice(0, 5000);
+  // ── Далее только для админов ──
+  const admin = getAdminByChatId(chatId);
+  if (!admin) {
+    // Не-админ прислал сообщение (не /start) — игнорируем
+    return NextResponse.json({ ok: true });
+  }
+
+  const replyText = messageText.slice(0, 5000);
   if (!replyText) {
     return NextResponse.json({ ok: true });
   }
