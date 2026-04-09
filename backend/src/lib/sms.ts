@@ -20,9 +20,9 @@ export async function sendSMS(phone: string, message: string): Promise<boolean> 
       charset: "utf-8",
     });
     const res = await fetch(`https://smsc.ru/sys/send.php?${params.toString()}`);
-    const data = await res.json();
+    const data = (await res.json()) as { error?: string; error_code?: string };
     if (data.error) {
-      console.error(`[SMS] \u041e\u0448\u0438\u0431\u043a\u0430 SMSC: ${data.error} (\u043a\u043e\u0434: ${data.error_code})`);
+      console.error(`[SMS] Ошибка SMSC: ${data.error} (код: ${data.error_code})`);
       return false;
     }
     return true;
