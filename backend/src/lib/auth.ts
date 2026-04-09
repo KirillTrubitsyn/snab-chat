@@ -111,6 +111,8 @@ export interface InviteCode {
   name: string;
   organization: string | null;
   uses_remaining: number | null;
+  chat_limit: number | null;
+  infographic_limit: number | null;
   device_limit: number | null;
   is_active: boolean;
   created_at: string;
