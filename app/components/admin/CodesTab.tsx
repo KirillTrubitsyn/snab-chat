@@ -17,6 +17,11 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
   const [creating, setCreating] = useState(false);
   const [searchName, setSearchName] = useState("");
 
+  // Selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Kebab menu
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
   // Edit modal
   const [editingCode, setEditingCode] = useState<InviteCode | null>(null);
   const [editName, setEditName] = useState("");
@@ -119,6 +124,30 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
     return true;
   });
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredCodes.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredCodes.map((c) => c.id)));
+    }
+  };
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!openMenuId) return;
+    const handler = () => setOpenMenuId(null);
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, [openMenuId]);
+
   return (
     <>
       <div>
@@ -190,14 +219,22 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
               <table className="admin-table">
                 <thead>
                   <tr>
+                    <th style={{ width: 40 }}>
+                      <input type="checkbox" checked={filteredCodes.length > 0 && selectedIds.size === filteredCodes.length} onChange={toggleSelectAll} className="admin-checkbox" />
+                    </th>
                     <th>Код</th><th>Имя</th><th>Организация</th><th>Чат</th>
                     <th>Инфографика</th><th>Устройства</th><th>Статус</th>
-                    <th>Создан</th><th style={{ textAlign: "right" }}>Действия</th>
+                    <th>Создан</th><th style={{ width: 48 }}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredCodes.map((c) => (
-                    <tr key={c.id} className={!c.is_active ? "admin-row-inactive" : ""}>
+                  {filteredCodes.map((c) => {
+                    const isMenuOpen = openMenuId === c.id;
+                    return (
+                    <tr key={c.id} className={`${!c.is_active ? "admin-row-inactive" : ""} ${selectedIds.has(c.id) ? "admin-row-selected" : ""}`}>
+                      <td>
+                        <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelect(c.id)} className="admin-checkbox" />
+                      </td>
                       <td><span className="admin-code-badge">{c.code}</span></td>
                       <td className="admin-cell-name">{c.name}</td>
                       <td className="admin-cell-name">{c.organization || <span className="admin-text-muted">—</span>}</td>
@@ -228,19 +265,45 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
                         </span>
                       </td>
                       <td className="admin-cell-date">{formatDateShort(c.created_at)}</td>
-                      <td style={{ textAlign: "right" }}>
-                        <div className="admin-actions">
-                          <button className="admin-action-link" onClick={() => openEdit(c)}>Изменить</button>
-                          <button className="admin-action-link admin-action-warning" onClick={() => toggleCodeActive(c.id, c.is_active)}>
-                            {c.is_active ? "Отключить" : "Включить"}
-                          </button>
-                          {canDeleteCodes && (
-                            <button className="admin-action-link admin-action-danger" onClick={() => deleteCode(c.id)}>Удалить</button>
-                          )}
-                        </div>
+                      <td style={{ position: "relative" }}>
+                        <button className="admin-kebab-btn" onClick={(e) => { e.stopPropagation(); setOpenMenuId(isMenuOpen ? null : c.id); }} title="Действия">
+                          <span className="material-symbols-outlined">more_vert</span>
+                        </button>
+                        {isMenuOpen && (
+                          <div className="admin-kebab-dropdown" onClick={(e) => e.stopPropagation()}
+                            ref={(el) => {
+                              if (el) {
+                                const rect = el.getBoundingClientRect();
+                                const spaceBelow = window.innerHeight - rect.top;
+                                if (spaceBelow < rect.height + 8) {
+                                  el.style.bottom = "100%";
+                                  el.style.top = "auto";
+                                  el.style.marginBottom = "4px";
+                                }
+                              }
+                            }}
+                          >
+                            <button className="admin-kebab-item" onClick={() => { setOpenMenuId(null); openEdit(c); }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span>
+                              Изменить
+                            </button>
+                            <button className="admin-kebab-item warning" onClick={() => { setOpenMenuId(null); toggleCodeActive(c.id, c.is_active); }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{c.is_active ? "block" : "check_circle"}</span>
+                              {c.is_active ? "Отключить" : "Включить"}
+                            </button>
+                            {canDeleteCodes && (<>
+                              <div className="admin-kebab-divider" />
+                              <button className="admin-kebab-item danger" onClick={() => { setOpenMenuId(null); deleteCode(c.id); }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
+                                Удалить
+                              </button>
+                            </>)}
+                          </div>
+                        )}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

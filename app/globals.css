@@ -4568,6 +4568,93 @@ input, textarea {
   color: #B91C1C;
 }
 
+/* ── Checkbox ── */
+
+.admin-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+/* ── Kebab menu (three-dot) ── */
+
+.admin-kebab-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #94A3B8;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.admin-kebab-btn:hover {
+  color: #475569;
+  background: #F1F5F9;
+}
+.admin-kebab-btn .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.admin-kebab-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 9999;
+  min-width: 180px;
+  padding: 6px;
+}
+
+.admin-kebab-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s;
+  text-align: left;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.admin-kebab-item:hover {
+  background: #F1F5F9;
+}
+.admin-kebab-item.warning {
+  color: #D97706;
+}
+.admin-kebab-item.warning:hover {
+  background: #FFFBEB;
+}
+.admin-kebab-item.danger {
+  color: #EF4444;
+}
+.admin-kebab-item.danger:hover {
+  background: #FEF2F2;
+}
+
+.admin-kebab-divider {
+  height: 1px;
+  background: #E2E8F0;
+  margin: 4px 0;
+}
+
 /* ── Loading / Empty states ── */
 
 .admin-loading-text {
