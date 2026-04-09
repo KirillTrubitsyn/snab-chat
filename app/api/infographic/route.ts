@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 import { withGoogleApiLimit } from "@/app/lib/google-ai";
 import { createServiceClient } from "@/app/lib/supabase";
-import { getInviteCodeFromHeader } from "@/app/lib/auth";
+import { getInviteCodeFromHeader, requireAuth } from "@/app/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -61,6 +61,9 @@ function fixCyrillicLookalikes(text: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  const authCheck = await requireAuth(req);
+  if (authCheck instanceof NextResponse) return authCheck;
+
   try {
     const { topic, style, aspectRatio, documentText, conversationId } = await req.json();
 
