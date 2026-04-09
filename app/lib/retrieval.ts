@@ -176,6 +176,12 @@ function generateQueryVariants(query: string): string[] {
     );
   }
 
+  if (/коэффициент.*смет|смет.*коэффициент|превышен.*смет/i.test(lower)) {
+    variants.push(
+      "коэффициент к смете более 1 ЦЗК центральная закупочная комиссия рассмотрение работы услуги"
+    );
+  }
+
   return variants;
 }
 

@@ -14,6 +14,7 @@ import { extractSearchHints, detectSectionReference, detectDocumentReference, de
 import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgenticResults } from "../lib/agentic-rag.js";
 import { expandByRelationships } from "../lib/relationships.js";
 import { generateRegistryPromptBlock, findEntity } from "../lib/sgk-registry.js";
+import { getMatchingDirectives, generateDirectivesPromptBlock } from "../lib/directives-registry.js";
 import { classifyDocumentIntent, getDocumentIntentPrompt } from "../lib/document-intent.js";
 
 const router = Router();
@@ -726,6 +727,10 @@ ${userMessage.content}
     ? `\n\n🏢 ОПРЕДЕЛЕНА ОРГАНИЗАЦИЯ: ${detectedEntity.name} — режим: ${detectedEntity.regime === "223-fz" ? "ПО 223-ФЗ" : "ВНЕ 223-ФЗ"}${detectedEntity.parentEntity ? ` (${detectedEntity.type} ${detectedEntity.parentEntity})` : ""}${detectedEntity.region ? `, регион: ${detectedEntity.region}` : ""}${detectedEntity.thresholdKRub ? `, порог закупки: ${detectedEntity.thresholdKRub} тыс. руб. без НДС` : ""}. Отвечай ТОЛЬКО по документам этого режима.`
     : "";
 
+  // ── Operational directives: conditionally inject based on query keywords/intent ──
+  const matchedDirectives = getMatchingDirectives(userMessage.content, intentResult.intent);
+  const directivesBlock = generateDirectivesPromptBlock(matchedDirectives);
+
   // ── Phase 1: Adaptive system prompt based on document intent ──
   let uploadedDocsInstructions = "";
   if (effectiveHasAttachments) {
@@ -841,7 +846,7 @@ ${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФО
 
 ПРИМЕР ОТКАЗА (когда информации нет):
 Вопрос: Какова средняя зарплата в отделе закупок?
-Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${entityRegimeHint}
+Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${entityRegimeHint}${directivesBlock}
 ${intentResult.intent === "spu_search" ? `
 === РЕЕСТР СПУ (Список Потенциальных Участников) ===
 
