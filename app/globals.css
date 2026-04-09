@@ -5029,6 +5029,26 @@ input, textarea {
 
 /* ── Document List View ── */
 
+.admin-doc-select-all-bar {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  margin-bottom: 4px;
+}
+.admin-doc-select-all-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748B;
+  cursor: pointer;
+  user-select: none;
+}
+.admin-doc-select-all-label:hover {
+  color: #334155;
+}
+
 .admin-doc-list-view {
   display: flex;
   flex-direction: column;
@@ -5151,6 +5171,9 @@ input, textarea {
 
 .admin-doc-row-wrapper.expanded {
   background: #F8FAFC;
+}
+.admin-doc-row-wrapper.selected {
+  background: rgba(59, 130, 246, 0.06);
 }
 
 .admin-doc-tags-panel {
@@ -5336,6 +5359,10 @@ input, textarea {
 .doc-icon-lg.md {
   background: #CCFBF1;
   color: #0D9488;
+}
+.doc-icon-lg.txt {
+  background: #F1F5F9;
+  color: #64748B;
 }
 
 .admin-doc-card-name {

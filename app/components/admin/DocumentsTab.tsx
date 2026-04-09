@@ -282,6 +282,7 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
     if (doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel")) return "xlsx";
     if (doc.mime_type?.includes("presentationml") || doc.filename?.endsWith(".pptx") || doc.filename?.endsWith(".ppt")) return "pptx";
     if (doc.mime_type?.includes("html") || doc.filename?.endsWith(".html") || doc.filename?.endsWith(".htm")) return "html";
+    if (doc.mime_type === "text/plain" || doc.filename?.endsWith(".txt")) return "txt";
     return "docx";
   };
 
@@ -308,38 +309,20 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
         <div className="admin-docs-header">
           <h2 className="admin-card-title" style={{ fontSize: 24 }}>Документы</h2>
           <div className="admin-card-actions">
-            {!bulkSelectMode ? (
+            {isDocAdmin && selectedSourceIds.size > 0 && (
               <>
-                {isDocAdmin && sources.length > 0 && (
-                  <button className="admin-btn-secondary" onClick={() => setBulkSelectMode(true)}>
-                    <span className="material-symbols-outlined">checklist</span>Выбрать
-                  </button>
-                )}
-                {isDocAdmin && (
-                  <button className="admin-btn-primary" onClick={() => setShowUpload(true)}>
-                    <span className="material-symbols-outlined">add</span>Загрузить документ
-                  </button>
-                )}
-              </>
-            ) : (
-              <>
-                <button className="admin-btn-secondary" onClick={() => {
-                  const allSelected = filteredSources.length > 0 && filteredSources.every((s) => selectedSourceIds.has(s.id));
-                  if (allSelected) setSelectedSourceIds(new Set());
-                  else setSelectedSourceIds(new Set(filteredSources.map((s) => s.id)));
-                }}>
-                  <span className="material-symbols-outlined">
-                    {filteredSources.length > 0 && filteredSources.every((s) => selectedSourceIds.has(s.id)) ? "deselect" : "select_all"}
-                  </span>
-                  {filteredSources.length > 0 && filteredSources.every((s) => selectedSourceIds.has(s.id)) ? "Снять всё" : "Выбрать все"}
-                </button>
-                <button className="admin-btn-secondary" style={{ color: selectedSourceIds.size > 0 ? "var(--admin-danger, #ef4444)" : undefined }} disabled={selectedSourceIds.size === 0} onClick={deleteSelectedSources}>
+                <button className="admin-btn-secondary" style={{ color: "var(--admin-danger, #ef4444)" }} onClick={deleteSelectedSources}>
                   <span className="material-symbols-outlined">delete</span>Удалить ({selectedSourceIds.size})
                 </button>
-                <button className="admin-btn-secondary" onClick={() => { setSelectedSourceIds(new Set()); setBulkSelectMode(false); }}>
-                  <span className="material-symbols-outlined">close</span>Отмена
+                <button className="admin-btn-secondary" onClick={() => setSelectedSourceIds(new Set())}>
+                  <span className="material-symbols-outlined">close</span>Снять выбор
                 </button>
               </>
+            )}
+            {isDocAdmin && (
+              <button className="admin-btn-primary" onClick={() => setShowUpload(true)}>
+                <span className="material-symbols-outlined">add</span>Загрузить документ
+              </button>
             )}
           </div>
         </div>
@@ -365,6 +348,7 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
             { key: "xlsx", label: "Excel", icon: "table_chart" },
             { key: "pptx", label: "PPTX", icon: "slideshow" },
             { key: "html", label: "HTML", icon: "school" },
+            { key: "txt", label: "TXT", icon: "text_snippet" },
             { key: "md", label: "Markdown", icon: "grid_view" },
           ].map((ft) => {
             const count = ft.key === "all"
@@ -401,26 +385,36 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
               window.open(apiUrl("/api/sources/download?id=" + sourceId + "&action=download&token=" + encodeURIComponent(adminCode)), "_blank");
             }}
           />
+          {isDocAdmin && filteredSources.length > 0 && (
+            <div className="admin-doc-select-all-bar">
+              <label className="admin-doc-select-all-label">
+                <input
+                  type="checkbox"
+                  className="admin-checkbox"
+                  checked={filteredSources.length > 0 && filteredSources.every((s) => selectedSourceIds.has(s.id))}
+                  onChange={() => {
+                    const allSelected = filteredSources.every((s) => selectedSourceIds.has(s.id));
+                    if (allSelected) setSelectedSourceIds(new Set());
+                    else setSelectedSourceIds(new Set(filteredSources.map((s) => s.id)));
+                  }}
+                />
+                Выбрать все ({filteredSources.length})
+              </label>
+            </div>
+          )}
           <div className="admin-doc-list-view">
             {paginatedSources.map((doc) => {
               const ext = doc.mime_type?.includes("x-denormalized") || doc.filename?.endsWith(".md") ? "md" : doc.mime_type?.includes("pdf") ? "pdf" : doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel") ? "xlsx" : doc.mime_type?.includes("presentationml") || doc.filename?.endsWith(".pptx") || doc.filename?.endsWith(".ppt") ? "pptx" : doc.mime_type?.includes("html") || doc.filename?.endsWith(".html") || doc.filename?.endsWith(".htm") ? "html" : "docx";
               const isMenuOpen = openMenuId === doc.id;
               return (
-                <div key={doc.id} className={`admin-doc-row-wrapper${expandedSourceId === doc.id ? " expanded" : ""}`}>
+                <div key={doc.id} className={`admin-doc-row-wrapper${expandedSourceId === doc.id ? " expanded" : ""}${selectedSourceIds.has(doc.id) ? " selected" : ""}`}>
                 <div className="admin-doc-row" onClick={() => {
-                  if (bulkSelectMode) {
-                    setSelectedSourceIds((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(doc.id)) next.delete(doc.id); else next.add(doc.id);
-                      return next;
-                    });
-                    return;
-                  }
                   setExpandedSourceId(expandedSourceId === doc.id ? null : doc.id);
                 }} style={{ cursor: "pointer" }}>
-                  {bulkSelectMode && (
+                  {isDocAdmin && (
                     <input
                       type="checkbox"
+                      className="admin-checkbox"
                       checked={selectedSourceIds.has(doc.id)}
                       onChange={() => {
                         setSelectedSourceIds((prev) => {
@@ -430,7 +424,6 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
                         });
                       }}
                       onClick={(e) => e.stopPropagation()}
-                      style={{ width: 18, height: 18, flexShrink: 0, cursor: "pointer", accentColor: "var(--admin-primary, #3b82f6)" }}
                     />
                   )}
                   <div className={`doc-icon-lg ${ext}`}>
@@ -444,6 +437,8 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
                       <span className="material-symbols-outlined">slideshow</span>
                     ) : ext === "html" ? (
                       <span className="material-symbols-outlined">school</span>
+                    ) : ext === "txt" ? (
+                      <span className="material-symbols-outlined">text_snippet</span>
                     ) : (
                       <span className="material-symbols-outlined">description</span>
                     )}
