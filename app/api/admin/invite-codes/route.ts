@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
-import { requireAdmin } from "@/app/lib/auth";
+import { requireAdmin, isCodeDeletionAdmin } from "@/app/lib/auth";
 import { logAuditEvent } from "@/app/lib/audit-log";
 
 export async function GET(req: NextRequest) {
@@ -106,6 +106,12 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const adminCheck = requireAdmin(req);
   if (adminCheck instanceof NextResponse) return adminCheck;
+
+  const rawCode = req.headers.get("x-admin-code") ?? "";
+  const code = decodeURIComponent(rawCode);
+  if (!isCodeDeletionAdmin(code)) {
+    return NextResponse.json({ error: "Недостаточно прав для удаления инвайт-кодов" }, { status: 403 });
+  }
 
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
