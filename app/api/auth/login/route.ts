@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   isAdminCode,
   isDocumentAdmin,
+  isCodeDeletionAdmin,
   getAdminName,
   getAdminNumber,
   validateInviteCode,
@@ -29,6 +30,7 @@ export async function POST(req: NextRequest) {
         code: upperCode,
         isDocumentAdmin: isDocumentAdmin(upperCode),
         isPrimaryAdmin: getAdminNumber(upperCode) === 1,
+        canDeleteCodes: isCodeDeletionAdmin(upperCode),
       });
     }
 
