@@ -7,6 +7,7 @@ import { ADMIN_NAMES_BY_NUMBER } from "./auth.js";
 import { getMoscowTime } from "./date-utils.js";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
+const BOT_2FA_TOKEN = process.env.TELEGRAM_2FA_BOT_TOKEN ?? "";
 
 const ADMIN_CHAT_IDS: string[] = [
   process.env.TELEGRAM_ADMIN_CHAT_ID_1 ?? "",
@@ -86,6 +87,37 @@ export async function answerCallbackQuery(callbackQueryId: string, text?: string
   } catch { /* ignore */ }
 }
 
+
+/** Отправить сообщение через 2FA-бот (@SC2FA_Bot) */
+export async function send2FAMessage(
+  text: string,
+  chatId: string
+): Promise<boolean> {
+  const token = BOT_2FA_TOKEN || BOT_TOKEN;
+  if (!token || !chatId) return false;
+  try {
+    const body: Record<string, unknown> = {
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    };
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error(`[Telegram 2FA] Ошибка отправки в ${chatId}: ${err}`);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error(`[Telegram 2FA] Ошибка сети:`, e);
+    return false;
+  }
+}
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
