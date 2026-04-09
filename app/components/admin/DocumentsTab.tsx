@@ -282,6 +282,7 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
     if (doc.mime_type?.includes("sheet") || doc.mime_type?.includes("excel")) return "xlsx";
     if (doc.mime_type?.includes("presentationml") || doc.filename?.endsWith(".pptx") || doc.filename?.endsWith(".ppt")) return "pptx";
     if (doc.mime_type?.includes("html") || doc.filename?.endsWith(".html") || doc.filename?.endsWith(".htm")) return "html";
+    if (doc.mime_type === "text/plain" || doc.filename?.endsWith(".txt")) return "txt";
     return "docx";
   };
 
@@ -365,6 +366,7 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
             { key: "xlsx", label: "Excel", icon: "table_chart" },
             { key: "pptx", label: "PPTX", icon: "slideshow" },
             { key: "html", label: "HTML", icon: "school" },
+            { key: "txt", label: "TXT", icon: "text_snippet" },
             { key: "md", label: "Markdown", icon: "grid_view" },
           ].map((ft) => {
             const count = ft.key === "all"
