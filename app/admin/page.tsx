@@ -41,6 +41,11 @@ export default function AdminPage() {
         if (data.canDeleteCodes) {
           setCanDeleteCodes(true);
         }
+        if (data.isPrimaryAdmin) {
+          localStorage.setItem("snabchat_is_primary_admin", "true");
+        } else {
+          localStorage.removeItem("snabchat_is_primary_admin");
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));

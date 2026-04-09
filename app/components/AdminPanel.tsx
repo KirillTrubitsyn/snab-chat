@@ -77,7 +77,7 @@ export default function AdminPanel({ adminCode, userName, isDocAdmin, canDeleteC
             </button>
           ))}
         </nav>
-        {isPrimaryAdmin && (
+        {(isPrimaryAdmin || canDeleteCodes) && (
           <div className="admin-sidebar-bottom">
             <button
               className={`admin-sidebar-nav-item${tab === "settings" ? " active" : ""}`}
