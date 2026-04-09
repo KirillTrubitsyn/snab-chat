@@ -231,9 +231,11 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
                       <td style={{ textAlign: "right" }}>
                         <div className="admin-actions">
                           <button className="admin-action-link" onClick={() => openEdit(c)}>Изменить</button>
-                          <button className="admin-action-link admin-action-warning" onClick={() => toggleCodeActive(c.id, c.is_active)}>
-                            {c.is_active ? "Отключить" : "Включить"}
-                          </button>
+                          {c.is_active && (
+                            <button className="admin-action-link admin-action-warning" onClick={() => toggleCodeActive(c.id, c.is_active)}>
+                              Отключить
+                            </button>
+                          )}
                           <button className="admin-action-link admin-action-danger" onClick={() => deleteCode(c.id)}>Удалить</button>
                         </div>
                       </td>
@@ -277,6 +279,7 @@ export default function CodesTab({ adminCode }: { adminCode: string }) {
               </div>
               <div className="admin-modal-actions">
                 <button className="admin-btn-secondary" onClick={() => setEditingCode(null)}>Отмена</button>
+                <button className="admin-btn-danger" onClick={() => { setEditingCode(null); deleteCode(editingCode.id); }}>Удалить код</button>
                 <button className="admin-btn-primary" onClick={saveEdit}>Сохранить</button>
               </div>
             </div>
