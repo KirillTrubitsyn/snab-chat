@@ -197,10 +197,13 @@ router.post("/api/telegram/test-2fa", async (req: Request, res: Response) => {
     bot_username: botUsername,
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  type TgResponse = { ok: boolean; result?: any; description?: string };
+
   // Проверить getMe
   try {
     const meRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
-    const meData = await meRes.json();
+    const meData = (await meRes.json()) as TgResponse;
     if (meData.ok) {
       results.bot_info = {
         id: meData.result.id,
@@ -220,7 +223,7 @@ router.post("/api/telegram/test-2fa", async (req: Request, res: Response) => {
   // Проверить webhook
   try {
     const whRes = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
-    const whData = await whRes.json();
+    const whData = (await whRes.json()) as TgResponse;
     if (whData.ok) {
       results.webhook = {
         url: whData.result.url || null,
@@ -246,7 +249,7 @@ router.post("/api/telegram/test-2fa", async (req: Request, res: Response) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chat_id: adminChatId, text, parse_mode: "HTML" }),
       });
-      const sendData = await sendRes.json();
+      const sendData = (await sendRes.json()) as TgResponse;
       results.test_send = {
         ok: sendData.ok,
         chat_id: adminChatId,
