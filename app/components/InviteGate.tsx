@@ -24,7 +24,7 @@ interface InviteGateProps {
 }
 
 export default function InviteGate({ onSuccess }: InviteGateProps) {
-  const [step, setStep] = useState<Step>("code");
+  const [step, setStep] = useState<Step>("password");
   const [code, setCode] = useState("");
   const [showCode, setShowCode] = useState(false);
   const [password, setPassword] = useState("");
@@ -77,65 +77,14 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     };
   }, []);
 
-  const [autoLogging, setAutoLogging] = useState(false);
-
-  // На входе проверяем сохранённый код — если есть, автоматически проверяем
+  // На входе загружаем сохранённый код (если есть)
   useEffect(() => {
     const stored = localStorage.getItem("snabchat_invite_code");
     if (stored) {
       setCode(stored);
       setSavedCode(stored);
-      // Авто-логин: сразу проверяем код, чтобы пропустить шаг ввода
-      autoLogin(stored);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const autoLogin = async (storedCode: string) => {
-    setAutoLogging(true);
-    try {
-      const deviceId = getOrCreateDeviceId();
-      const res = await fetch(apiUrl("/api/auth/login"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: storedCode, device_id: deviceId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        // Код больше не валиден — показать ввод кода
-        setAutoLogging(false);
-        localStorage.removeItem("snabchat_invite_code");
-        setCode("");
-        setSavedCode("");
-        return;
-      }
-      if (data.type === "admin") {
-        localStorage.setItem("snabchat_admin_code", data.code);
-        localStorage.setItem("snabchat_user_name", data.adminName);
-        localStorage.setItem("snabchat_is_admin", "true");
-        localStorage.setItem("snabchat_invite_code", data.code);
-        if (data.isDocumentAdmin) localStorage.setItem("snabchat_is_doc_admin", "true");
-        else localStorage.removeItem("snabchat_is_doc_admin");
-        if (data.isPrimaryAdmin) localStorage.setItem("snabchat_is_primary_admin", "true");
-        else localStorage.removeItem("snabchat_is_primary_admin");
-        router.push("/admin");
-        return;
-      }
-      setInviteCodeId(data.inviteCodeId);
-      setUserName(data.name);
-      setSavedCode(data.code);
-      if (data.hasPassword) {
-        setTwoFactorMethods(data.twoFactorMethods || []);
-        setStep("password"); // Сразу к паролю, минуя инвайт-код
-      } else {
-        setStep("set-password");
-      }
-    } catch {
-      // Сеть недоступна — показать ввод кода
-    } finally {
-      setAutoLogging(false);
-    }
-  };
 
   const completeLogin = useCallback((data: {
     inviteCodeId: string;
@@ -270,10 +219,18 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
 
     try {
       const deviceId = getOrCreateDeviceId();
-      const res = await fetch(apiUrl("/api/auth/verify-password"), {
+
+      // Если есть сохранённый код — используем verify-password, иначе login-password
+      const hasCode = !!savedCode;
+      const url = hasCode ? "/api/auth/verify-password" : "/api/auth/login-password";
+      const body = hasCode
+        ? { code: savedCode, password, device_id: deviceId }
+        : { password, device_id: deviceId };
+
+      const res = await fetch(apiUrl(url), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: savedCode, password, device_id: deviceId }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
@@ -284,13 +241,15 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
 
       setInviteCodeId(data.inviteCodeId);
       setUserName(data.name);
+      setSavedCode(data.code);
+      localStorage.setItem("snabchat_invite_code", data.code);
       setTwoFactorMethods(data.twoFactorMethods || []);
       setPassword("");
 
       if (data.twoFactorMethods && data.twoFactorMethods.length > 0) {
         setStep("2fa-choose");
       } else {
-        setStep("recommend-2fa");
+        completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code });
       }
     } catch {
       setError("Ошибка подключения к серверу");
@@ -536,15 +495,8 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
           ИИ-ассистент Дирекции по закупкам
         </p>
 
-        {/* ══ Загрузка при авто-логине ══ */}
-        {step === "code" && autoLogging && (
-          <div className="invite-gate-form" style={{ textAlign: "center", padding: "40px 0" }}>
-            <p style={{ color: "var(--text-secondary)", fontSize: 14 }}>Вход...</p>
-          </div>
-        )}
-
-        {/* ══ Шаг 1: Ввод кода ══ */}
-        {step === "code" && !autoLogging && (
+        {/* ══ Шаг 1: Ввод инвайт-кода (только первый вход) ══ */}
+        {step === "code" && (
           <form onSubmit={handleCodeSubmit} className="invite-gate-form">
             <div className="invite-gate-input-wrapper">
               <input
@@ -618,14 +570,6 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         {/* ══ Шаг 3: Ввод пароля ══ */}
         {step === "password" && (
           <form onSubmit={handlePasswordSubmit} className="invite-gate-form">
-            {userName && (
-              <p style={{ textAlign: "center", fontSize: 14, color: "var(--text-secondary)", margin: "0 0 4px" }}>
-                {userName}
-              </p>
-            )}
-            <p className="invite-gate-register-hint" style={{ marginBottom: 8 }}>
-              Введите пароль
-            </p>
             <div className="invite-gate-input-wrapper">
               <input
                 type={showPassword ? "text" : "password"}
@@ -646,11 +590,11 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
             </button>
             <button
               type="button"
-              onClick={() => { setStep("code"); setError(""); setPassword(""); setSavedCode(""); localStorage.removeItem("snabchat_invite_code"); }}
+              onClick={() => { setStep("code"); setError(""); setPassword(""); }}
               className="invite-gate-back"
               disabled={loading}
             >
-              Другой код
+              Первый вход по инвайт-коду
             </button>
           </form>
         )}
