@@ -101,8 +101,10 @@ router.post("/api/auth/login", async (req: Request, res: Response) => {
       isNewDevice = newDevice;
     }
 
-    // 5. Уменьшаем счётчик использований
-    await consumeInviteCodeFallback(invite.id);
+    // 5. Уменьшаем счётчик только для пользователей БЕЗ пароля (первый вход)
+    if (!hasPassword) {
+      await consumeInviteCodeFallback(invite.id);
+    }
 
     // 6. Уведомление при активации кода с нового устройства
     if (isNewDevice) {
@@ -217,8 +219,6 @@ router.post("/api/auth/verify-password", async (req: Request, res: Response) => 
       }
       isNewDevice = newDevice;
     }
-
-    await consumeInviteCodeFallback(invite.id);
 
     if (isNewDevice) {
       notifyNewUser(invite.name, invite.organization).catch(() => {});
