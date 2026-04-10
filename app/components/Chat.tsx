@@ -1444,7 +1444,17 @@ export default function Chat() {
               </button>
               {userMenuOpen && (
                 <div className="user-menu-dropdown">
-                  <div className="user-menu-name">{userName}</div>
+                  <div className="user-menu-header">
+                    <div className="user-menu-header-info">
+                      <div className="user-menu-name">{userName}</div>
+                      <div className="user-menu-role">
+                        {isAdmin ? "Администратор" : "Пользователь"}
+                      </div>
+                    </div>
+                    <div className="user-menu-header-avatar" style={{ background: avatarColor }}>
+                      {userInitials}
+                    </div>
+                  </div>
                   <div className="user-menu-divider" />
 
                   {/* Цвет аватара */}
