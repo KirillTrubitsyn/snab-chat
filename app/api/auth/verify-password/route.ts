@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
       isNewDevice = newDevice;
     }
 
-    await consumeInviteCodeFallback(invite.id);
+    // Пользователь с паролем не расходует лимит uses_remaining
 
     if (isNewDevice) {
       notifyNewUser(invite.name, invite.organization).catch(() => {});

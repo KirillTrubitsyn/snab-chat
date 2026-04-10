@@ -11,6 +11,7 @@ import KBSearchBar from "@/app/components/KBSearchBar";
 import { formatDateRelative } from "@/app/lib/date-utils";
 import { sanitizeHtml } from "@/app/lib/sanitize";
 import { apiUrl } from "@/app/lib/api";
+import { getAvatarColor, setAvatarColor as saveAvatarColor, AVATAR_COLORS } from "@/app/lib/avatarColors";
 import {
   VoiceButton,
   CameraButton,
@@ -53,6 +54,7 @@ export default function Chat() {
   const [inviteCode, setInviteCode] = useState<string>("");
   const inviteCodeRef = useRef<string>("");
   const [userName, setUserName] = useState<string>("");
+  const [avatarColor, setAvatarColor] = useState<string>("#0099CC");
   const [authLoading, setAuthLoading] = useState(true);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -74,6 +76,7 @@ export default function Chat() {
       setInviteCode(code);
       inviteCodeRef.current = code;
       setUserName(name);
+      setAvatarColor(getAvatarColor());
       setIsAuthenticated(true);
     }
     setAuthLoading(false);
@@ -83,6 +86,7 @@ export default function Chat() {
     setInviteCode(data.code);
     inviteCodeRef.current = data.code;
     setUserName(data.userName);
+    setAvatarColor(getAvatarColor());
     setIsAuthenticated(true);
   }, []);
 
@@ -1428,32 +1432,77 @@ export default function Chat() {
                 <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
               </svg>
             </button>
-            {/* Desktop: inline logout button */}
-            <button
-              className="header-action-btn desktop-only"
-              onClick={handleLogout}
-              title="Выйти"
-              style={{ color: "var(--text-muted)" }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-            </button>
-            {/* Mobile: user avatar with dropdown menu */}
-            <div className="user-menu-wrapper mobile-only" ref={userMenuRef}>
+            {/* User avatar with dropdown menu (desktop + mobile) */}
+            <div className="user-menu-wrapper" ref={userMenuRef}>
               <button
                 className="user-menu-btn"
                 onClick={() => setUserMenuOpen((o) => !o)}
                 title={userName}
+                style={{ background: avatarColor }}
               >
                 {userInitials}
               </button>
               {userMenuOpen && (
                 <div className="user-menu-dropdown">
-                  <div className="user-menu-name">{userName}</div>
+                  <div className="user-menu-header">
+                    <div className="user-menu-header-info">
+                      <div className="user-menu-name">{userName}</div>
+                      <div className="user-menu-role">
+                        {isAdmin ? "Администратор" : "Пользователь"}
+                      </div>
+                    </div>
+                    <div className="user-menu-header-avatar" style={{ background: avatarColor }}>
+                      {userInitials}
+                    </div>
+                  </div>
                   <div className="user-menu-divider" />
+
+                  {/* Цвет аватара */}
+                  <div className="user-menu-color-section">
+                    <span className="user-menu-color-label">Цвет аватара</span>
+                    <div className="user-menu-color-swatches">
+                      {AVATAR_COLORS.map(color => (
+                        <button
+                          key={color}
+                          className="user-menu-color-swatch"
+                          style={{
+                            background: color,
+                            outline: avatarColor === color ? `2px solid ${color}` : "none",
+                            outlineOffset: 2,
+                            boxShadow: avatarColor === color ? "0 0 0 1px #fff inset" : "none",
+                          }}
+                          onClick={() => {
+                            saveAvatarColor(color);
+                            setAvatarColor(color);
+                          }}
+                          title={color}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="user-menu-divider" />
+
+                  {/* Пароль */}
+                  <a className="user-menu-item" href="/settings">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                    Сменить пароль
+                  </a>
+
+                  {/* 2FA */}
+                  {!isAdmin && (
+                    <a className="user-menu-item" href="/settings">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                        <path d="M9 12l2 2 4-4" />
+                      </svg>
+                      Двухфакторная аутентификация
+                    </a>
+                  )}
+
                   {isAdmin && (
                     <a className="user-menu-item" href="/admin">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1462,16 +1511,9 @@ export default function Chat() {
                       Админ-панель
                     </a>
                   )}
-                  {!isAdmin && (
-                    <a className="user-menu-item" href="/settings">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="3" />
-                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                      </svg>
-                      Настройки
-                    </a>
-                  )}
-                  <button className="user-menu-item" onClick={handleLogout}>
+
+                  {/* Выйти */}
+                  <button className="user-menu-item user-menu-item--danger" onClick={handleLogout}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
                       <polyline points="16 17 21 12 16 7" />
@@ -2286,13 +2328,16 @@ export default function Chat() {
               </div>
               )}
             </div>
+
           </aside>
         </div>
 
         {/* ── Footer ── */}
         <footer className="app-footer">
-          <span className="footer-full">СнабЧат · Дирекция по закупкам · 2026 · </span>
-          Разработка @Кирилл Трубицын
+          <span className="footer-text">
+            <span className="footer-full">СнабЧат · Дирекция по закупкам · 2026 · </span>
+            Разработка @Кирилл Трубицын
+          </span>
         </footer>
       </div>
 

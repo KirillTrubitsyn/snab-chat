@@ -440,6 +440,15 @@ router.get("/api/admin/invite-codes", async (req: Request, res: Response) => {
       ...code,
       conversation_count: convCounts[code.id] || 0,
       device_count: deviceCounts[code.id] || 0,
+      has_password: !!code.password_hash,
+      has_telegram: !!code.telegram_chat_id,
+      has_sms: !!code.phone_number,
+      has_totp: !!code.totp_secret,
+      // Strip sensitive fields
+      password_hash: undefined,
+      telegram_chat_id: undefined,
+      phone_number: undefined,
+      totp_secret: undefined,
     }));
 
     return res.json({ codes: result });
@@ -569,6 +578,11 @@ router.patch("/api/admin/invite-codes", async (req: Request, res: Response) => {
     }
 
     logAuditEvent({ action: "invite_code.update", adminName: admin.adminName, targetId: id, details: updates });
+    // Strip sensitive fields from response
+    if (data) {
+      const { password_hash: _ph, totp_secret: _ts, ...safeData } = data as Record<string, unknown>;
+      return res.json({ code: safeData });
+    }
     return res.json({ code: data });
   } catch (err) {
     console.error("PATCH /api/admin/invite-codes error:", err);

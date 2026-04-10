@@ -8,71 +8,8 @@ export const runtime = "nodejs";
 const WEBHOOK_SECRET = process.env.TELEGRAM_2FA_WEBHOOK_SECRET || process.env.TELEGRAM_WEBHOOK_SECRET || "";
 
 /**
- * Обработка /start команды для привязки Telegram (2FA).
- */
-async function handleStartCommand(chatId: string, token: string): Promise<boolean> {
-  if (!token || token.length < 10) return false;
-
-  const supabase = createServiceClient();
-
-  const { data: linkToken, error } = await supabase
-    .from("telegram_link_tokens")
-    .select("id, invite_code_id, expires_at, used")
-    .eq("token", token)
-    .maybeSingle();
-
-  if (error || !linkToken) {
-    await send2FAMessage(
-      "Недействительная ссылка. Пожалуйста, запросите новую ссылку в настройках СнабЧат.",
-      chatId
-    );
-    return true;
-  }
-
-  if (linkToken.used) {
-    await send2FAMessage(
-      "Эта ссылка уже была использована. Запросите новую в настройках.",
-      chatId
-    );
-    return true;
-  }
-
-  if (new Date(linkToken.expires_at) < new Date()) {
-    await send2FAMessage(
-      "Ссылка истекла. Пожалуйста, запросите новую ссылку в настройках СнабЧат.",
-      chatId
-    );
-    return true;
-  }
-
-  const { error: updateError } = await supabase
-    .from("invite_codes")
-    .update({ telegram_chat_id: chatId })
-    .eq("id", linkToken.invite_code_id);
-
-  if (updateError) {
-    console.error("[Telegram 2FA Webhook] Error linking Telegram:", updateError.message);
-    await send2FAMessage("Ошибка привязки. Попробуйте ещё раз.", chatId);
-    return true;
-  }
-
-  await supabase
-    .from("telegram_link_tokens")
-    .update({ used: true })
-    .eq("id", linkToken.id);
-
-  await send2FAMessage(
-    "✅ Telegram успешно привязан к вашему аккаунту СнабЧат!\n\nТеперь вы будете получать коды для входа через этот чат.",
-    chatId
-  );
-
-  console.log(`[Telegram 2FA Webhook] Telegram linked for invite_code_id: ${linkToken.invite_code_id}`);
-  return true;
-}
-
-/**
  * POST /api/telegram/webhook-2fa — вебхук 2FA-бота (@SC2FA_Bot).
- * Обрабатывает только /start <token> для привязки Telegram.
+ * Пользователь отправляет 6-значный код боту для привязки Telegram.
  */
 export async function POST(req: NextRequest) {
   if (!WEBHOOK_SECRET) {
@@ -106,20 +43,77 @@ export async function POST(req: NextRequest) {
   const chatId = String(message.chat.id);
   const messageText = message.text.trim();
 
-  if (messageText.startsWith("/start ")) {
-    const token = messageText.slice(7).trim();
-    await handleStartCommand(chatId, token);
-    return NextResponse.json({ ok: true });
-  }
-
-  if (messageText === "/start") {
+  // Handle /start — show instructions
+  if (messageText === "/start" || messageText.startsWith("/start ")) {
     await send2FAMessage(
-      "Этот бот используется для двухфакторной аутентификации СнабЧат.\n\nДля привязки Telegram к вашему аккаунту используйте ссылку из настроек на сайте.",
+      "🔐 <b>СнабЧат — привязка Telegram</b>\n\n" +
+      "Для привязки Telegram к вашему аккаунту:\n" +
+      "1. Откройте настройки на сайте СнабЧат\n" +
+      "2. Нажмите «Включить» напротив Telegram\n" +
+      "3. Скопируйте 6-значный код\n" +
+      "4. Отправьте его сюда в этот чат",
       chatId
     );
     return NextResponse.json({ ok: true });
   }
 
-  // Все остальные сообщения игнорируем — это 2FA-бот
+  // Handle 6-digit OTP code
+  const codeMatch = messageText.match(/^\d{6}$/);
+  if (codeMatch) {
+    const code = codeMatch[0];
+    const supabase = createServiceClient();
+
+    // Look up OTP code of type "telegram"
+    const { data: otpRecord, error } = await supabase
+      .from("otp_codes")
+      .select("id, invite_code_id, expires_at")
+      .eq("code", code)
+      .eq("method", "telegram")
+      .eq("used", false)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !otpRecord) {
+      await send2FAMessage("❌ Неверный или просроченный код. Запросите новый в настройках.", chatId);
+      return NextResponse.json({ ok: true });
+    }
+
+    if (new Date(otpRecord.expires_at) < new Date()) {
+      await send2FAMessage("❌ Код истёк. Запросите новый в настройках СнабЧат.", chatId);
+      return NextResponse.json({ ok: true });
+    }
+
+    // Link telegram_chat_id to user
+    const { error: updateError } = await supabase
+      .from("invite_codes")
+      .update({ telegram_chat_id: chatId })
+      .eq("id", otpRecord.invite_code_id);
+
+    if (updateError) {
+      console.error("[Telegram 2FA Webhook] Link error:", updateError.message);
+      await send2FAMessage("❌ Ошибка привязки. Попробуйте ещё раз.", chatId);
+      return NextResponse.json({ ok: true });
+    }
+
+    // Mark OTP as used
+    await supabase
+      .from("otp_codes")
+      .update({ used: true })
+      .eq("id", otpRecord.id);
+
+    await send2FAMessage(
+      "✅ Telegram успешно привязан к вашему аккаунту СнабЧат!\n\nТеперь вы будете получать коды для входа через этот чат.",
+      chatId
+    );
+
+    return NextResponse.json({ ok: true });
+  }
+
+  // Unknown message
+  await send2FAMessage(
+    "Отправьте 6-значный код из настроек СнабЧат для привязки Telegram.",
+    chatId
+  );
   return NextResponse.json({ ok: true });
 }

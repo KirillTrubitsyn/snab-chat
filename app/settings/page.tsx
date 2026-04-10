@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { apiUrl } from "@/app/lib/api";
 import { QRCodeSVG } from "qrcode.react";
+import { AVATAR_COLORS, getAvatarColor, setAvatarColor } from "@/app/lib/avatarColors";
 
 interface TwoFAStatus {
   telegram: boolean;
@@ -19,6 +20,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [avatarColor, setAvatarColorState] = useState("#0099CC");
 
   // 2FA status
   const [twoFA, setTwoFA] = useState<TwoFAStatus>({ telegram: false, sms: false, totp: false, phone: null });
@@ -56,6 +58,7 @@ export default function SettingsPage() {
     }
     setInviteCode(code);
     setUserName(name);
+    setAvatarColorState(getAvatarColor());
   }, [router]);
 
   useEffect(() => {
@@ -146,28 +149,31 @@ export default function SettingsPage() {
     }
   };
 
-  /* ── Telegram setup ── */
+  /* ── Telegram setup (OTP-based) ── */
+  const [telegramOtp, setTelegramOtp] = useState("");
+
   const handleTelegramSetup = async () => {
     setError("");
     setLoading(true);
     try {
-      const res = await fetch(apiUrl("/api/auth/telegram-link"), {
+      const otpRes = await fetch(apiUrl("/api/auth/telegram-link"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: inviteCode }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Ошибка");
+      const data = await otpRes.json();
+      if (!otpRes.ok) {
+        setError(data.error || "Ошибка создания кода");
+        setLoading(false);
         return;
       }
+      setTelegramOtp(data.otp || "");
       setTelegramBotUrl(data.botUrl);
       setSetupMethod("telegram");
       setSetupStep("configure");
 
       if (telegramPollRef.current) clearInterval(telegramPollRef.current);
       telegramPollRef.current = setInterval(async () => {
-        await loadStatus();
         const r = await fetch(apiUrl(`/api/auth/2fa-status?code=${encodeURIComponent(inviteCode)}`));
         if (r.ok) {
           const s = await r.json();
@@ -177,6 +183,7 @@ export default function SettingsPage() {
             setSetupMethod("");
             setSetupStep("");
             setTelegramBotUrl("");
+            setTelegramOtp("");
             setSuccess("Telegram привязан");
           }
         }
@@ -357,15 +364,7 @@ export default function SettingsPage() {
             loading={loading && setupMethod === "telegram"}
           />
 
-          {/* SMS */}
-          <MethodCard
-            name="SMS"
-            enabled={twoFA.sms}
-            detail={twoFA.phone || undefined}
-            onEnable={() => { setSetupMethod("sms"); setSetupStep("configure"); setError(""); }}
-            onDisable={() => handleRemoveMethod("sms")}
-            loading={loading && setupMethod === "sms"}
-          />
+          {/* SMS — скрыт из интерфейса, код остаётся */}
 
           {/* TOTP */}
           <MethodCard
@@ -381,9 +380,21 @@ export default function SettingsPage() {
         {/* ── Setup dialogs ── */}
         {setupStep === "configure" && setupMethod === "telegram" && (
           <SetupDialog title="Привязка Telegram" onCancel={cancelSetup}>
-            <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 12 }}>
-              Нажмите кнопку, чтобы открыть бот в Telegram. Затем нажмите &quot;Start&quot;.
-            </p>
+            <div style={{ background: "var(--bg-secondary, #f5f5f5)", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 13, lineHeight: 1.5 }}>
+              <p style={{ margin: "0 0 6px", fontWeight: 600 }}>Как привязать:</p>
+              <p style={{ margin: "0 0 4px" }}>1. Откройте бот в Telegram</p>
+              <p style={{ margin: "0 0 4px" }}>2. Отправьте ему код ниже</p>
+              <p style={{ margin: 0 }}>3. Дождитесь подтверждения</p>
+            </div>
+            {telegramOtp && (
+              <div style={{ textAlign: "center", margin: "16px 0" }}>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6 }}>Ваш код привязки:</p>
+                <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: 8, fontFamily: "monospace", color: "var(--accent)" }}>
+                  {telegramOtp}
+                </div>
+                <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>Действителен 10 минут</p>
+              </div>
+            )}
             <a
               href={telegramBotUrl}
               target="_blank"
@@ -425,11 +436,23 @@ export default function SettingsPage() {
           >
             {setupMethod === "totp" && totpUrl && (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 12 }}>
+                <div style={{ background: "var(--bg-secondary, #f5f5f5)", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 13, lineHeight: 1.5, color: "var(--text-secondary)", textAlign: "left", width: "100%" }}>
+                  <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--text-primary)" }}>Как настроить:</p>
+                  <p style={{ margin: "0 0 4px" }}>1. Скачайте приложение-аутентификатор:</p>
+                  <p style={{ margin: "0 0 4px", paddingLeft: 12 }}>
+                    <a href="https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>Google Authenticator</a>
+                    {" или "}
+                    <a href="https://play.google.com/store/apps/details?id=com.yandex.key" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>Яндекс Ключ</a>
+                  </p>
+                  <p style={{ margin: "0 0 4px" }}>2. Откройте приложение и нажмите &quot;+&quot;</p>
+                  <p style={{ margin: "0 0 4px" }}>3. Отсканируйте QR-код ниже</p>
+                  <p style={{ margin: 0 }}>4. Введите 6-значный код из приложения</p>
+                </div>
                 <div style={{ background: "#fff", padding: 12, borderRadius: 8, marginBottom: 8 }}>
                   <QRCodeSVG value={totpUrl} size={160} />
                 </div>
                 <p style={{ fontSize: 11, color: "var(--text-muted)", wordBreak: "break-all", textAlign: "center" }}>
-                  Секрет: {totpSecret}
+                  Или введите секрет вручную: {totpSecret}
                 </p>
               </div>
             )}

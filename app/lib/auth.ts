@@ -118,6 +118,8 @@ export interface InviteCode {
   name: string;
   organization: string | null;
   uses_remaining: number | null;
+  chat_limit: number | null;
+  infographic_limit: number | null;
   device_limit: number | null;
   is_active: boolean;
   created_at: string;
@@ -136,8 +138,11 @@ export async function validateInviteCode(
 
   if (error || !data) return null;
 
-  // Если есть лимит использований и он исчерпан
-  if (data.uses_remaining !== null && data.uses_remaining <= 0) return null;
+  // Если есть лимит использований и он исчерпан — блокируем ТОЛЬКО если нет пароля.
+  // Пользователи с паролем могут логиниться неограниченно.
+  if (data.uses_remaining !== null && data.uses_remaining <= 0 && !data.password_hash) {
+    return null;
+  }
 
   return data as InviteCode;
 }
@@ -337,6 +342,8 @@ export async function getInviteCodeFromHeader(
       name: getAdminName(code) ?? "Админ",
       organization: "Админ",
       uses_remaining: null,
+      chat_limit: null,
+      infographic_limit: null,
       device_limit: null,
       is_active: true,
       created_at: new Date().toISOString(),

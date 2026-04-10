@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { apiUrl } from "@/app/lib/api";
+import { getOrAssignAvatarColor } from "@/app/lib/avatarColors";
 import { QRCodeSVG } from "qrcode.react";
 
 type Step =
@@ -77,7 +78,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     };
   }, []);
 
-  // На входе проверяем сохранённый код
+  // На входе загружаем сохранённый код (если есть)
   useEffect(() => {
     const stored = localStorage.getItem("snabchat_invite_code");
     if (stored) {
@@ -96,6 +97,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     localStorage.setItem("snabchat_user_name", data.name);
     localStorage.removeItem("snabchat_is_admin");
     localStorage.removeItem("snabchat_admin_code");
+    getOrAssignAvatarColor();
     onSuccess({
       type: "user",
       code: data.code,
@@ -104,67 +106,87 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     });
   }, [onSuccess]);
 
-  /* ── Шаг 1: Ввод инвайт-кода ── */
-  const handleCodeSubmit = async (e: React.FormEvent) => {
+  /* ── Единый ввод: пароль или инвайт-код ── */
+  const handleUnifiedSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    const trimmed = code.trim().toUpperCase();
+    const input = code.trim();
+    if (!input) return;
     setLoading(true);
 
     try {
       const deviceId = getOrCreateDeviceId();
-      const res = await fetch(apiUrl("/api/auth/login"), {
+
+      // 1. Попробовать как пароль (возвращающиеся пользователи)
+      const pwRes = await fetch(apiUrl("/api/auth/login-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: trimmed, device_id: deviceId }),
+        body: JSON.stringify({ password: input, device_id: deviceId }),
       });
 
-      const data = await res.json();
+      if (pwRes.ok) {
+        const data = await pwRes.json();
+        setInviteCodeId(data.inviteCodeId);
+        setUserName(data.name);
+        setSavedCode(data.code);
+        localStorage.setItem("snabchat_invite_code", data.code);
+        setTwoFactorMethods(data.twoFactorMethods || []);
+        setCode("");
 
-      if (!res.ok) {
-        setError(data.error || "Ошибка авторизации");
+        if (data.twoFactorMethods && data.twoFactorMethods.length > 0) {
+          setStep("2fa-choose");
+        } else {
+          setStep("recommend-2fa");
+        }
+        return;
+      }
+
+      // 2. Попробовать как инвайт-код (первый вход) или админ-код
+      const codeRes = await fetch(apiUrl("/api/auth/login"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: input.toUpperCase(), device_id: deviceId }),
+      });
+
+      const codeData = await codeRes.json();
+
+      if (!codeRes.ok) {
+        setError("Неверный пароль или инвайт-код");
         return;
       }
 
       // Админ
-      if (data.type === "admin") {
-        localStorage.setItem("snabchat_admin_code", data.code);
-        localStorage.setItem("snabchat_user_name", data.adminName);
+      if (codeData.type === "admin") {
+        localStorage.setItem("snabchat_admin_code", codeData.code);
+        localStorage.setItem("snabchat_user_name", codeData.adminName);
+        getOrAssignAvatarColor();
         localStorage.setItem("snabchat_is_admin", "true");
-        localStorage.setItem("snabchat_invite_code", data.code);
-        if (data.isDocumentAdmin) {
-          localStorage.setItem("snabchat_is_doc_admin", "true");
-        } else {
-          localStorage.removeItem("snabchat_is_doc_admin");
-        }
-        if (data.isPrimaryAdmin) {
-          localStorage.setItem("snabchat_is_primary_admin", "true");
-        } else {
-          localStorage.removeItem("snabchat_is_primary_admin");
-        }
+        localStorage.setItem("snabchat_invite_code", codeData.code);
+        if (codeData.isDocumentAdmin) localStorage.setItem("snabchat_is_doc_admin", "true");
+        else localStorage.removeItem("snabchat_is_doc_admin");
+        if (codeData.isPrimaryAdmin) localStorage.setItem("snabchat_is_primary_admin", "true");
+        else localStorage.removeItem("snabchat_is_primary_admin");
         router.push("/admin");
         return;
       }
 
-      // Пользователь
-      setInviteCodeId(data.inviteCodeId);
-      setUserName(data.name);
-      setSavedCode(data.code);
-      localStorage.setItem("snabchat_invite_code", data.code);
+      // Пользователь с инвайт-кодом
+      setInviteCodeId(codeData.inviteCodeId);
+      setUserName(codeData.name);
+      setSavedCode(codeData.code);
+      localStorage.setItem("snabchat_invite_code", codeData.code);
 
-      if (!data.hasPassword) {
-        // Первый вход — создать пароль
+      if (!codeData.hasPassword) {
         setStep("set-password");
       } else {
-        // Есть пароль — ввести его
-        setTwoFactorMethods(data.twoFactorMethods || []);
-        setStep("password");
+        // У пользователя есть пароль — инвайт-код больше не нужен
+        setError("Введите ваш пароль, а не инвайт-код. Инвайт-код действует только при первом входе.");
       }
     } catch (err) {
       console.error("[login] fetch failed:", err);
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("TypeError")) {
-        setError("Не удалось подключиться к серверу. Проверьте интернет-соединение.");
+        setError("Не удалось подключиться к серверу");
       } else {
         setError("Ошибка подключения к серверу");
       }
@@ -219,10 +241,18 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
 
     try {
       const deviceId = getOrCreateDeviceId();
-      const res = await fetch(apiUrl("/api/auth/verify-password"), {
+
+      // Если есть сохранённый код — используем verify-password, иначе login-password
+      const hasCode = !!savedCode;
+      const url = hasCode ? "/api/auth/verify-password" : "/api/auth/login-password";
+      const body = hasCode
+        ? { code: savedCode, password, device_id: deviceId }
+        : { password, device_id: deviceId };
+
+      const res = await fetch(apiUrl(url), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: savedCode, password, device_id: deviceId }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
@@ -233,12 +263,15 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
 
       setInviteCodeId(data.inviteCodeId);
       setUserName(data.name);
+      setSavedCode(data.code);
+      localStorage.setItem("snabchat_invite_code", data.code);
       setTwoFactorMethods(data.twoFactorMethods || []);
       setPassword("");
 
       if (data.twoFactorMethods && data.twoFactorMethods.length > 0) {
         setStep("2fa-choose");
       } else {
+        // Всегда предлагать настроить 2FA если она не настроена
         setStep("recommend-2fa");
       }
     } catch {
@@ -322,6 +355,8 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     return null;
   }, [savedCode]);
 
+  const [telegramOtp, setTelegramOtp] = useState("");
+
   /* ── Настройка Telegram ── */
   const handleTelegramSetup = async () => {
     setError("");
@@ -334,9 +369,10 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Ошибка");
+        setError(data.error || "Ошибка создания кода");
         return;
       }
+      setTelegramOtp(data.otp || "");
       setTelegramBotUrl(data.botUrl);
       setSetupSubStep("configure");
 
@@ -485,15 +521,15 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
           ИИ-ассистент Дирекции по закупкам
         </p>
 
-        {/* ══ Шаг 1: Ввод кода ══ */}
+        {/* ══ Единое поле: пароль или инвайт-код ══ */}
         {step === "code" && (
-          <form onSubmit={handleCodeSubmit} className="invite-gate-form">
+          <form onSubmit={handleUnifiedSubmit} className="invite-gate-form">
             <div className="invite-gate-input-wrapper">
               <input
                 type={showCode ? "text" : "password"}
                 value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder="Введите код доступа"
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="Пароль или инвайт-код"
                 className="invite-gate-input"
                 disabled={loading}
                 autoFocus
@@ -509,7 +545,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
             </div>
             {error && <p className="invite-gate-error">{error}</p>}
             <button type="submit" disabled={!code.trim() || loading} className="invite-gate-submit">
-              {loading ? "Проверка..." : "Далее"}
+              {loading ? "Проверка..." : "Войти"}
             </button>
           </form>
         )}
@@ -557,40 +593,6 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
           </form>
         )}
 
-        {/* ══ Шаг 3: Ввод пароля ══ */}
-        {step === "password" && (
-          <form onSubmit={handlePasswordSubmit} className="invite-gate-form">
-            <p className="invite-gate-register-hint" style={{ marginBottom: 8 }}>
-              Введите пароль
-            </p>
-            <div className="invite-gate-input-wrapper">
-              <input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Пароль"
-                className="invite-gate-input"
-                disabled={loading}
-                autoFocus
-              />
-              <button type="button" onClick={() => setShowPassword(!showPassword)} className="invite-gate-toggle" tabIndex={-1}>
-                <EyeIcon open={showPassword} />
-              </button>
-            </div>
-            {error && <p className="invite-gate-error">{error}</p>}
-            <button type="submit" disabled={!password || loading} className="invite-gate-submit">
-              {loading ? "Проверка..." : "Войти"}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setStep("code"); setError(""); setPassword(""); setSavedCode(""); localStorage.removeItem("snabchat_invite_code"); }}
-              className="invite-gate-back"
-              disabled={loading}
-            >
-              Другой код
-            </button>
-          </form>
-        )}
 
         {/* ══ Шаг 4: Рекомендация 2FA ══ */}
         {step === "recommend-2fa" && (
@@ -711,15 +713,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
                   >
                     {twoFAStatus.telegram ? "Telegram (привязан)" : "Привязать Telegram"}
                   </button>
-                  {/* SMS */}
-                  <button
-                    className="invite-gate-submit"
-                    style={{ margin: 0, background: twoFAStatus.sms ? "var(--success, #4caf50)" : undefined }}
-                    onClick={() => { if (!twoFAStatus.sms) { setSetupMethod("sms"); setSetupSubStep("configure"); } }}
-                    disabled={twoFAStatus.sms || loading}
-                  >
-                    {twoFAStatus.sms ? "SMS (привязан)" : "Привязать SMS"}
-                  </button>
+                  {/* SMS — скрыт из интерфейса, код остаётся */}
                   {/* TOTP */}
                   <button
                     className="invite-gate-submit"
@@ -745,10 +739,20 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
             {setupSubStep === "configure" && setupMethod === "telegram" && (
               <>
                 <p className="invite-gate-register-hint">Привязка Telegram</p>
-                <p style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginBottom: 12 }}>
-                  Нажмите кнопку ниже, чтобы открыть бот в Telegram.
-                  После этого нажмите &quot;Start&quot; в боте.
-                </p>
+                <div style={{ background: "var(--bg-secondary, #f5f5f5)", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 13, lineHeight: 1.5 }}>
+                  <p style={{ margin: "0 0 4px" }}>1. Откройте бот в Telegram</p>
+                  <p style={{ margin: "0 0 4px" }}>2. Отправьте ему код ниже</p>
+                  <p style={{ margin: 0 }}>3. Дождитесь подтверждения</p>
+                </div>
+                {telegramOtp && (
+                  <div style={{ textAlign: "center", margin: "12px 0" }}>
+                    <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6 }}>Ваш код привязки:</p>
+                    <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: 8, fontFamily: "monospace", color: "var(--accent)" }}>
+                      {telegramOtp}
+                    </div>
+                    <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>Действителен 10 минут</p>
+                  </div>
+                )}
                 <a
                   href={telegramBotUrl}
                   target="_blank"
@@ -815,11 +819,23 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
                 </p>
                 {setupMethod === "totp" && totpUrl && (
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 12 }}>
+                    <div style={{ background: "var(--bg-secondary, #f5f5f5)", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 13, lineHeight: 1.5, color: "var(--text-secondary)" }}>
+                      <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--text-primary)" }}>Как настроить:</p>
+                      <p style={{ margin: "0 0 4px" }}>1. Скачайте приложение-аутентификатор:</p>
+                      <p style={{ margin: "0 0 4px", paddingLeft: 12 }}>
+                        <a href="https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>Google Authenticator</a>
+                        {" или "}
+                        <a href="https://play.google.com/store/apps/details?id=com.yandex.key" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>Яндекс Ключ</a>
+                      </p>
+                      <p style={{ margin: "0 0 4px" }}>2. Откройте приложение и нажмите &quot;+&quot;</p>
+                      <p style={{ margin: "0 0 4px" }}>3. Отсканируйте QR-код ниже</p>
+                      <p style={{ margin: 0 }}>4. Введите 6-значный код из приложения</p>
+                    </div>
                     <div style={{ background: "#fff", padding: 12, borderRadius: 8, marginBottom: 8 }}>
                       <QRCodeSVG value={totpUrl} size={180} />
                     </div>
                     <p style={{ fontSize: 11, color: "var(--text-muted)", wordBreak: "break-all", textAlign: "center" }}>
-                      Секрет: {totpSecret}
+                      Или введите секрет вручную: {totpSecret}
                     </p>
                   </div>
                 )}

@@ -67,6 +67,29 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "x-invite-code", "x-admin-code"],
 }));
 
+// ── Origin validation for mutation requests ──
+// Block POST/PATCH/DELETE without a valid Origin header (prevents curl/Postman/scripts)
+const ORIGIN_EXEMPT_PATHS = ["/health", "/api/telegram/webhook"];
+app.use((req, res, next) => {
+  if (req.method === "GET" || req.method === "OPTIONS" || req.method === "HEAD") {
+    return next();
+  }
+  const path = req.path;
+  if (ORIGIN_EXEMPT_PATHS.some((p) => path.startsWith(p))) {
+    return next();
+  }
+  const origin = req.headers.origin;
+  if (!origin) {
+    console.warn(`[Origin] Blocked no-origin ${req.method} ${path} from ${req.ip}`);
+    return res.status(403).json({ error: "Запрос отклонён: отсутствует Origin" });
+  }
+  if (!uniqueOrigins.includes(origin)) {
+    console.warn(`[Origin] Blocked invalid origin ${origin} for ${req.method} ${path}`);
+    return res.status(403).json({ error: "Запрос отклонён: недопустимый Origin" });
+  }
+  next();
+});
+
 // ── Body parsing ──
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));

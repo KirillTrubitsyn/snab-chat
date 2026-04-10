@@ -2,12 +2,12 @@ import { Router, Request, Response } from "express";
 import { createServiceClient } from "../lib/supabase.js";
 import { requireAdmin } from "../lib/auth.js";
 import { getAdminByChatId, notifySupportReply, answerCallbackQuery, sendTelegramMessage, send2FAMessage } from "../lib/telegram.js";
+import { getMoscowTime } from "../lib/date-utils.js";
 import { timingSafeEqual } from "crypto";
 
 const router = Router();
 
 const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET ?? "";
-const WEBHOOK_2FA_SECRET = process.env.TELEGRAM_2FA_WEBHOOK_SECRET || WEBHOOK_SECRET;
 
 /** Извлечь REF:uuid из текста */
 function extractRef(text: string | undefined): string | null {
@@ -131,97 +131,9 @@ router.post("/api/telegram/test", async (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/telegram/test-2fa — проверка 2FA-бота.
- */
-router.post("/api/telegram/test-2fa", async (req: Request, res: Response) => {
-  try {
-    const adminCheck = requireAdmin(req, res);
-    if (!adminCheck) return;
-
-    const botToken = process.env.TELEGRAM_2FA_BOT_TOKEN;
-    const botUsername = process.env.TELEGRAM_2FA_BOT_USERNAME || "";
-
-    if (!botToken) {
-      return res.status(500).json({ error: "TELEGRAM_2FA_BOT_TOKEN не задан в переменных окружения" });
-    }
-
-    const results: Record<string, unknown> = {
-      bot_token_set: true,
-      bot_username: botUsername,
-    };
-
-    // Проверить getMe
-    try {
-      const meRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
-      const meData = await meRes.json();
-      if (meData.ok) {
-        results.bot_info = {
-          id: meData.result.id,
-          username: meData.result.username,
-          first_name: meData.result.first_name,
-        };
-        results.bot_username = meData.result.username;
-      } else {
-        results.bot_error = meData.description || "Токен невалидный";
-        return res.json(results);
-      }
-    } catch (e) {
-      results.bot_error = `Ошибка сети: ${e}`;
-      return res.json(results);
-    }
-
-    // Проверить webhook
-    try {
-      const whRes = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
-      const whData = await whRes.json();
-      if (whData.ok) {
-        results.webhook = {
-          url: whData.result.url || null,
-          pending_update_count: whData.result.pending_update_count,
-          last_error_date: whData.result.last_error_date || null,
-          last_error_message: whData.result.last_error_message || null,
-        };
-      }
-    } catch { /* ignore */ }
-
-    // Тестовое сообщение первому админу
-    const adminChatId = process.env.TELEGRAM_ADMIN_CHAT_ID_1;
-    if (adminChatId) {
-      try {
-        const { getMoscowTime } = await import("../lib/date-utils.js");
-        const text =
-          `🧪 <b>Тест 2FA-бота СнабЧат</b>\n\n` +
-          `✅ 2FA бот @${results.bot_username} работает\n` +
-          `🕐 ${getMoscowTime()}`;
-
-        const sendRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chat_id: adminChatId, text, parse_mode: "HTML" }),
-        });
-        const sendData = await sendRes.json();
-        results.test_send = {
-          ok: sendData.ok,
-          chat_id: adminChatId,
-          error: sendData.ok ? null : sendData.description,
-        };
-      } catch (e) {
-        results.test_send = { ok: false, chat_id: adminChatId, error: String(e) };
-      }
-    } else {
-      results.test_send = { ok: false, error: "TELEGRAM_ADMIN_CHAT_ID_1 не задан" };
-    }
-
-    return res.json(results);
-  } catch (err) {
-    console.error("[telegram/test-2fa] Error:", err);
-    return res.status(500).json({ error: "Ошибка теста 2FA" });
-  }
-});
-
-/**
  * POST /api/telegram/setup — регистрация Telegram webhook(ов).
  * Регистрирует основной бот + 2FA-бот (если настроен).
+ * Доступно только админам.
  */
 router.post("/api/telegram/setup", async (req: Request, res: Response) => {
   try {
@@ -237,16 +149,22 @@ router.post("/api/telegram/setup", async (req: Request, res: Response) => {
       return res.status(500).json({ error: "TELEGRAM_BOT_TOKEN не настроен" });
     }
 
-    // Webhook на фронтенд (Next.js), не на backend
-    const frontendUrl = process.env.FRONTEND_URL || "https://www.snabchat.app";
+    // Webhook URL should point to the frontend (Vercel/Next.js), not backend
+    const frontendUrl = (process.env.FRONTEND_URL || "").split(",")[0]?.trim();
+    const host = frontendUrl
+      ? new URL(frontendUrl).host
+      : (req.headers["host"] as string) ?? "www.snabchat.app";
+    const protocol = host.includes("localhost") ? "http" : "https";
 
     // ── Основной бот ──
-    const webhookUrl = `${frontendUrl}/api/telegram/webhook`;
+    const webhookUrl = `${protocol}://${host}/api/telegram/webhook`;
     const body: Record<string, unknown> = {
       url: webhookUrl,
       allowed_updates: ["message", "callback_query"],
     };
-    if (webhookSecret) body.secret_token = webhookSecret;
+    if (webhookSecret) {
+      body.secret_token = webhookSecret;
+    }
 
     const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
       method: "POST",
@@ -255,16 +173,21 @@ router.post("/api/telegram/setup", async (req: Request, res: Response) => {
     });
     const mainResult = await tgRes.json();
 
-    // ── 2FA бот ──
+    // ── 2FA бот (если настроен) ──
     let twoFAResult = null;
     let webhook2FAUrl = "";
     if (bot2FAToken) {
-      webhook2FAUrl = `${frontendUrl}/api/telegram/webhook-2fa`;
+      // 2FA webhook points to backend (Railway), not frontend, to share the same DB
+      const backendHost = (req.headers["host"] as string) ?? host;
+      const backendProtocol = backendHost.includes("localhost") ? "http" : "https";
+      webhook2FAUrl = `${backendProtocol}://${backendHost}/api/telegram/webhook-2fa`;
       const body2FA: Record<string, unknown> = {
         url: webhook2FAUrl,
         allowed_updates: ["message"],
       };
-      if (webhook2FASecret) body2FA.secret_token = webhook2FASecret;
+      if (webhook2FASecret) {
+        body2FA.secret_token = webhook2FASecret;
+      }
 
       const res2FA = await fetch(`https://api.telegram.org/bot${bot2FAToken}/setWebhook`, {
         method: "POST",
@@ -292,6 +215,93 @@ router.post("/api/telegram/setup", async (req: Request, res: Response) => {
     console.error("[telegram/setup] Error:", err);
     return res.status(500).json({ error: "Ошибка настройки webhook" });
   }
+});
+
+/**
+ * POST /api/telegram/test-2fa — проверка 2FA-бота.
+ */
+router.post("/api/telegram/test-2fa", async (req: Request, res: Response) => {
+  const adminCheck = requireAdmin(req, res);
+  if (!adminCheck) return;
+
+  const botToken = process.env.TELEGRAM_2FA_BOT_TOKEN;
+  const botUsername = process.env.TELEGRAM_2FA_BOT_USERNAME || "";
+
+  if (!botToken) {
+    return res.status(500).json({ error: "TELEGRAM_2FA_BOT_TOKEN не задан в переменных окружения" });
+  }
+
+  const results: Record<string, unknown> = {
+    bot_token_set: true,
+    bot_username: botUsername,
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  type TgResponse = { ok: boolean; result?: any; description?: string };
+
+  // Проверить getMe
+  try {
+    const meRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+    const meData = (await meRes.json()) as TgResponse;
+    if (meData.ok) {
+      results.bot_info = {
+        id: meData.result.id,
+        username: meData.result.username,
+        first_name: meData.result.first_name,
+      };
+      results.bot_username = meData.result.username;
+    } else {
+      results.bot_error = meData.description || "Токен невалидный";
+      return res.json(results);
+    }
+  } catch (e) {
+    results.bot_error = `Ошибка сети: ${e}`;
+    return res.json(results);
+  }
+
+  // Проверить webhook
+  try {
+    const whRes = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
+    const whData = (await whRes.json()) as TgResponse;
+    if (whData.ok) {
+      results.webhook = {
+        url: whData.result.url || null,
+        has_custom_certificate: whData.result.has_custom_certificate,
+        pending_update_count: whData.result.pending_update_count,
+        last_error_date: whData.result.last_error_date || null,
+        last_error_message: whData.result.last_error_message || null,
+      };
+    }
+  } catch { /* ignore */ }
+
+  // Отправить тестовое сообщение
+  const adminChatId = process.env.TELEGRAM_ADMIN_CHAT_ID_1;
+  if (adminChatId) {
+    try {
+      const text =
+        `🧪 <b>Тест 2FA-бота СнабЧат</b>\n\n` +
+        `✅ 2FA бот @${results.bot_username} работает\n` +
+        `🕐 ${getMoscowTime()}`;
+
+      const sendRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: adminChatId, text, parse_mode: "HTML" }),
+      });
+      const sendData = (await sendRes.json()) as TgResponse;
+      results.test_send = {
+        ok: sendData.ok,
+        chat_id: adminChatId,
+        error: sendData.ok ? null : sendData.description,
+      };
+    } catch (e) {
+      results.test_send = { ok: false, chat_id: adminChatId, error: String(e) };
+    }
+  } else {
+    results.test_send = { ok: false, error: "TELEGRAM_ADMIN_CHAT_ID_1 не задан" };
+  }
+
+  return res.json(results);
 });
 
 /**
@@ -406,6 +416,102 @@ router.post("/api/telegram/webhook", async (req: Request, res: Response) => {
     console.error("[telegram/webhook] Error:", err);
     return res.json({ ok: true });
   }
+});
+
+/**
+ * POST /api/telegram/webhook-2fa — вебхук 2FA-бота (@SC2FA_Bot).
+ * Пользователь отправляет 6-значный OTP-код для привязки Telegram.
+ */
+const WEBHOOK_2FA_SECRET = process.env.TELEGRAM_2FA_WEBHOOK_SECRET || WEBHOOK_SECRET;
+
+router.post("/api/telegram/webhook-2fa", async (req: Request, res: Response) => {
+  if (!WEBHOOK_2FA_SECRET) {
+    console.error("[Telegram 2FA Webhook] Secret not configured");
+    return res.status(500).json({ ok: false });
+  }
+
+  const secret = (req.headers["x-telegram-bot-api-secret-token"] as string) ?? "";
+  try {
+    const a = Buffer.from(secret, "utf8");
+    const b = Buffer.from(WEBHOOK_2FA_SECRET, "utf8");
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      return res.status(401).json({ ok: false });
+    }
+  } catch {
+    return res.status(401).json({ ok: false });
+  }
+
+  const update = req.body;
+  const message = update?.message;
+  if (!message?.text) {
+    return res.json({ ok: true });
+  }
+
+  const chatId = String(message.chat.id);
+  const messageText = message.text.trim();
+
+  // /start — show instructions
+  if (messageText === "/start" || messageText.startsWith("/start ")) {
+    await send2FAMessage(
+      "🔐 <b>СнабЧат — привязка Telegram</b>\n\n" +
+      "Для привязки Telegram к аккаунту:\n" +
+      "1. Откройте настройки на сайте СнабЧат\n" +
+      "2. Нажмите «Включить» напротив Telegram\n" +
+      "3. Скопируйте 6-значный код\n" +
+      "4. Отправьте его сюда",
+      chatId
+    );
+    return res.json({ ok: true });
+  }
+
+  // 6-digit OTP code
+  const codeMatch = messageText.match(/^\d{6}$/);
+  if (codeMatch) {
+    const code = codeMatch[0];
+    const supabase = createServiceClient();
+
+    const { data: otpRecord, error } = await supabase
+      .from("otp_codes")
+      .select("id, invite_code_id, expires_at")
+      .eq("code", code)
+      .eq("method", "telegram")
+      .eq("used", false)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !otpRecord) {
+      await send2FAMessage("❌ Неверный или просроченный код. Запросите новый в настройках.", chatId);
+      return res.json({ ok: true });
+    }
+
+    if (new Date(otpRecord.expires_at) < new Date()) {
+      await send2FAMessage("❌ Код истёк. Запросите новый в настройках.", chatId);
+      return res.json({ ok: true });
+    }
+
+    const { error: updateError } = await supabase
+      .from("invite_codes")
+      .update({ telegram_chat_id: chatId })
+      .eq("id", otpRecord.invite_code_id);
+
+    if (updateError) {
+      console.error("[2FA Webhook] Link error:", updateError.message);
+      await send2FAMessage("❌ Ошибка привязки. Попробуйте ещё раз.", chatId);
+      return res.json({ ok: true });
+    }
+
+    await supabase.from("otp_codes").update({ used: true }).eq("id", otpRecord.id);
+
+    await send2FAMessage(
+      "✅ Telegram успешно привязан!\n\nТеперь вы будете получать коды для входа через этот чат.",
+      chatId
+    );
+    return res.json({ ok: true });
+  }
+
+  await send2FAMessage("Отправьте 6-значный код из настроек СнабЧат.", chatId);
+  return res.json({ ok: true });
 });
 
 export default router;
