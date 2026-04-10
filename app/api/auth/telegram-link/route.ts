@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateInviteCode } from "@/app/lib/auth";
 import { telegramLinkSchema, parseBody } from "@/app/lib/validation";
-import { createServiceClient } from "@/app/lib/supabase";
-import { randomUUID } from "crypto";
+import { generateOTP, saveOTP } from "@/app/lib/otp";
 
 const BOT_USERNAME = process.env.TELEGRAM_2FA_BOT_USERNAME || process.env.TELEGRAM_BOT_USERNAME || "";
 
 /**
- * POST /api/auth/telegram-link — генерация deep link для привязки Telegram.
+ * POST /api/auth/telegram-link — генерация OTP для привязки Telegram.
+ * Пользователь получает код, отправляет его боту, бот привязывает аккаунт.
  * Body: { code }
- * Response: { token, botUrl }
+ * Response: { otp, botUrl }
  */
 export async function POST(req: NextRequest) {
   try {
@@ -30,35 +30,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const supabase = createServiceClient();
+    const otp = generateOTP();
+    await saveOTP(invite.id, otp, "telegram", 10); // 10 minutes
 
-    // Инвалидировать старые неиспользованные токены
-    await supabase
-      .from("telegram_link_tokens")
-      .update({ used: true })
-      .eq("invite_code_id", invite.id)
-      .eq("used", false);
+    const botUrl = `https://t.me/${BOT_USERNAME}`;
 
-    // Создать новый токен (10 минут)
-    const token = randomUUID().replace(/-/g, "");
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-
-    const { error: insertError } = await supabase
-      .from("telegram_link_tokens")
-      .insert({
-        invite_code_id: invite.id,
-        token,
-        expires_at: expiresAt,
-      });
-
-    if (insertError) {
-      console.error("[telegram-link] DB error:", insertError.message);
-      return NextResponse.json({ error: "Ошибка создания токена" }, { status: 500 });
-    }
-
-    const botUrl = `https://t.me/${BOT_USERNAME}?start=${token}`;
-
-    return NextResponse.json({ token, botUrl });
+    return NextResponse.json({ otp, botUrl });
   } catch {
     return NextResponse.json({ error: "Ошибка сервера" }, { status: 500 });
   }

@@ -351,7 +351,7 @@ router.post("/api/auth/verify-otp", async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/auth/telegram-link
+// POST /api/auth/telegram-link — генерация OTP для привязки Telegram
 router.post("/api/auth/telegram-link", async (req: Request, res: Response) => {
   try {
     const parsed = parseBody(req.body, telegramLinkSchema, res);
@@ -367,36 +367,12 @@ router.post("/api/auth/telegram-link", async (req: Request, res: Response) => {
       return res.status(500).json({ error: "TELEGRAM_BOT_USERNAME не настроен" });
     }
 
-    const supabase = createServiceClient();
+    const otp = generateOTP();
+    await saveOTP(invite.id, otp, "telegram", 10); // 10 minutes
 
-    // Инвалидировать старые неиспользованные токены
-    await supabase
-      .from("telegram_link_tokens")
-      .update({ used: true })
-      .eq("invite_code_id", invite.id)
-      .eq("used", false);
+    const botUrl = `https://t.me/${BOT_USERNAME}`;
 
-    // Создать новый токен (10 минут)
-    const token = randomUUID().replace(/-/g, "");
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-
-    const { error: insertError } = await supabase
-      .from("telegram_link_tokens")
-      .insert({
-        invite_code_id: invite.id,
-        token,
-        expires_at: expiresAt,
-      });
-
-    if (insertError) {
-      console.error("[telegram-link] DB error:", insertError.message);
-      return res.status(500).json({ error: "Ошибка создания токена" });
-    }
-
-    const botUrl = `https://t.me/${BOT_USERNAME}?start=${token}`;
-
-    console.log(`[telegram-link] Token created: ${token.slice(0, 8)}... for invite ${invite.id}, bot: ${BOT_USERNAME}`);
-    return res.json({ token, botUrl });
+    return res.json({ otp, botUrl });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });
   }

@@ -146,28 +146,30 @@ export default function SettingsPage() {
     }
   };
 
-  /* ── Telegram setup ── */
+  /* ── Telegram setup (OTP-based) ── */
+  const [telegramOtp, setTelegramOtp] = useState("");
+
   const handleTelegramSetup = async () => {
     setError("");
     setLoading(true);
     try {
-      const res = await fetch(apiUrl("/api/auth/telegram-link"), {
+      const otpRes = await fetch(apiUrl("/api/auth/telegram-link"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: inviteCode }),
       });
-      const data = await res.json();
-      if (!res.ok) {
+      const data = await otpRes.json();
+      if (!otpRes.ok) {
         setError(data.error || "Ошибка");
         return;
       }
+      setTelegramOtp(data.otp || "");
       setTelegramBotUrl(data.botUrl);
       setSetupMethod("telegram");
       setSetupStep("configure");
 
       if (telegramPollRef.current) clearInterval(telegramPollRef.current);
       telegramPollRef.current = setInterval(async () => {
-        await loadStatus();
         const r = await fetch(apiUrl(`/api/auth/2fa-status?code=${encodeURIComponent(inviteCode)}`));
         if (r.ok) {
           const s = await r.json();
@@ -177,6 +179,7 @@ export default function SettingsPage() {
             setSetupMethod("");
             setSetupStep("");
             setTelegramBotUrl("");
+            setTelegramOtp("");
             setSuccess("Telegram привязан");
           }
         }
@@ -381,9 +384,21 @@ export default function SettingsPage() {
         {/* ── Setup dialogs ── */}
         {setupStep === "configure" && setupMethod === "telegram" && (
           <SetupDialog title="Привязка Telegram" onCancel={cancelSetup}>
-            <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 12 }}>
-              Нажмите кнопку, чтобы открыть бот в Telegram. Затем нажмите &quot;Start&quot;.
-            </p>
+            <div style={{ background: "var(--bg-secondary, #f5f5f5)", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 13, lineHeight: 1.5 }}>
+              <p style={{ margin: "0 0 6px", fontWeight: 600 }}>Как привязать:</p>
+              <p style={{ margin: "0 0 4px" }}>1. Откройте бот в Telegram</p>
+              <p style={{ margin: "0 0 4px" }}>2. Отправьте ему код ниже</p>
+              <p style={{ margin: 0 }}>3. Дождитесь подтверждения</p>
+            </div>
+            {telegramOtp && (
+              <div style={{ textAlign: "center", margin: "16px 0" }}>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6 }}>Ваш код привязки:</p>
+                <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: 8, fontFamily: "monospace", color: "var(--accent)" }}>
+                  {telegramOtp}
+                </div>
+                <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>Действителен 10 минут</p>
+              </div>
+            )}
             <a
               href={telegramBotUrl}
               target="_blank"
