@@ -10,6 +10,7 @@ const RATE_LIMITS: Record<string, [number, number]> = {
   "/api/kb-search":  [30, 60_000],   // 30 req/min — kb search
   "/api/infographic":[5,  60_000],   // 5 req/min — heavy LLM + image
   "/api/auth/login": [10, 60_000],   // 10 req/min — brute-force protection
+  "/api/auth/login-password": [5, 60_000], // 5 req/min — password-only login (bcrypt-heavy)
   "/api/auth/register": [5, 60_000], // 5 req/min — registration
   "/api/support":    [10, 60_000],   // 10 req/min — support messages
 };
