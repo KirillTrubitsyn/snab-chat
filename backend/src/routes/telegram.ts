@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { createServiceClient } from "../lib/supabase.js";
 import { requireAdmin } from "../lib/auth.js";
-import { getAdminByChatId, notifySupportReply, answerCallbackQuery, sendTelegramMessage } from "../lib/telegram.js";
+import { getAdminByChatId, notifySupportReply, answerCallbackQuery, sendTelegramMessage, send2FAMessage } from "../lib/telegram.js";
 import { getMoscowTime } from "../lib/date-utils.js";
 import { timingSafeEqual } from "crypto";
 
@@ -177,7 +177,10 @@ router.post("/api/telegram/setup", async (req: Request, res: Response) => {
     let twoFAResult = null;
     let webhook2FAUrl = "";
     if (bot2FAToken) {
-      webhook2FAUrl = `${protocol}://${host}/api/telegram/webhook-2fa`;
+      // 2FA webhook points to backend (Railway), not frontend, to share the same DB
+      const backendHost = (req.headers["host"] as string) ?? host;
+      const backendProtocol = backendHost.includes("localhost") ? "http" : "https";
+      webhook2FAUrl = `${backendProtocol}://${backendHost}/api/telegram/webhook-2fa`;
       const body2FA: Record<string, unknown> = {
         url: webhook2FAUrl,
         allowed_updates: ["message"],
@@ -413,6 +416,107 @@ router.post("/api/telegram/webhook", async (req: Request, res: Response) => {
     console.error("[telegram/webhook] Error:", err);
     return res.json({ ok: true });
   }
+});
+
+/**
+ * POST /api/telegram/webhook-2fa — вебхук 2FA-бота (@SC2FA_Bot).
+ * Обрабатывает /start <token> для привязки Telegram.
+ */
+const WEBHOOK_2FA_SECRET = process.env.TELEGRAM_2FA_WEBHOOK_SECRET || WEBHOOK_SECRET;
+
+router.post("/api/telegram/webhook-2fa", async (req: Request, res: Response) => {
+  if (!WEBHOOK_2FA_SECRET) {
+    console.error("[Telegram 2FA Webhook] Secret not configured");
+    return res.status(500).json({ ok: false });
+  }
+
+  const secret = (req.headers["x-telegram-bot-api-secret-token"] as string) ?? "";
+  try {
+    const a = Buffer.from(secret, "utf8");
+    const b = Buffer.from(WEBHOOK_2FA_SECRET, "utf8");
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      return res.status(401).json({ ok: false });
+    }
+  } catch {
+    return res.status(401).json({ ok: false });
+  }
+
+  const update = req.body;
+  const message = update?.message;
+  if (!message?.text) {
+    return res.json({ ok: true });
+  }
+
+  const chatId = String(message.chat.id);
+  const messageText = message.text.trim();
+
+  if (messageText.startsWith("/start ")) {
+    const token = messageText.slice(7).trim();
+    console.log(`[2FA Webhook] /start with token: ${token.slice(0, 8)}... (len=${token.length})`);
+
+    if (token.length < 10) {
+      return res.json({ ok: true });
+    }
+
+    const supabase = createServiceClient();
+
+    const { data: linkToken, error } = await supabase
+      .from("telegram_link_tokens")
+      .select("id, invite_code_id, expires_at, used")
+      .eq("token", token)
+      .maybeSingle();
+
+    console.log(`[2FA Webhook] DB lookup: found=${!!linkToken}, error=${error?.message || "none"}`);
+
+    if (error || !linkToken) {
+      await send2FAMessage("Недействительная ссылка. Запросите новую в настройках СнабЧат.", chatId);
+      return res.json({ ok: true });
+    }
+
+    if (linkToken.used) {
+      await send2FAMessage("Эта ссылка уже использована. Запросите новую.", chatId);
+      return res.json({ ok: true });
+    }
+
+    if (new Date(linkToken.expires_at) < new Date()) {
+      await send2FAMessage("Ссылка истекла. Запросите новую в настройках.", chatId);
+      return res.json({ ok: true });
+    }
+
+    const { error: updateError } = await supabase
+      .from("invite_codes")
+      .update({ telegram_chat_id: chatId })
+      .eq("id", linkToken.invite_code_id);
+
+    if (updateError) {
+      console.error("[2FA Webhook] Link error:", updateError.message);
+      await send2FAMessage("Ошибка привязки. Попробуйте ещё раз.", chatId);
+      return res.json({ ok: true });
+    }
+
+    await supabase
+      .from("telegram_link_tokens")
+      .update({ used: true })
+      .eq("id", linkToken.id);
+
+    await send2FAMessage(
+      "✅ Telegram успешно привязан к вашему аккаунту СнабЧат!\n\nТеперь вы будете получать коды для входа через этот чат.",
+      chatId
+    );
+
+    console.log(`[2FA Webhook] Telegram linked for ${linkToken.invite_code_id}`);
+    return res.json({ ok: true });
+  }
+
+  if (messageText === "/start") {
+    await send2FAMessage(
+      "Этот бот используется для двухфакторной аутентификации СнабЧат.\n\nДля привязки используйте ссылку из настроек на сайте.",
+      chatId
+    );
+    return res.json({ ok: true });
+  }
+
+  return res.json({ ok: true });
 });
 
 export default router;
