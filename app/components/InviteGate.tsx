@@ -249,7 +249,8 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       if (data.twoFactorMethods && data.twoFactorMethods.length > 0) {
         setStep("2fa-choose");
       } else {
-        completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code });
+        // Всегда предлагать настроить 2FA если она не настроена
+        setStep("recommend-2fa");
       }
     } catch {
       setError("Ошибка подключения к серверу");
@@ -822,11 +823,23 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
                 </p>
                 {setupMethod === "totp" && totpUrl && (
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 12 }}>
+                    <div style={{ background: "var(--bg-secondary, #f5f5f5)", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 13, lineHeight: 1.5, color: "var(--text-secondary)" }}>
+                      <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--text-primary)" }}>Как настроить:</p>
+                      <p style={{ margin: "0 0 4px" }}>1. Скачайте приложение-аутентификатор:</p>
+                      <p style={{ margin: "0 0 4px", paddingLeft: 12 }}>
+                        <a href="https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>Google Authenticator</a>
+                        {" или "}
+                        <a href="https://play.google.com/store/apps/details?id=com.yandex.key" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>Яндекс Ключ</a>
+                      </p>
+                      <p style={{ margin: "0 0 4px" }}>2. Откройте приложение и нажмите &quot;+&quot;</p>
+                      <p style={{ margin: "0 0 4px" }}>3. Отсканируйте QR-код ниже</p>
+                      <p style={{ margin: 0 }}>4. Введите 6-значный код из приложения</p>
+                    </div>
                     <div style={{ background: "#fff", padding: 12, borderRadius: 8, marginBottom: 8 }}>
                       <QRCodeSVG value={totpUrl} size={180} />
                     </div>
                     <p style={{ fontSize: 11, color: "var(--text-muted)", wordBreak: "break-all", textAlign: "center" }}>
-                      Секрет: {totpSecret}
+                      Или введите секрет вручную: {totpSecret}
                     </p>
                   </div>
                 )}
