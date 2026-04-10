@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   // Получаем все инвайт-коды со статистикой
   const { data: codes, error } = await supabase
     .from("invite_codes")
-    .select("*")
+    .select("id, code, name, organization, uses_remaining, chat_limit, infographic_limit, device_limit, is_active, created_at, password_hash, telegram_chat_id, phone_number, totp_secret")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -194,5 +194,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   logAuditEvent({ action: "invite_code.update", adminName: adminCheck.adminName, targetId: id, details: updates });
-  return NextResponse.json({ code: data });
+  // Strip sensitive fields from response
+  const { password_hash: _ph, totp_secret: _ts, ...safeData } = data as Record<string, unknown>;
+  return NextResponse.json({ code: safeData });
 }
