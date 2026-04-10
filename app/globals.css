@@ -2049,6 +2049,47 @@ input, textarea {
   color: var(--text-primary);
 }
 
+.user-menu-item--danger {
+  color: var(--error, #d32f2f);
+}
+
+.user-menu-item--danger:hover {
+  background: #fff1f1;
+  color: var(--error, #d32f2f);
+}
+
+.user-menu-color-section {
+  padding: 10px 16px;
+}
+
+.user-menu-color-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  font-family: var(--font-body);
+}
+
+.user-menu-color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.user-menu-color-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.12s;
+  flex-shrink: 0;
+}
+
+.user-menu-color-swatch:hover {
+  transform: scale(1.18);
+}
+
 @media (max-width: 768px) {
   .header-labeled-btn .btn-label {
     display: none;
