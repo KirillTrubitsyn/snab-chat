@@ -1428,21 +1428,8 @@ export default function Chat() {
                 <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
               </svg>
             </button>
-            {/* Desktop: inline logout button */}
-            <button
-              className="header-action-btn desktop-only"
-              onClick={handleLogout}
-              title="Выйти"
-              style={{ color: "var(--text-muted)" }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-            </button>
-            {/* Mobile: user avatar with dropdown menu */}
-            <div className="user-menu-wrapper mobile-only" ref={userMenuRef}>
+            {/* User avatar with dropdown menu (desktop + mobile) */}
+            <div className="user-menu-wrapper" ref={userMenuRef}>
               <button
                 className="user-menu-btn"
                 onClick={() => setUserMenuOpen((o) => !o)}
@@ -2292,12 +2279,6 @@ export default function Chat() {
 
         {/* ── Footer ── */}
         <footer className="app-footer">
-          {!isAdmin && (
-            <a href="/settings" className="footer-user-link" title="Настройки аккаунта">
-              <div className="footer-user-avatar">{userInitials}</div>
-              <span className="footer-user-name">{userName}</span>
-            </a>
-          )}
           <span className="footer-text">
             <span className="footer-full">СнабЧат · Дирекция по закупкам · 2026 · </span>
             Разработка @Кирилл Трубицын

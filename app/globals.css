@@ -1973,7 +1973,7 @@ input, textarea {
   text-align: center;
 }
 
-/* User menu (mobile) */
+/* User menu */
 .user-menu-wrapper {
   position: relative;
 }
@@ -2321,10 +2321,6 @@ input, textarea {
   }
 
   .app-footer .footer-full {
-    display: none;
-  }
-
-  .app-footer .footer-user-link {
     display: none;
   }
 
