@@ -162,7 +162,7 @@ router.post("/api/auth/set-password", async (req: Request, res: Response) => {
     const hash = await bcrypt.hash(parsed.data.password, 12);
     const { error: updateError } = await supabase
       .from("invite_codes")
-      .update({ password_hash: hash })
+      .update({ password_hash: hash, uses_remaining: 0 })
       .eq("id", invite.id);
 
     if (updateError) {
