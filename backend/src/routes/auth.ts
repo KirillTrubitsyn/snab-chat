@@ -368,7 +368,12 @@ router.post("/api/auth/telegram-link", async (req: Request, res: Response) => {
     }
 
     const otp = generateOTP();
-    await saveOTP(invite.id, otp, "telegram", 10); // 10 minutes
+    try {
+      await saveOTP(invite.id, otp, "telegram", 10);
+    } catch (err) {
+      console.error("[telegram-link] saveOTP failed:", err);
+      return res.status(500).json({ error: "Ошибка сохранения кода. Проверьте таблицу otp_codes в Supabase." });
+    }
 
     const botUrl = `https://t.me/${BOT_USERNAME}`;
 

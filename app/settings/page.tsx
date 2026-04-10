@@ -160,7 +160,8 @@ export default function SettingsPage() {
       });
       const data = await otpRes.json();
       if (!otpRes.ok) {
-        setError(data.error || "Ошибка");
+        setError(data.error || "Ошибка создания кода");
+        setLoading(false);
         return;
       }
       setTelegramOtp(data.otp || "");
