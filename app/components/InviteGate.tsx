@@ -24,7 +24,7 @@ interface InviteGateProps {
 }
 
 export default function InviteGate({ onSuccess }: InviteGateProps) {
-  const [step, setStep] = useState<Step>("password");
+  const [step, setStep] = useState<Step>("code");
   const [code, setCode] = useState("");
   const [showCode, setShowCode] = useState(false);
   const [password, setPassword] = useState("");
