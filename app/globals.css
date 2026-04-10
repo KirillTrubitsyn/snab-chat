@@ -1996,7 +1996,7 @@ input, textarea {
 }
 
 .user-menu-btn:hover {
-  background: var(--accent-hover, #0077aa);
+  filter: brightness(0.88);
 }
 
 .user-menu-dropdown {

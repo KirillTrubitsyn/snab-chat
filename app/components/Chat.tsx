@@ -11,6 +11,7 @@ import KBSearchBar from "@/app/components/KBSearchBar";
 import { formatDateRelative } from "@/app/lib/date-utils";
 import { sanitizeHtml } from "@/app/lib/sanitize";
 import { apiUrl } from "@/app/lib/api";
+import { getAvatarColor } from "@/app/lib/avatarColors";
 import {
   VoiceButton,
   CameraButton,
@@ -53,6 +54,7 @@ export default function Chat() {
   const [inviteCode, setInviteCode] = useState<string>("");
   const inviteCodeRef = useRef<string>("");
   const [userName, setUserName] = useState<string>("");
+  const [avatarColor, setAvatarColor] = useState<string>("#0099CC");
   const [authLoading, setAuthLoading] = useState(true);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -74,6 +76,7 @@ export default function Chat() {
       setInviteCode(code);
       inviteCodeRef.current = code;
       setUserName(name);
+      setAvatarColor(getAvatarColor());
       setIsAuthenticated(true);
     }
     setAuthLoading(false);
@@ -83,6 +86,7 @@ export default function Chat() {
     setInviteCode(data.code);
     inviteCodeRef.current = data.code;
     setUserName(data.userName);
+    setAvatarColor(getAvatarColor());
     setIsAuthenticated(true);
   }, []);
 
@@ -1434,6 +1438,7 @@ export default function Chat() {
                 className="user-menu-btn"
                 onClick={() => setUserMenuOpen((o) => !o)}
                 title={userName}
+                style={{ background: avatarColor }}
               >
                 {userInitials}
               </button>
