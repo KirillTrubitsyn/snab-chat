@@ -77,8 +77,10 @@ export async function POST(req: NextRequest) {
       isNewDevice = newDevice;
     }
 
-    // 5. Уменьшаем счётчик использований
-    await consumeInviteCodeFallback(invite.id);
+    // 5. Уменьшаем счётчик только для пользователей БЕЗ пароля (первый вход)
+    if (!hasPassword) {
+      await consumeInviteCodeFallback(invite.id);
+    }
 
     // 6. Уведомление при активации кода с нового устройства
     if (isNewDevice) {

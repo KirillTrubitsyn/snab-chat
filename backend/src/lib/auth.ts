@@ -130,7 +130,10 @@ export async function validateInviteCode(
     .single();
 
   if (error || !data) return null;
-  if (data.uses_remaining !== null && data.uses_remaining <= 0) return null;
+  // Пользователи с паролем могут логиниться неограниченно
+  if (data.uses_remaining !== null && data.uses_remaining <= 0 && !data.password_hash) {
+    return null;
+  }
   return data as InviteCode;
 }
 

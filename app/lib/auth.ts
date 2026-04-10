@@ -138,8 +138,11 @@ export async function validateInviteCode(
 
   if (error || !data) return null;
 
-  // Если есть лимит использований и он исчерпан
-  if (data.uses_remaining !== null && data.uses_remaining <= 0) return null;
+  // Если есть лимит использований и он исчерпан — блокируем ТОЛЬКО если нет пароля.
+  // Пользователи с паролем могут логиниться неограниченно.
+  if (data.uses_remaining !== null && data.uses_remaining <= 0 && !data.password_hash) {
+    return null;
+  }
 
   return data as InviteCode;
 }
