@@ -24,9 +24,29 @@ export async function POST(req: NextRequest) {
   try {
     const { filename, mimeType } = await req.json();
 
+    const ALLOWED_MIME_TYPES = new Set([
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-excel",
+      "text/plain",
+      "text/csv",
+      "text/markdown",
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ]);
+
     if (!filename) {
       return NextResponse.json(
         { error: "Missing filename" },
+        { status: 400 }
+      );
+    }
+
+    if (mimeType && typeof mimeType === "string" && !ALLOWED_MIME_TYPES.has(mimeType)) {
+      return NextResponse.json(
+        { error: "Неподдерживаемый MIME-тип" },
         { status: 400 }
       );
     }
@@ -50,7 +70,7 @@ export async function POST(req: NextRequest) {
     if (error) {
       console.error("Signed URL error:", error);
       return NextResponse.json(
-        { error: `Failed to create upload URL: ${error.message}` },
+        { error: "Не удалось создать URL загрузки" },
         { status: 500 }
       );
     }
@@ -61,7 +81,6 @@ export async function POST(req: NextRequest) {
       token: data.token,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Internal error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
   }
 }
