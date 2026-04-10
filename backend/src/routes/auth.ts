@@ -395,6 +395,7 @@ router.post("/api/auth/telegram-link", async (req: Request, res: Response) => {
 
     const botUrl = `https://t.me/${BOT_USERNAME}?start=${token}`;
 
+    console.log(`[telegram-link] Token created: ${token.slice(0, 8)}... for invite ${invite.id}, bot: ${BOT_USERNAME}`);
     return res.json({ token, botUrl });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });
