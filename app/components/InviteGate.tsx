@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { apiUrl } from "@/app/lib/api";
+import { getOrAssignAvatarColor } from "@/app/lib/avatarColors";
 import { QRCodeSVG } from "qrcode.react";
 
 type Step =
@@ -96,6 +97,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     localStorage.setItem("snabchat_user_name", data.name);
     localStorage.removeItem("snabchat_is_admin");
     localStorage.removeItem("snabchat_admin_code");
+    getOrAssignAvatarColor();
     onSuccess({
       type: "user",
       code: data.code,
@@ -157,6 +159,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       if (codeData.type === "admin") {
         localStorage.setItem("snabchat_admin_code", codeData.code);
         localStorage.setItem("snabchat_user_name", codeData.adminName);
+        getOrAssignAvatarColor();
         localStorage.setItem("snabchat_is_admin", "true");
         localStorage.setItem("snabchat_invite_code", codeData.code);
         if (codeData.isDocumentAdmin) localStorage.setItem("snabchat_is_doc_admin", "true");
