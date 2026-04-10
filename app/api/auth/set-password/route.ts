@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { validateInviteCode } from "@/app/lib/auth";
 import { setPasswordSchema, parseBody } from "@/app/lib/validation";
 import { createServiceClient } from "@/app/lib/supabase";
 import bcrypt from "bcryptjs";
@@ -7,6 +6,10 @@ import bcrypt from "bcryptjs";
 /**
  * POST /api/auth/set-password — установка пароля при первом входе.
  * Body: { code, password }
+ *
+ * Примечание: на этом этапе uses_remaining уже = 0 (израсходован при login),
+ * поэтому НЕ используем validateInviteCode (она отклонит код).
+ * Вместо этого ищем код напрямую и проверяем только is_active.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -15,20 +18,25 @@ export async function POST(req: NextRequest) {
     if (error) return error;
 
     const upperCode = data.code.toUpperCase();
-    const invite = await validateInviteCode(upperCode);
-    if (!invite) {
+    const supabase = createServiceClient();
+
+    // Найти код напрямую (uses_remaining уже 0 после login, это нормально)
+    const { data: invite, error: dbError } = await supabase
+      .from("invite_codes")
+      .select("id, password_hash, is_active")
+      .eq("code", upperCode)
+      .single();
+
+    if (dbError || !invite) {
       return NextResponse.json({ error: "Неверный инвайт-код" }, { status: 401 });
     }
 
-    // Проверить, что пароль ещё не установлен
-    const supabase = createServiceClient();
-    const { data: codeData } = await supabase
-      .from("invite_codes")
-      .select("password_hash")
-      .eq("id", invite.id)
-      .single();
+    if (!invite.is_active) {
+      return NextResponse.json({ error: "Этот инвайт-код деактивирован" }, { status: 401 });
+    }
 
-    if (codeData?.password_hash) {
+    // Проверить, что пароль ещё не установлен
+    if (invite.password_hash) {
       return NextResponse.json({ error: "Пароль уже установлен" }, { status: 400 });
     }
 
