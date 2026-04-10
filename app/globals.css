@@ -1970,7 +1970,7 @@ input, textarea {
 
 .footer-text {
   flex: 1;
-  text-align: right;
+  text-align: center;
 }
 
 /* User menu (mobile) */
