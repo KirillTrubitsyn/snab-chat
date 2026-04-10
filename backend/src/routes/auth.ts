@@ -145,27 +145,32 @@ router.post("/api/auth/set-password", async (req: Request, res: Response) => {
     if (parsed.error) return;
 
     const upperCode = parsed.data.code.toUpperCase();
-    const invite = await validateInviteCode(upperCode);
-    if (!invite) {
+    const supabase = createServiceClient();
+
+    // Ищем код напрямую, БЕЗ validateInviteCode —
+    // uses_remaining уже 0 после login, это нормально
+    const { data: invite, error: dbError } = await supabase
+      .from("invite_codes")
+      .select("id, password_hash, is_active")
+      .eq("code", upperCode)
+      .single();
+
+    if (dbError || !invite) {
       return res.status(401).json({ error: "Неверный инвайт-код" });
     }
 
-    const supabase = createServiceClient();
-    const { data: codeData } = await supabase
-      .from("invite_codes")
-      .select("password_hash")
-      .eq("id", invite.id)
-      .single();
+    if (!invite.is_active) {
+      return res.status(401).json({ error: "Этот инвайт-код деактивирован" });
+    }
 
-    if (codeData?.password_hash) {
+    if (invite.password_hash) {
       return res.status(400).json({ error: "Пароль уже установлен" });
     }
 
     const hash = await bcrypt.hash(parsed.data.password, 12);
-    const deadCode = `USED-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
     const { error: updateError } = await supabase
       .from("invite_codes")
-      .update({ password_hash: hash, uses_remaining: 0, code: deadCode })
+      .update({ password_hash: hash, uses_remaining: 0 })
       .eq("id", invite.id);
 
     if (updateError) {
