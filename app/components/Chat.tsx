@@ -2290,18 +2290,18 @@ export default function Chat() {
           </aside>
         </div>
 
-        {/* ── User profile: fixed bottom-left ── */}
-        {!isAdmin && (
-          <a href="/settings" className="user-profile-bl" title="Настройки аккаунта">
-            <div className="user-profile-bl-avatar">{userInitials}</div>
-            <span className="user-profile-bl-name">{userName}</span>
-          </a>
-        )}
-
         {/* ── Footer ── */}
         <footer className="app-footer">
-          <span className="footer-full">СнабЧат · Дирекция по закупкам · 2026 · </span>
-          Разработка @Кирилл Трубицын
+          {!isAdmin && (
+            <a href="/settings" className="footer-user-link" title="Настройки аккаунта">
+              <div className="footer-user-avatar">{userInitials}</div>
+              <span className="footer-user-name">{userName}</span>
+            </a>
+          )}
+          <span className="footer-text">
+            <span className="footer-full">СнабЧат · Дирекция по закупкам · 2026 · </span>
+            Разработка @Кирилл Трубицын
+          </span>
         </footer>
       </div>
 
