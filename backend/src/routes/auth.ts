@@ -22,10 +22,12 @@ import {
   verifySetupOtpSchema,
   changePasswordSchema,
   twoFactorMethodSchema,
+  requestLoginApprovalSchema,
   parseBody,
 } from "../lib/validation.js";
 import { createServiceClient } from "../lib/supabase.js";
 import { notifyNewUser, send2FAMessage } from "../lib/telegram.js";
+import { getMoscowTime } from "../lib/date-utils.js";
 import {
   generateOTP,
   saveOTP,
@@ -623,6 +625,144 @@ router.post("/api/auth/change-password", async (req: Request, res: Response) => 
     }
 
     return res.json({ success: true });
+  } catch {
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// ── Push-уведомления при входе через Telegram ──
+
+function getClientIP(req: Request): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string") {
+    return forwarded.split(",")[0]?.trim() || "unknown";
+  }
+  const realIp = req.headers["x-real-ip"];
+  if (typeof realIp === "string") return realIp;
+  return req.ip || "unknown";
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// POST /api/auth/request-login-approval
+router.post("/api/auth/request-login-approval", async (req: Request, res: Response) => {
+  try {
+    const parsed = parseBody(req.body, requestLoginApprovalSchema, res);
+    if (parsed.error) return;
+
+    const upperCode = parsed.data.code.toUpperCase();
+    const invite = await validateInviteCode(upperCode);
+    if (!invite) {
+      return res.status(401).json({ error: "Неверный инвайт-код" });
+    }
+
+    const supabase = createServiceClient();
+    const { data: codeData } = await supabase
+      .from("invite_codes")
+      .select("telegram_chat_id")
+      .eq("id", invite.id)
+      .single();
+
+    if (!codeData?.telegram_chat_id) {
+      return res.status(400).json({ error: "Telegram не привязан" });
+    }
+
+    // Истечь старые pending approvals
+    await supabase
+      .from("login_approvals")
+      .update({ status: "denied", resolved_at: new Date().toISOString() })
+      .eq("invite_code_id", invite.id)
+      .eq("status", "pending");
+
+    const ipAddress = getClientIP(req);
+    const userAgent = req.headers["user-agent"] || "";
+
+    // Создать новый запрос на подтверждение
+    const { data: approval, error: insertError } = await supabase
+      .from("login_approvals")
+      .insert({
+        invite_code_id: invite.id,
+        ip_address: ipAddress,
+        user_agent: userAgent,
+      })
+      .select("id")
+      .single();
+
+    if (insertError || !approval) {
+      console.error("[request-login-approval] DB error:", insertError?.message);
+      return res.status(500).json({ error: "Ошибка создания запроса" });
+    }
+
+    // Отправить уведомление в Telegram
+    const text =
+      `🔐 <b>Вход в СнабЧат</b>\n\n` +
+      `Кто-то входит в ваш аккаунт:\n` +
+      `👤 <b>${escapeHtml(invite.name)}</b>\n` +
+      `🌐 ${escapeHtml(ipAddress)}\n` +
+      `🕐 ${getMoscowTime()}\n\n` +
+      `Это вы?`;
+
+    const replyMarkup = {
+      inline_keyboard: [[
+        { text: "✅ Да, это я", callback_data: `login_approve:${approval.id}` },
+        { text: "❌ Нет, не я", callback_data: `login_deny:${approval.id}` },
+      ]],
+    };
+
+    const sent = await send2FAMessage(text, codeData.telegram_chat_id, replyMarkup);
+    if (!sent) {
+      return res.status(500).json({ error: "Ошибка отправки уведомления в Telegram" });
+    }
+
+    return res.json({ approval_id: approval.id });
+  } catch {
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// GET /api/auth/check-login-approval
+router.get("/api/auth/check-login-approval", async (req: Request, res: Response) => {
+  try {
+    const id = req.query.id as string | undefined;
+    if (!id) {
+      return res.status(400).json({ error: "ID не указан" });
+    }
+
+    const supabase = createServiceClient();
+    const { data: approval, error } = await supabase
+      .from("login_approvals")
+      .select("id, invite_code_id, status, expires_at")
+      .eq("id", id)
+      .single();
+
+    if (error || !approval) {
+      return res.status(404).json({ error: "Запрос не найден" });
+    }
+
+    // Проверить таймаут
+    if (approval.status === "pending" && new Date(approval.expires_at) < new Date()) {
+      return res.json({ status: "expired" });
+    }
+
+    if (approval.status === "approved") {
+      // Вернуть данные пользователя для завершения входа
+      const { data: invite } = await supabase
+        .from("invite_codes")
+        .select("id, code, name")
+        .eq("id", approval.invite_code_id)
+        .single();
+
+      return res.json({
+        status: "approved",
+        inviteCodeId: invite?.id,
+        name: invite?.name,
+        code: invite?.code,
+      });
+    }
+
+    return res.json({ status: approval.status });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });
   }

@@ -138,6 +138,10 @@ export const twoFactorMethodSchema = z.object({
   method: z.enum(["telegram", "sms", "totp"]),
 });
 
+export const requestLoginApprovalSchema = z.object({
+  code: trimmedString(1, 200),
+});
+
 // ── Parse helper ──
 
 /**
