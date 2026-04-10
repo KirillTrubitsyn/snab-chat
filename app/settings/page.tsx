@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { apiUrl } from "@/app/lib/api";
 import { QRCodeSVG } from "qrcode.react";
+import { AVATAR_COLORS, getAvatarColor, setAvatarColor } from "@/app/lib/avatarColors";
 
 interface TwoFAStatus {
   telegram: boolean;
@@ -19,6 +20,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [avatarColor, setAvatarColorState] = useState("#0099CC");
 
   // 2FA status
   const [twoFA, setTwoFA] = useState<TwoFAStatus>({ telegram: false, sms: false, totp: false, phone: null });
@@ -56,6 +58,7 @@ export default function SettingsPage() {
     }
     setInviteCode(code);
     setUserName(name);
+    setAvatarColorState(getAvatarColor());
   }, [router]);
 
   useEffect(() => {
@@ -345,6 +348,46 @@ export default function SettingsPage() {
               </div>
             </form>
           )}
+        </div>
+
+        {/* ── Цвет аватара ── */}
+        <div style={{ marginBottom: 20, padding: "16px", background: "var(--bg-secondary, #f5f7fa)", borderRadius: 12 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Цвет аватара</h3>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: "50%",
+              background: avatarColor,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: "#fff", fontWeight: 700, fontSize: 16, letterSpacing: "0.02em",
+              flexShrink: 0,
+            }}>
+              {userName.split(" ").map(w => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?"}
+            </div>
+            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Предпросмотр</span>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {AVATAR_COLORS.map(color => (
+              <button
+                key={color}
+                onClick={() => {
+                  setAvatarColor(color);
+                  setAvatarColorState(color);
+                  setSuccess("Цвет аватара сохранён");
+                  setTimeout(() => setSuccess(""), 2000);
+                }}
+                title={color}
+                style={{
+                  width: 36, height: 36, borderRadius: "50%",
+                  background: color,
+                  border: avatarColor === color ? "3px solid var(--text-primary, #111)" : "3px solid transparent",
+                  cursor: "pointer",
+                  outline: "none",
+                  transition: "border 0.15s",
+                  flexShrink: 0,
+                }}
+              />
+            ))}
+          </div>
         </div>
 
         {/* ── 2FA методы ── */}
