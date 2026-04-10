@@ -176,8 +176,8 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       if (!codeData.hasPassword) {
         setStep("set-password");
       } else {
-        // У пользователя есть пароль, но он ввёл инвайт-код — попросить пароль
-        setError("Введите ваш пароль, а не инвайт-код");
+        // У пользователя есть пароль — инвайт-код больше не нужен
+        setError("Введите ваш пароль, а не инвайт-код. Инвайт-код действует только при первом входе.");
       }
     } catch (err) {
       console.error("[login] fetch failed:", err);

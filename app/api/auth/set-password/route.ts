@@ -32,11 +32,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Пароль уже установлен" }, { status: 400 });
     }
 
-    // Хешировать и сохранить; деактивировать инвайт-код (uses_remaining=0)
+    // Хешировать пароль и уничтожить инвайт-код (заменить на случайный)
     const hash = await bcrypt.hash(data.password, 12);
+    const deadCode = `USED-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
     const { error: updateError } = await supabase
       .from("invite_codes")
-      .update({ password_hash: hash, uses_remaining: 0 })
+      .update({ password_hash: hash, uses_remaining: 0, code: deadCode })
       .eq("id", invite.id);
 
     if (updateError) {
