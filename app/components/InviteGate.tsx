@@ -77,14 +77,65 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     };
   }, []);
 
-  // На входе проверяем сохранённый код
+  const [autoLogging, setAutoLogging] = useState(false);
+
+  // На входе проверяем сохранённый код — если есть, автоматически проверяем
   useEffect(() => {
     const stored = localStorage.getItem("snabchat_invite_code");
     if (stored) {
       setCode(stored);
       setSavedCode(stored);
+      // Авто-логин: сразу проверяем код, чтобы пропустить шаг ввода
+      autoLogin(stored);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const autoLogin = async (storedCode: string) => {
+    setAutoLogging(true);
+    try {
+      const deviceId = getOrCreateDeviceId();
+      const res = await fetch(apiUrl("/api/auth/login"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: storedCode, device_id: deviceId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        // Код больше не валиден — показать ввод кода
+        setAutoLogging(false);
+        localStorage.removeItem("snabchat_invite_code");
+        setCode("");
+        setSavedCode("");
+        return;
+      }
+      if (data.type === "admin") {
+        localStorage.setItem("snabchat_admin_code", data.code);
+        localStorage.setItem("snabchat_user_name", data.adminName);
+        localStorage.setItem("snabchat_is_admin", "true");
+        localStorage.setItem("snabchat_invite_code", data.code);
+        if (data.isDocumentAdmin) localStorage.setItem("snabchat_is_doc_admin", "true");
+        else localStorage.removeItem("snabchat_is_doc_admin");
+        if (data.isPrimaryAdmin) localStorage.setItem("snabchat_is_primary_admin", "true");
+        else localStorage.removeItem("snabchat_is_primary_admin");
+        router.push("/admin");
+        return;
+      }
+      setInviteCodeId(data.inviteCodeId);
+      setUserName(data.name);
+      setSavedCode(data.code);
+      if (data.hasPassword) {
+        setTwoFactorMethods(data.twoFactorMethods || []);
+        setStep("password"); // Сразу к паролю, минуя инвайт-код
+      } else {
+        setStep("set-password");
+      }
+    } catch {
+      // Сеть недоступна — показать ввод кода
+    } finally {
+      setAutoLogging(false);
+    }
+  };
 
   const completeLogin = useCallback((data: {
     inviteCodeId: string;
@@ -485,8 +536,15 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
           ИИ-ассистент Дирекции по закупкам
         </p>
 
+        {/* ══ Загрузка при авто-логине ══ */}
+        {step === "code" && autoLogging && (
+          <div className="invite-gate-form" style={{ textAlign: "center", padding: "40px 0" }}>
+            <p style={{ color: "var(--text-secondary)", fontSize: 14 }}>Вход...</p>
+          </div>
+        )}
+
         {/* ══ Шаг 1: Ввод кода ══ */}
-        {step === "code" && (
+        {step === "code" && !autoLogging && (
           <form onSubmit={handleCodeSubmit} className="invite-gate-form">
             <div className="invite-gate-input-wrapper">
               <input
@@ -560,6 +618,11 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         {/* ══ Шаг 3: Ввод пароля ══ */}
         {step === "password" && (
           <form onSubmit={handlePasswordSubmit} className="invite-gate-form">
+            {userName && (
+              <p style={{ textAlign: "center", fontSize: 14, color: "var(--text-secondary)", margin: "0 0 4px" }}>
+                {userName}
+              </p>
+            )}
             <p className="invite-gate-register-hint" style={{ marginBottom: 8 }}>
               Введите пароль
             </p>
