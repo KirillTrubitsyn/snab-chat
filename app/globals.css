@@ -1970,7 +1970,24 @@ input, textarea {
   text-overflow: ellipsis;
 }
 
-.sidebar-user-settings,
+.sidebar-user-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  text-decoration: none;
+  border-radius: 8px;
+  padding: 4px;
+  margin: -4px;
+  transition: background 0.15s;
+  cursor: pointer;
+}
+
+.sidebar-user-link:hover {
+  background: var(--bg-hover);
+}
+
 .sidebar-user-logout {
   display: flex;
   align-items: center;
@@ -1984,16 +2001,10 @@ input, textarea {
   cursor: pointer;
   flex-shrink: 0;
   transition: background 0.15s, color 0.15s;
-  text-decoration: none;
 }
 
-.sidebar-user-settings:hover,
 .sidebar-user-logout:hover {
   background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.sidebar-user-logout:hover {
   color: var(--error, #dc2626);
 }
 
