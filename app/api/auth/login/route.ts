@@ -5,7 +5,7 @@ import {
   isCodeDeletionAdmin,
   getAdminName,
   getAdminNumber,
-  validateInviteCode,
+  validateInviteCodeDetailed,
   consumeInviteCodeFallback,
   checkAndRegisterDevice,
 } from "@/app/lib/auth";
@@ -36,13 +36,19 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Проверка инвайт-кодов в БД
-    const invite = await validateInviteCode(upperCode);
-    if (!invite) {
+    const result = await validateInviteCodeDetailed(upperCode);
+    if (!result.ok) {
+      const messages: Record<string, string> = {
+        not_found: "Неверный инвайт-код",
+        inactive: "Этот инвайт-код деактивирован. Обратитесь к администратору.",
+        uses_exhausted: "Лимит использований этого инвайт-кода исчерпан. Обратитесь к администратору.",
+      };
       return NextResponse.json(
-        { error: "Неверный или деактивированный инвайт-код" },
+        { error: messages[result.reason] },
         { status: 401 }
       );
     }
+    const invite = result.invite;
 
     // 3. Получить данные о 2FA и пароле
     const supabase = createServiceClient();

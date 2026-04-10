@@ -147,6 +147,13 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         return;
       }
 
+      // Пароль верный, но вход заблокирован (лимит устройств и т.д.) — не пробовать как инвайт-код
+      if (pwRes.status === 403) {
+        const pwData = await pwRes.json();
+        setError(pwData.error || "Доступ запрещён");
+        return;
+      }
+
       // 2. Попробовать как инвайт-код (первый вход) или админ-код
       const codeRes = await fetch(apiUrl("/api/auth/login"), {
         method: "POST",
@@ -157,7 +164,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       const codeData = await codeRes.json();
 
       if (!codeRes.ok) {
-        setError("Неверный пароль или инвайт-код");
+        setError(codeData.error || "Неверный пароль или инвайт-код");
         return;
       }
 
