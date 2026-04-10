@@ -713,15 +713,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
                   >
                     {twoFAStatus.telegram ? "Telegram (привязан)" : "Привязать Telegram"}
                   </button>
-                  {/* SMS */}
-                  <button
-                    className="invite-gate-submit"
-                    style={{ margin: 0, background: twoFAStatus.sms ? "var(--success, #4caf50)" : undefined }}
-                    onClick={() => { if (!twoFAStatus.sms) { setSetupMethod("sms"); setSetupSubStep("configure"); } }}
-                    disabled={twoFAStatus.sms || loading}
-                  >
-                    {twoFAStatus.sms ? "SMS (привязан)" : "Привязать SMS"}
-                  </button>
+                  {/* SMS — скрыт из интерфейса, код остаётся */}
                   {/* TOTP */}
                   <button
                     className="invite-gate-submit"
