@@ -15,11 +15,15 @@ async function handleStartCommand(chatId: string, token: string): Promise<boolea
 
   const supabase = createServiceClient();
 
+  console.log(`[Telegram 2FA] Looking up token: ${token.slice(0, 8)}... (length: ${token.length})`);
+
   const { data: linkToken, error } = await supabase
     .from("telegram_link_tokens")
     .select("id, invite_code_id, expires_at, used")
     .eq("token", token)
     .maybeSingle();
+
+  console.log(`[Telegram 2FA] DB result: found=${!!linkToken}, error=${error?.message || "none"}`);
 
   if (error || !linkToken) {
     await send2FAMessage(
