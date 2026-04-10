@@ -2324,6 +2324,10 @@ input, textarea {
     display: none;
   }
 
+  .app-footer .footer-user-link {
+    display: none;
+  }
+
   .modal-card {
     width: 100%;
     border-radius: 12px 12px 0 0;
