@@ -69,6 +69,37 @@ export async function sendTelegramMessage(
   }
 }
 
+/** Отправить сообщение через 2FA-бот (@SC2FA_Bot) */
+export async function send2FAMessage(
+  text: string,
+  chatId: string
+): Promise<boolean> {
+  const token = BOT_2FA_TOKEN || BOT_TOKEN;
+  if (!token || !chatId) return false;
+  try {
+    const body: Record<string, unknown> = {
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    };
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error(`[Telegram 2FA] Ошибка отправки в ${chatId}: ${err}`);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error(`[Telegram 2FA] Ошибка сети:`, e);
+    return false;
+  }
+}
+
 /** Отправить сообщение ВСЕМ админам параллельно */
 async function notifyAllAdmins(text: string, replyMarkup?: Record<string, unknown>): Promise<void> {
   if (ADMIN_CHAT_IDS.length === 0) return;
