@@ -153,8 +153,7 @@ export default function SettingsPage() {
     setError("");
     setLoading(true);
     try {
-      // Call Next.js directly (not Railway) so OTP is created on same system as webhook
-      const otpRes = await fetch("/api/auth/telegram-link", {
+      const otpRes = await fetch(apiUrl("/api/auth/telegram-link"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: inviteCode }),
@@ -171,7 +170,7 @@ export default function SettingsPage() {
 
       if (telegramPollRef.current) clearInterval(telegramPollRef.current);
       telegramPollRef.current = setInterval(async () => {
-        const r = await fetch(`/api/auth/2fa-status?code=${encodeURIComponent(inviteCode)}`);
+        const r = await fetch(apiUrl(`/api/auth/2fa-status?code=${encodeURIComponent(inviteCode)}`));
         if (r.ok) {
           const s = await r.json();
           if (s.telegram) {

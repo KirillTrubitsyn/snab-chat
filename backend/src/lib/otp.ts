@@ -28,12 +28,16 @@ export async function saveOTP(
     .eq("method", method)
     .eq("used", false);
 
-  await supabase.from("otp_codes").insert({
+  const { error } = await supabase.from("otp_codes").insert({
     invite_code_id: inviteCodeId,
     code,
     method,
     expires_at: expiresAt,
   });
+  if (error) {
+    console.error("[OTP] Insert error:", error.message);
+    throw new Error(`Failed to save OTP: ${error.message}`);
+  }
 }
 
 /** Verify OTP from the database */
