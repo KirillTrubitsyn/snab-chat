@@ -290,12 +290,12 @@ router.post("/api/auth/send-otp", async (req: Request, res: Response) => {
         return res.status(400).json({ error: "Номер телефона не привязан" });
       }
       await saveOTP(invite.id, otp, dbMethod);
-      const sent = await sendSMS(
+      const smsResult = await sendSMS(
         codeData.phone_number,
         `СнабЧат: ваш код для входа ${otp}. Действителен 5 минут.`
       );
-      if (!sent) {
-        return res.status(500).json({ error: "Ошибка отправки SMS" });
+      if (!smsResult.ok) {
+        return res.status(500).json({ error: smsResult.error || "Ошибка отправки SMS" });
       }
     }
 
@@ -404,13 +404,13 @@ router.post("/api/auth/setup-sms", async (req: Request, res: Response) => {
     const otp = generateOTP();
     await saveOTP(invite.id, otp, "sms");
 
-    const sent = await sendSMS(
+    const smsResult = await sendSMS(
       parsed.data.phone,
       `СнабЧат: ваш код подтверждения ${otp}. Действителен 5 минут.`
     );
 
-    if (!sent) {
-      return res.status(500).json({ error: "Ошибка отправки SMS" });
+    if (!smsResult.ok) {
+      return res.status(500).json({ error: smsResult.error || "Ошибка отправки SMS" });
     }
 
     return res.json({ sent: true });
