@@ -40,12 +40,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Пароль уже установлен" }, { status: 400 });
     }
 
-    // Хешировать пароль и уничтожить инвайт-код (заменить на случайный)
+    // Хешировать пароль
+    // НЕ заменяем код на USED-xxx, чтобы фронтенд мог продолжить настройку 2FA
+    // Код уже защищён: uses_remaining=0, а с паролем вход только через пароль
     const hash = await bcrypt.hash(data.password, 12);
-    const deadCode = `USED-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
     const { error: updateError } = await supabase
       .from("invite_codes")
-      .update({ password_hash: hash, uses_remaining: 0, code: deadCode })
+      .update({ password_hash: hash, uses_remaining: 0 })
       .eq("id", invite.id);
 
     if (updateError) {
