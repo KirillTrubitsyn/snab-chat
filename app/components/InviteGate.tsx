@@ -104,67 +104,86 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     });
   }, [onSuccess]);
 
-  /* ── Шаг 1: Ввод инвайт-кода ── */
-  const handleCodeSubmit = async (e: React.FormEvent) => {
+  /* ── Единый ввод: пароль или инвайт-код ── */
+  const handleUnifiedSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    const trimmed = code.trim().toUpperCase();
+    const input = code.trim();
+    if (!input) return;
     setLoading(true);
 
     try {
       const deviceId = getOrCreateDeviceId();
-      const res = await fetch(apiUrl("/api/auth/login"), {
+
+      // 1. Попробовать как пароль (возвращающиеся пользователи)
+      const pwRes = await fetch(apiUrl("/api/auth/login-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: trimmed, device_id: deviceId }),
+        body: JSON.stringify({ password: input, device_id: deviceId }),
       });
 
-      const data = await res.json();
+      if (pwRes.ok) {
+        const data = await pwRes.json();
+        setInviteCodeId(data.inviteCodeId);
+        setUserName(data.name);
+        setSavedCode(data.code);
+        localStorage.setItem("snabchat_invite_code", data.code);
+        setTwoFactorMethods(data.twoFactorMethods || []);
+        setCode("");
 
-      if (!res.ok) {
-        setError(data.error || "Ошибка авторизации");
+        if (data.twoFactorMethods && data.twoFactorMethods.length > 0) {
+          setStep("2fa-choose");
+        } else {
+          setStep("recommend-2fa");
+        }
+        return;
+      }
+
+      // 2. Попробовать как инвайт-код (первый вход) или админ-код
+      const codeRes = await fetch(apiUrl("/api/auth/login"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: input.toUpperCase(), device_id: deviceId }),
+      });
+
+      const codeData = await codeRes.json();
+
+      if (!codeRes.ok) {
+        setError("Неверный пароль или инвайт-код");
         return;
       }
 
       // Админ
-      if (data.type === "admin") {
-        localStorage.setItem("snabchat_admin_code", data.code);
-        localStorage.setItem("snabchat_user_name", data.adminName);
+      if (codeData.type === "admin") {
+        localStorage.setItem("snabchat_admin_code", codeData.code);
+        localStorage.setItem("snabchat_user_name", codeData.adminName);
         localStorage.setItem("snabchat_is_admin", "true");
-        localStorage.setItem("snabchat_invite_code", data.code);
-        if (data.isDocumentAdmin) {
-          localStorage.setItem("snabchat_is_doc_admin", "true");
-        } else {
-          localStorage.removeItem("snabchat_is_doc_admin");
-        }
-        if (data.isPrimaryAdmin) {
-          localStorage.setItem("snabchat_is_primary_admin", "true");
-        } else {
-          localStorage.removeItem("snabchat_is_primary_admin");
-        }
+        localStorage.setItem("snabchat_invite_code", codeData.code);
+        if (codeData.isDocumentAdmin) localStorage.setItem("snabchat_is_doc_admin", "true");
+        else localStorage.removeItem("snabchat_is_doc_admin");
+        if (codeData.isPrimaryAdmin) localStorage.setItem("snabchat_is_primary_admin", "true");
+        else localStorage.removeItem("snabchat_is_primary_admin");
         router.push("/admin");
         return;
       }
 
-      // Пользователь
-      setInviteCodeId(data.inviteCodeId);
-      setUserName(data.name);
-      setSavedCode(data.code);
-      localStorage.setItem("snabchat_invite_code", data.code);
+      // Пользователь с инвайт-кодом
+      setInviteCodeId(codeData.inviteCodeId);
+      setUserName(codeData.name);
+      setSavedCode(codeData.code);
+      localStorage.setItem("snabchat_invite_code", codeData.code);
 
-      if (!data.hasPassword) {
-        // Первый вход — создать пароль
+      if (!codeData.hasPassword) {
         setStep("set-password");
       } else {
-        // Есть пароль — ввести его
-        setTwoFactorMethods(data.twoFactorMethods || []);
-        setStep("password");
+        // У пользователя есть пароль — инвайт-код больше не нужен
+        setError("Введите ваш пароль, а не инвайт-код. Инвайт-код действует только при первом входе.");
       }
     } catch (err) {
       console.error("[login] fetch failed:", err);
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("TypeError")) {
-        setError("Не удалось подключиться к серверу. Проверьте интернет-соединение.");
+        setError("Не удалось подключиться к серверу");
       } else {
         setError("Ошибка подключения к серверу");
       }
@@ -499,15 +518,15 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
           ИИ-ассистент Дирекции по закупкам
         </p>
 
-        {/* ══ Шаг 1: Ввод инвайт-кода (только первый вход) ══ */}
+        {/* ══ Единое поле: пароль или инвайт-код ══ */}
         {step === "code" && (
-          <form onSubmit={handleCodeSubmit} className="invite-gate-form">
+          <form onSubmit={handleUnifiedSubmit} className="invite-gate-form">
             <div className="invite-gate-input-wrapper">
               <input
                 type={showCode ? "text" : "password"}
                 value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder="Введите код доступа"
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="Пароль или инвайт-код"
                 className="invite-gate-input"
                 disabled={loading}
                 autoFocus
@@ -523,7 +542,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
             </div>
             {error && <p className="invite-gate-error">{error}</p>}
             <button type="submit" disabled={!code.trim() || loading} className="invite-gate-submit">
-              {loading ? "Проверка..." : "Далее"}
+              {loading ? "Проверка..." : "Войти"}
             </button>
           </form>
         )}
@@ -571,37 +590,6 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
           </form>
         )}
 
-        {/* ══ Шаг 3: Ввод пароля ══ */}
-        {step === "password" && (
-          <form onSubmit={handlePasswordSubmit} className="invite-gate-form">
-            <div className="invite-gate-input-wrapper">
-              <input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Пароль"
-                className="invite-gate-input"
-                disabled={loading}
-                autoFocus
-              />
-              <button type="button" onClick={() => setShowPassword(!showPassword)} className="invite-gate-toggle" tabIndex={-1}>
-                <EyeIcon open={showPassword} />
-              </button>
-            </div>
-            {error && <p className="invite-gate-error">{error}</p>}
-            <button type="submit" disabled={!password || loading} className="invite-gate-submit">
-              {loading ? "Проверка..." : "Войти"}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setStep("code"); setError(""); setPassword(""); }}
-              className="invite-gate-back"
-              disabled={loading}
-            >
-              Первый вход по инвайт-коду
-            </button>
-          </form>
-        )}
 
         {/* ══ Шаг 4: Рекомендация 2FA ══ */}
         {step === "recommend-2fa" && (
