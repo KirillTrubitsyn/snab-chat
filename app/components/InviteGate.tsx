@@ -24,7 +24,7 @@ interface InviteGateProps {
 }
 
 export default function InviteGate({ onSuccess }: InviteGateProps) {
-  const [step, setStep] = useState<Step>("code");
+  const [step, setStep] = useState<Step>("password");
   const [code, setCode] = useState("");
   const [showCode, setShowCode] = useState(false);
   const [password, setPassword] = useState("");
@@ -77,7 +77,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     };
   }, []);
 
-  // На входе проверяем сохранённый код
+  // На входе загружаем сохранённый код (если есть)
   useEffect(() => {
     const stored = localStorage.getItem("snabchat_invite_code");
     if (stored) {
@@ -219,10 +219,18 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
 
     try {
       const deviceId = getOrCreateDeviceId();
-      const res = await fetch(apiUrl("/api/auth/verify-password"), {
+
+      // Если есть сохранённый код — используем verify-password, иначе login-password
+      const hasCode = !!savedCode;
+      const url = hasCode ? "/api/auth/verify-password" : "/api/auth/login-password";
+      const body = hasCode
+        ? { code: savedCode, password, device_id: deviceId }
+        : { password, device_id: deviceId };
+
+      const res = await fetch(apiUrl(url), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: savedCode, password, device_id: deviceId }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
@@ -233,12 +241,15 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
 
       setInviteCodeId(data.inviteCodeId);
       setUserName(data.name);
+      setSavedCode(data.code);
+      localStorage.setItem("snabchat_invite_code", data.code);
       setTwoFactorMethods(data.twoFactorMethods || []);
       setPassword("");
 
       if (data.twoFactorMethods && data.twoFactorMethods.length > 0) {
         setStep("2fa-choose");
       } else {
+        // Всегда предлагать настроить 2FA если она не настроена
         setStep("recommend-2fa");
       }
     } catch {
@@ -485,7 +496,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
           ИИ-ассистент Дирекции по закупкам
         </p>
 
-        {/* ══ Шаг 1: Ввод кода ══ */}
+        {/* ══ Шаг 1: Ввод инвайт-кода (только первый вход) ══ */}
         {step === "code" && (
           <form onSubmit={handleCodeSubmit} className="invite-gate-form">
             <div className="invite-gate-input-wrapper">
@@ -560,9 +571,6 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         {/* ══ Шаг 3: Ввод пароля ══ */}
         {step === "password" && (
           <form onSubmit={handlePasswordSubmit} className="invite-gate-form">
-            <p className="invite-gate-register-hint" style={{ marginBottom: 8 }}>
-              Введите пароль
-            </p>
             <div className="invite-gate-input-wrapper">
               <input
                 type={showPassword ? "text" : "password"}
@@ -583,11 +591,11 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
             </button>
             <button
               type="button"
-              onClick={() => { setStep("code"); setError(""); setPassword(""); setSavedCode(""); localStorage.removeItem("snabchat_invite_code"); }}
+              onClick={() => { setStep("code"); setError(""); setPassword(""); }}
               className="invite-gate-back"
               disabled={loading}
             >
-              Другой код
+              Первый вход по инвайт-коду
             </button>
           </form>
         )}
@@ -815,11 +823,23 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
                 </p>
                 {setupMethod === "totp" && totpUrl && (
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 12 }}>
+                    <div style={{ background: "var(--bg-secondary, #f5f5f5)", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 13, lineHeight: 1.5, color: "var(--text-secondary)" }}>
+                      <p style={{ margin: "0 0 6px", fontWeight: 600, color: "var(--text-primary)" }}>Как настроить:</p>
+                      <p style={{ margin: "0 0 4px" }}>1. Скачайте приложение-аутентификатор:</p>
+                      <p style={{ margin: "0 0 4px", paddingLeft: 12 }}>
+                        <a href="https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>Google Authenticator</a>
+                        {" или "}
+                        <a href="https://play.google.com/store/apps/details?id=com.yandex.key" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>Яндекс Ключ</a>
+                      </p>
+                      <p style={{ margin: "0 0 4px" }}>2. Откройте приложение и нажмите &quot;+&quot;</p>
+                      <p style={{ margin: "0 0 4px" }}>3. Отсканируйте QR-код ниже</p>
+                      <p style={{ margin: 0 }}>4. Введите 6-значный код из приложения</p>
+                    </div>
                     <div style={{ background: "#fff", padding: 12, borderRadius: 8, marginBottom: 8 }}>
                       <QRCodeSVG value={totpUrl} size={180} />
                     </div>
                     <p style={{ fontSize: 11, color: "var(--text-muted)", wordBreak: "break-all", textAlign: "center" }}>
-                      Секрет: {totpSecret}
+                      Или введите секрет вручную: {totpSecret}
                     </p>
                   </div>
                 )}

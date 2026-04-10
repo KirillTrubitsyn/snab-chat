@@ -162,7 +162,7 @@ router.post("/api/auth/set-password", async (req: Request, res: Response) => {
     const hash = await bcrypt.hash(parsed.data.password, 12);
     const { error: updateError } = await supabase
       .from("invite_codes")
-      .update({ password_hash: hash })
+      .update({ password_hash: hash, uses_remaining: 0 })
       .eq("id", invite.id);
 
     if (updateError) {
@@ -635,6 +635,73 @@ router.post("/api/auth/change-password", async (req: Request, res: Response) => 
     }
 
     return res.json({ success: true });
+  } catch {
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// POST /api/auth/login-password — вход только по паролю (без инвайт-кода)
+router.post("/api/auth/login-password", async (req: Request, res: Response) => {
+  try {
+    const { password, device_id } = req.body;
+
+    if (!password || typeof password !== "string") {
+      return res.status(400).json({ error: "Введите пароль" });
+    }
+
+    const supabase = createServiceClient();
+    const { data: users, error: dbError } = await supabase
+      .from("invite_codes")
+      .select("id, code, name, organization, password_hash, device_limit, telegram_chat_id, phone_number, totp_secret")
+      .not("password_hash", "is", null)
+      .eq("is_active", true);
+
+    if (dbError || !users || users.length === 0) {
+      return res.status(401).json({ error: "Неверный пароль" });
+    }
+
+    let matched: typeof users[0] | null = null;
+    for (const user of users) {
+      if (!user.password_hash) continue;
+      const valid = await bcrypt.compare(password, user.password_hash);
+      if (valid) {
+        matched = user;
+        break;
+      }
+    }
+
+    if (!matched) {
+      return res.status(401).json({ error: "Неверный пароль" });
+    }
+
+    if (device_id) {
+      const userAgent = req.headers["user-agent"] || "";
+      const { error: deviceError, isNewDevice } = await checkAndRegisterDevice(
+        matched.id,
+        device_id,
+        matched.device_limit ?? null,
+        userAgent
+      );
+      if (deviceError) {
+        return res.status(403).json({ error: deviceError });
+      }
+      if (isNewDevice) {
+        notifyNewUser(matched.name, matched.organization).catch(() => {});
+      }
+    }
+
+    const twoFactorMethods: string[] = [];
+    if (matched.telegram_chat_id) twoFactorMethods.push("telegram");
+    if (matched.phone_number) twoFactorMethods.push("sms");
+    if (matched.totp_secret) twoFactorMethods.push("totp");
+
+    return res.json({
+      success: true,
+      inviteCodeId: matched.id,
+      name: matched.name,
+      code: matched.code,
+      twoFactorMethods,
+    });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });
   }
