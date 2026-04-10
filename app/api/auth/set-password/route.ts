@@ -41,12 +41,12 @@ export async function POST(req: NextRequest) {
     }
 
     // Хешировать пароль
-    // НЕ заменяем код на USED-xxx, чтобы фронтенд мог продолжить настройку 2FA
-    // Код уже защищён: uses_remaining=0, а с паролем вход только через пароль
+    // НЕ трогаем код и uses_remaining — инвайт-код остаётся валидным
+    // для последующих шагов (настройка 2FA). Пароль — достаточная защита.
     const hash = await bcrypt.hash(data.password, 12);
     const { error: updateError } = await supabase
       .from("invite_codes")
-      .update({ password_hash: hash, uses_remaining: 0 })
+      .update({ password_hash: hash })
       .eq("id", invite.id);
 
     if (updateError) {

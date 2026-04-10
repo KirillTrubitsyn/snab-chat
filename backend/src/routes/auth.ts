@@ -103,10 +103,8 @@ router.post("/api/auth/login", async (req: Request, res: Response) => {
       isNewDevice = newDevice;
     }
 
-    // 5. Уменьшаем счётчик только для пользователей БЕЗ пароля (первый вход)
-    if (!hasPassword) {
-      await consumeInviteCodeFallback(invite.id);
-    }
+    // 5. НЕ расходуем uses_remaining здесь — это делает set-password после установки пароля.
+    // Если расходовать на этапе login, то set-password и 2FA-роуты не смогут пройти валидацию.
 
     // 6. Уведомление при активации кода с нового устройства
     if (isNewDevice) {
@@ -170,7 +168,7 @@ router.post("/api/auth/set-password", async (req: Request, res: Response) => {
     const hash = await bcrypt.hash(parsed.data.password, 12);
     const { error: updateError } = await supabase
       .from("invite_codes")
-      .update({ password_hash: hash, uses_remaining: 0 })
+      .update({ password_hash: hash })
       .eq("id", invite.id);
 
     if (updateError) {
