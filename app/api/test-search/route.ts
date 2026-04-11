@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { searchContractorCards } from "@/app/lib/retrieval";
 import { classifyIntent } from "@/app/lib/intent-classifier";
 import { createServiceClient } from "@/app/lib/supabase";
-import { embedQuery } from "@/app/lib/embeddings";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -11,50 +10,53 @@ export async function GET(req: NextRequest) {
   const query = req.nextUrl.searchParams.get("q") ?? "ТК АВТОПЛЮС расскажи о компании";
 
   try {
-    const supabase = createServiceClient();
     const debug: Record<string, unknown> = {};
+
+    // Check env vars (only show first/last chars for security)
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+    debug.env = {
+      url_set: !!url,
+      url_preview: url.slice(0, 30) + "...",
+      key_set: !!key,
+      key_length: key.length,
+      key_start: key.slice(0, 10) + "...",
+      key_end: "..." + key.slice(-10),
+      google_key_set: !!process.env.GOOGLE_API_KEY,
+    };
 
     // Step 1: Classify intent
     const intent = await classifyIntent(query);
     debug.intent = { intent: intent.intent, confidence: intent.confidence, tags: intent.search_tags };
 
-    // Step 2: Test RPC
-    const embedding = await embedQuery(query);
-    const embeddingStr = `[${embedding.join(",")}]`;
-    const { data: rpcData, error: rpcError } = await supabase.rpc(
-      "search_contractor_cards",
-      { query_text: query, query_embedding: embeddingStr, match_count: 5 }
-    );
-    debug.rpc = { error: rpcError?.message ?? null, count: rpcData?.length ?? 0 };
-
-    // Step 3: Test FTS directly
-    const { data: fts1, error: ftsErr1 } = await supabase
+    // Step 2: Direct Supabase test (simple query, no RPC)
+    const supabase = createServiceClient();
+    const { data: simpleTest, error: simpleErr } = await supabase
       .from("chunks")
       .select("id, source_filename")
-      .contains("tags", ["карточка контрагента"])
-      .textSearch("fts", "АВТОПЛЮС", { type: "plain", config: "russian" })
-      .limit(5);
-    debug.fts_АВТОПЛЮС = { count: fts1?.length ?? 0, error: ftsErr1?.message ?? null, files: fts1?.map((r: { source_filename: string }) => r.source_filename) };
+      .ilike("source_filename", "%АВТОПЛЮС%")
+      .limit(3);
+    debug.simple_query = {
+      count: simpleTest?.length ?? 0,
+      error: simpleErr?.message ?? null,
+      errorCode: simpleErr?.code ?? null,
+      files: simpleTest?.map((r: { source_filename: string }) => r.source_filename),
+    };
 
-    // Step 4: Test ILIKE directly
-    const { data: ilike1, error: ilikeErr1 } = await supabase
-      .from("chunks")
-      .select("id, source_filename")
-      .contains("tags", ["карточка контрагента"])
-      .ilike("content", "%АВТОПЛЮС%")
-      .limit(5);
-    debug.ilike_content = { count: ilike1?.length ?? 0, error: ilikeErr1?.message ?? null, files: ilike1?.map((r: { source_filename: string }) => r.source_filename) };
-
-    // Step 5: Test filename ILIKE
-    const { data: fn1, error: fnErr1 } = await supabase
+    // Step 3: Same with tag filter
+    const { data: tagTest, error: tagErr } = await supabase
       .from("chunks")
       .select("id, source_filename")
       .contains("tags", ["карточка контрагента"])
       .ilike("source_filename", "%АВТОПЛЮС%")
-      .limit(5);
-    debug.ilike_filename = { count: fn1?.length ?? 0, error: fnErr1?.message ?? null, files: fn1?.map((r: { source_filename: string }) => r.source_filename) };
+      .limit(3);
+    debug.tag_query = {
+      count: tagTest?.length ?? 0,
+      error: tagErr?.message ?? null,
+      files: tagTest?.map((r: { source_filename: string }) => r.source_filename),
+    };
 
-    // Step 6: Run full searchContractorCards
+    // Step 4: Run full searchContractorCards
     const results = await searchContractorCards(query, 10);
     debug.searchContractorCards = {
       totalResults: results.length,
