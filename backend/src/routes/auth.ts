@@ -38,6 +38,7 @@ import {
   verifyTOTP,
 } from "../lib/otp.js";
 import { sendSMS } from "../lib/sms.js";
+import { logSecurityEvent } from "../lib/security-log.js";
 
 const router = Router();
 
@@ -68,6 +69,11 @@ router.post("/api/auth/login", async (req: Request, res: Response) => {
     // 2. Проверка инвайт-кодов в БД
     const invite = await validateInviteCode(upperCode);
     if (!invite) {
+      logSecurityEvent("auth.invite_code_fail", {
+        ip: getClientIP(req),
+        userAgent: req.headers["user-agent"] as string,
+        details: { endpoint: "/api/auth/login" },
+      });
       return res.status(401).json({
         error: "Неверный или деактивированный инвайт-код",
       });
@@ -207,6 +213,12 @@ router.post("/api/auth/verify-password", async (req: Request, res: Response) => 
 
     const valid = await bcrypt.compare(parsed.data.password, codeData.password_hash);
     if (!valid) {
+      logSecurityEvent("auth.password_fail", {
+        ip: getClientIP(req),
+        userAgent: req.headers["user-agent"] as string,
+        inviteCodeId: invite.id,
+        details: { endpoint: "/api/auth/verify-password" },
+      });
       return res.status(401).json({ error: "Неверный пароль" });
     }
 
@@ -343,6 +355,12 @@ router.post("/api/auth/verify-otp", async (req: Request, res: Response) => {
     }
 
     if (!valid) {
+      logSecurityEvent("auth.otp_fail", {
+        ip: getClientIP(req),
+        userAgent: req.headers["user-agent"] as string,
+        inviteCodeId: invite.id,
+        details: { method: parsed.data.method, endpoint: "/api/auth/verify-otp" },
+      });
       return res.status(401).json({ error: "Неверный код" });
     }
 
