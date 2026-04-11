@@ -847,6 +847,54 @@ router.get("/api/admin/online-users", async (req: Request, res: Response) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
+   /api/admin/disconnect-user  —  POST
+   ══════════════════════════════════════════════════════════════ */
+
+router.post("/api/admin/disconnect-user", async (req: Request, res: Response) => {
+  try {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+
+    const { invite_code_id } = req.body;
+    if (!invite_code_id || typeof invite_code_id !== "string") {
+      return res.status(400).json({ error: "invite_code_id обязателен" });
+    }
+
+    const supabase = createServiceClient();
+
+    // Get user info for audit log
+    const { data: codeInfo } = await supabase
+      .from("invite_codes")
+      .select("name, code")
+      .eq("id", invite_code_id)
+      .single();
+
+    // Delete all devices for this user (forces logout on next heartbeat)
+    const { error } = await supabase
+      .from("devices")
+      .delete()
+      .eq("invite_code_id", invite_code_id);
+
+    if (error) {
+      console.error("DB error:", error.message);
+      return res.status(500).json({ error: "Внутренняя ошибка сервера" });
+    }
+
+    logAuditEvent({
+      action: "user.disconnect",
+      adminName: admin.adminName,
+      targetId: invite_code_id,
+      details: { userName: codeInfo?.name, code: codeInfo?.code },
+    });
+
+    return res.json({ ok: true, userName: codeInfo?.name });
+  } catch (err) {
+    console.error("POST /api/admin/disconnect-user error:", err);
+    return res.status(500).json({ error: "Внутренняя ошибка сервера" });
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
    /api/admin/off-topic  —  GET, DELETE
    ══════════════════════════════════════════════════════════════ */
 
