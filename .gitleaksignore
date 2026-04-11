@@ -1,0 +1,6 @@
+# Gitleaks ignore file
+# Add fingerprints of confirmed false positives here.
+# Run `gitleaks detect --verbose` to get fingerprints.
+#
+# Format: one fingerprint per line
+# Example: a]b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
