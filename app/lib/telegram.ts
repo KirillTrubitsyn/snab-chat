@@ -103,7 +103,7 @@ export async function send2FAMessage(
 }
 
 /** Отправить сообщение ВСЕМ админам параллельно */
-async function notifyAllAdmins(text: string, replyMarkup?: Record<string, unknown>): Promise<void> {
+export async function notifyAllAdmins(text: string, replyMarkup?: Record<string, unknown>): Promise<void> {
   if (ADMIN_CHAT_IDS.length === 0) return;
   await Promise.allSettled(ADMIN_CHAT_IDS.map((id) => sendTelegramMessage(text, id, replyMarkup)));
 }

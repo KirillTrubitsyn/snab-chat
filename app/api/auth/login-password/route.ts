@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { checkAndRegisterDevice } from "@/app/lib/auth";
 import { createServiceClient } from "@/app/lib/supabase";
 import { notifyNewUser } from "@/app/lib/telegram";
+import { logSecurityEvent } from "@/app/lib/security-log";
 import bcrypt from "bcryptjs";
 
 /**
@@ -40,6 +41,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (!matched) {
+      const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "";
+      logSecurityEvent("auth.password_fail", {
+        ip,
+        userAgent: req.headers.get("user-agent"),
+        details: { endpoint: "/api/auth/login-password" },
+      });
       return NextResponse.json({ error: "Неверный пароль" }, { status: 401 });
     }
 
@@ -53,6 +60,13 @@ export async function POST(req: NextRequest) {
         userAgent
       );
       if (deviceError) {
+        const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "";
+        logSecurityEvent("auth.device_limit", {
+          ip,
+          userAgent: req.headers.get("user-agent"),
+          inviteCodeId: matched.id,
+          details: { endpoint: "/api/auth/login-password", userName: matched.name },
+        });
         return NextResponse.json({ error: deviceError }, { status: 403 });
       }
       if (isNewDevice) {

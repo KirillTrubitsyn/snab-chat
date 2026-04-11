@@ -3,6 +3,7 @@ import { validateInviteCode } from "@/app/lib/auth";
 import { verifyOtpSchema, parseBody } from "@/app/lib/validation";
 import { createServiceClient } from "@/app/lib/supabase";
 import { verifyOTP, verifyTOTP } from "@/app/lib/otp";
+import { logSecurityEvent } from "@/app/lib/security-log";
 
 /**
  * POST /api/auth/verify-otp — проверка OTP при входе.
@@ -43,6 +44,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (!valid) {
+      const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "";
+      logSecurityEvent("auth.otp_fail", {
+        ip,
+        userAgent: req.headers.get("user-agent"),
+        inviteCodeId: invite.id,
+        details: { method: data.method, endpoint: "/api/auth/verify-otp" },
+      });
       return NextResponse.json({ error: "Неверный код" }, { status: 401 });
     }
 
