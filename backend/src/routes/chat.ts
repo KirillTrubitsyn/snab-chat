@@ -560,7 +560,7 @@ ${userMessage.content}
     for (const r of boostedDocResults) existingIds.add(r.id);
     // Prepend (not append) so they appear before generic search results
     combinedResults = [...boostedDocResults, ...combinedResults];
-    console.log(`[chat] Document lookup added ${boostedDocResults.length} new chunks (boosted to 0.92)`);
+    console.log(`[chat] Document lookup added ${boostedDocResults.length} new chunks (boosted to 0.80)`);
   }
 
   if (catalogResults.length > 0) {
@@ -692,6 +692,7 @@ ${userMessage.content}
     }
 
     // 5. Organization registry: fetch "Перечень компаний Общества" when query mentions SGK entities
+    //    Handled separately (not in supplementSearches) so we can boost results like doc/catalog lookups.
     const mentionsOrg = ORG_MENTION_PATTERNS.some((p) => p.test(userMessage.content));
     if (mentionsOrg) {
       const hasRegistryAlready = combinedResults.some((r) =>
@@ -699,14 +700,26 @@ ${userMessage.content}
         r.source_filename.toLowerCase().includes("перечень компаний")
       );
       if (!hasRegistryAlready) {
-        supplementSearches.push(
-          fetchChunksByDocument(
+        try {
+          const orgRegResults = await fetchChunksByDocument(
             { filenameHints: ["Перечень_компаний", "Перечень компаний"] },
             4,
             userMessage.content
-          )
-        );
-        console.log("[chat] Organization mention detected — fetching Перечень компаний Общества");
+          );
+          const boostedOrgResults = orgRegResults
+            .filter((r) => !existingIds.has(r.id))
+            .map((r) => ({
+              ...r,
+              similarity: r.similarity >= 0.25 ? Math.max(r.similarity, 0.80) : r.similarity,
+            }));
+          for (const r of boostedOrgResults) existingIds.add(r.id);
+          combinedResults = [...boostedOrgResults, ...combinedResults];
+          if (boostedOrgResults.length > 0) {
+            console.log(`[chat] Org registry added ${boostedOrgResults.length} boosted chunks (Перечень компаний Общества)`);
+          }
+        } catch (orgErr) {
+          console.error("[chat] Org registry fetch failed (non-fatal):", orgErr);
+        }
       }
     }
 
@@ -1090,7 +1103,7 @@ ${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФО
 ПРИМЕР ОТКАЗА (когда информации нет):
 Вопрос: Какова средняя зарплата в отделе закупок?
 Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${directivesBlock}
-${intentResult.intent === "spu_search" ? generateSpuPrompt(intentResult.spu_sub_intent) : ""}
+${intentResult.intent === "entity_lookup" ? generateSpuPrompt(intentResult.spu_sub_intent) : ""}
 
 === СТАВКА НДС ===
 
