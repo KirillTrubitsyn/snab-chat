@@ -1,9 +1,9 @@
 import { Router, Request, Response } from "express";
 import { type ModelMessage } from "ai";
 import { GoogleGenAI } from "@google/genai";
-import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, searchContractorCards, type SearchResult } from "../lib/retrieval.js";
+import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, type SearchResult } from "../lib/retrieval.js";
 import { rerank } from "../lib/reranker.js";
-import { classifyIntent, COMPANY_PATTERNS } from "../lib/intent-classifier.js";
+import { classifyIntent } from "../lib/intent-classifier.js";
 import { loadConversationContext, saveMessage } from "../lib/memory.js";
 import { getInviteCodeFromHeader, isAdminCode } from "../lib/auth.js";
 import { createServiceClient } from "../lib/supabase.js";
@@ -330,16 +330,11 @@ ${userMessage.content}
   const searchPromises = Array.from(searchVariants).map((q) =>
     hybridSearch(q, 20, searchHints)
   );
-  // For spu_search intent: also run dedicated contractor card search
-  const contractorSearchPromise = intentResult.intent === "spu_search"
-    ? searchContractorCards(searchQuery, 20)
-    : Promise.resolve([]);
 
-  const [sectionResults, docResults, catalogResults, contractorResults, ...variantResults] = await Promise.all([
+  const [sectionResults, docResults, catalogResults, ...variantResults] = await Promise.all([
     sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
     docRef ? fetchChunksByDocument(docRef, docRef.filenameHints.length > 2 ? 15 : 8, userMessage.content) : Promise.resolve([]),
     catalogQuery ? fetchCatalogResults(catalogQuery) : Promise.resolve([]),
-    contractorSearchPromise,
     ...searchPromises,
   ]);
 
@@ -396,37 +391,8 @@ ${userMessage.content}
     console.log(`[chat] Catalog lookup added ${newCatalogResults.length} new chunks from ${new Set(newCatalogResults.map((r) => r.source_filename)).size} sources`);
   }
 
-  // Flag: when true, we have a direct contractor card match — skip supplementary
-  // searches and reranker so the LLM reranker cannot demote the exact card we found.
-  let directContractorMatch = false;
-
-  if (contractorResults.length > 0) {
-    const queryLower = searchQuery.toLowerCase().replace(/[«»"'.,;:!?()\[\]]/g, "");
-    const isSpecificCompanyQuery = COMPANY_PATTERNS.some((p) => p.test(queryLower));
-    const directMatches = contractorResults.filter((r) => {
-      const fn = r.source_filename.toLowerCase().replace(/[«»"'.,;:!?()\[\]_]/g, " ");
-      const qWords = queryLower.split(/\s+/).filter((w: string) => w.length >= 3);
-      return qWords.some((w: string) => fn.includes(w) && !["расскаж", "компани", "организаци", "информаци", "сведени"].some((s: string) => w.startsWith(s)));
-    });
-
-    if (directMatches.length > 0 && isSpecificCompanyQuery) {
-      directContractorMatch = true;
-      const boostedDirect = directMatches.map((r) => ({ ...r, similarity: 0.98 }));
-      combinedResults = [...boostedDirect];
-      console.log(`[chat] Contractor card DIRECT MATCH: ${directMatches.map((r) => r.source_filename).join(", ")} — bypassing supplementary search and reranker`);
-    } else {
-      const newContractorResults = contractorResults
-        .filter((r) => !existingIds.has(r.id))
-        .map((r) => ({ ...r, similarity: Math.max(r.similarity, 0.85) }));
-      for (const r of newContractorResults) existingIds.add(r.id);
-      combinedResults = [...newContractorResults, ...combinedResults];
-      console.log(`[chat] Contractor card search added ${newContractorResults.length} new chunks (no direct match)`);
-    }
-  }
-
   // ── Intent-aware supplementary search ──
-  // Skip entirely when we have a direct contractor card match.
-  if (!directContractorMatch) {
+  {
     const supplementSearches: Promise<SearchResult[]>[] = [];
 
     // Determine if the user's query has a clear regime preference
@@ -571,21 +537,14 @@ ${userMessage.content}
         console.log(`[chat] Regime post-filter: removed ${removed} opposite-regime chunks (strict ${intentResult.fz_type})`);
       }
     }
-  } // end if (!directContractorMatch)
-
-  if (directContractorMatch) {
-    // Direct contractor card match: skip reranker entirely.
-    relevantChunks = combinedResults;
-    lowConfidence = false;
-    console.log(`[chat] Direct contractor match: bypassing reranker, returning ${relevantChunks.length} card chunks`);
-  } else {
-    // Standard path: rerank and filter
-    const rerankedResults = intentAwareRerank(combinedResults, intentResult);
-    const rerankResult = await rerank(userMessage.content, rerankedResults);
-    const filtered = filterByRelevance(rerankResult);
-    relevantChunks = filtered.results;
-    lowConfidence = filtered.lowConfidence;
   }
+
+  // Rerank and filter
+  const rerankedResults = intentAwareRerank(combinedResults, intentResult);
+  const rerankResult = await rerank(userMessage.content, rerankedResults);
+  const filtered = filterByRelevance(rerankResult);
+  relevantChunks = filtered.results;
+  lowConfidence = filtered.lowConfidence;
 
   } // end deterministic path
 
@@ -932,49 +891,6 @@ ${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФО
 ПРИМЕР ОТКАЗА (когда информации нет):
 Вопрос: Какова средняя зарплата в отделе закупок?
 Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${entityRegimeHint}${directivesBlock}
-${intentResult.intent === "spu_search" ? `
-=== РЕЕСТР СПУ (Список Потенциальных Участников) ===
-
-В базе знаний загружен файл «Реестр СПУ контрагенты виды работ объекты». Это реестр потенциальных участников закупочных процедур СГК, содержащий 874 уникальных контрагента по 68 видам работ на 32 объектах трёх бизнес-единиц (Енисейская ТГК, Кузбассэнерго, СГК-Алтай).
-
-КОГДА ИСПОЛЬЗОВАТЬ:
-Обращайся к реестру СПУ, если пользователь спрашивает о подрядчиках, поставщиках, исполнителях, контрагентах, участниках закупки, организациях, которые выполняют определённые виды работ, или кто может выполнить работу на конкретном объекте.
-
-КАК РАБОТАТЬ С ДАННЫМИ:
-1. Определи из запроса: вид работ/услуг, объект (ГРЭС/ТЭЦ/теплосеть), бизнес-единицу.
-2. Найди в реестре записи, соответствующие этим параметрам.
-3. Фильтрация по статусу:
-   РЕЖИМ ПО УМОЛЧАНИЮ: Если пользователь просто ищет подрядчиков/контрагентов — показывай ТОЛЬКО записи со статусами «ТКП», «ТКП MIN», «ТКП Инициатора».
-   РАСШИРЕННЫЙ РЕЖИМ: Если пользователь явно просит показать компании без статуса, отказавшихся, не ответивших, или использует формулировки вроде «все компании», «кто отказался», «без ТКП», «не подтвердившие», «с отказом», «не обладающие статусом» — покажи ВСЕ записи из реестра, разделив на два блока:
-     Блок 1 (основной): контрагенты со статусами ТКП / ТКП MIN / ТКП Инициатора.
-     Блок 2 (дополнительный, с предупреждением): контрагенты со статусами ОТКАЗ, Нет ответа, Недозвон, Отмена запроса. Перед этим блоком выведи пояснение: «Следующие компании числятся в реестре, но не подтвердили готовность к участию в закупке:».
-4. Ранжируй результаты: внутри каждого блока — сначала ТКП, затем ТКП MIN, затем ТКП Инициатора; во втором блоке — по алфавиту.
-5. Для каждого контрагента указывай: наименование, ИНН, вид работ, объект, статус.
-
-ФОРМАТ ОТВЕТА:
-Если найдено 1–5 контрагентов, перечисли всех с полными данными.
-Если найдено 6–15, сгруппируй по статусу (ТКП / ТКП MIN / ТКП Инициатора) и укажи количество.
-Если найдено >15, укажи общее количество, покажи топ-5 и предложи уточнить запрос.
-В расширенном режиме: сначала покажи основной блок (ТКП) по обычным правилам, затем отдельной секцией — компании без подтверждённого статуса с указанием причины (ОТКАЗ / Нет ответа / Недозвон / Отмена запроса).
-Если ничего не найдено, сообщи об этом и предложи расширить поиск: другой вид работ, другой объект, другая БЕ.
-
-НЕЧЁТКОЕ СООТВЕТСТВИЕ ВИДОВ РАБОТ:
-Пользователи используют свободные формулировки. Сопоставляй их с категориями справочника:
-«ремонт бульдозеров» / «бульдозерная техника» → Ремонт бульдозеров
-«насосы» / «насосное оборудование» → Монтаж / ремонт насосного оборудования
-«электрика» / «электромонтаж» → Электромонтажные работы
-«проект» / «ПИР» → Проектирование
-«обслуживание» / «ТО» / «сервис» → Техническое обслуживание
-«строительство» / «СМР» → Общестроительные работы
-«КИП» / «КИПиА» / «автоматика» → Монтаж / ремонт КИПиА
-«котлы» / «котельное» → Монтаж / ремонт котлов
-«турбины» / «турбинное» → Монтаж / ремонт турбинного оборудования
-
-ДОПОЛНИТЕЛЬНЫЙ КОНТЕКСТ:
-Если пользователь указывает сумму закупки и объект, определи режим закупки (223-ФЗ или не 223-ФЗ) по листу «структура СГК» из того же файла и дополни ответ этой информацией.
-
-ВАЖНО: Контактные данные (телефон, email) выводи только по прямому запросу пользователя. В обычном списке достаточно наименования, ИНН и статуса.
-` : ""}
 ${generateRegistryPromptBlock()}
 
 === СТАВКА НДС ===
