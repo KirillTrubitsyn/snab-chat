@@ -243,28 +243,55 @@ export function isComplexQuery(
   intent: IntentResult
 ): boolean {
   const lower = query.toLowerCase();
+  const reasons: string[] = [];
+  let score = 0;
+
+  if (query.trim().length < 25) {
+    return false;
+  }
 
   // 1. Comparative queries (both regimes)
-  if (intent.fz_type === "both") return true;
+  if (intent.fz_type === "both") {
+    score += 3;
+    reasons.push("both-regimes");
+  }
 
   // 2. Explicit comparison keywords
   if (/сравни|отлича|разниц|в\s+чём\s+отличи|чем\s+отличает|различи|сопостав/i.test(lower)) {
-    return true;
+    score += 2;
+    reasons.push("comparison-keywords");
   }
 
   // 3. Multi-aspect questions (multiple question words or multiple topics)
   const questionMarkers = lower.match(/(?:как|что|кто|какой|какие|каков|где|когда|зачем|почему|сколько)\s/g);
-  if (questionMarkers && questionMarkers.length >= 3) return true;
+  if (questionMarkers && questionMarkers.length >= 3) {
+    score += 1;
+    reasons.push("multi-question");
+  }
 
   // 4. Long complex questions with multiple clauses
   const clauses = query.split(/[,;]\s+/).length;
-  if (clauses >= 4 && query.length > 150) return true;
+  if (clauses >= 4 && query.length > 150) {
+    score += 1;
+    reasons.push("long-multi-clause");
+  }
 
   // 5. Questions mentioning multiple documents or sections
   const sectionMentions = lower.match(/(?:пункт|раздел|статья|глава|приложение)\s+\d/g);
-  if (sectionMentions && sectionMentions.length >= 2) return true;
+  if (sectionMentions && sectionMentions.length >= 2) {
+    score += 2;
+    reasons.push("multi-section");
+  }
 
-  return false;
+  // Low-confidence intent often benefits from deterministic fallback.
+  if (intent.confidence < 0.35) {
+    score -= 1;
+    reasons.push("low-intent-confidence");
+  }
+
+  const useAgentic = score >= 3;
+  console.log(`[agentic] complexity score=${score} useAgentic=${useAgentic} reasons=${reasons.join(",") || "none"}`);
+  return useAgentic;
 }
 
 /**
