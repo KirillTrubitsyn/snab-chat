@@ -34,11 +34,17 @@ router.post("/api/heartbeat", async (req: Request, res: Response) => {
 
     // Update last_seen_at for the specific device or all devices of this user
     if (deviceId) {
-      await supabase
+      const { data: updated } = await supabase
         .from("devices")
         .update({ last_seen_at: now })
         .eq("invite_code_id", invite.id)
-        .eq("device_id", deviceId);
+        .eq("device_id", deviceId)
+        .select("id");
+
+      // Device was deleted by admin → signal forced logout
+      if (!updated || updated.length === 0) {
+        return res.json({ ok: false, logout: true });
+      }
     } else {
       await supabase
         .from("devices")
