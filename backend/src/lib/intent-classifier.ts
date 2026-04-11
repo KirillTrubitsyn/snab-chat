@@ -39,7 +39,7 @@ const CLASSIFY_PROMPT = `Ты — классификатор запросов д
 }
 
 Типы intent:
-- "spu_search" — ищет подрядчиков, поставщиков, исполнителей для конкретных работ
+- "spu_search" — ищет подрядчиков, поставщиков, исполнителей для конкретных работ ИЛИ спрашивает о конкретной компании/организации/юридическом лице (чем занимается, какие работы выполняет, контакты, ИНН)
 - "procedure" — вопрос о порядке проведения закупки, этапах, процессе
 - "regulation" — нормативные требования, что говорит закон/стандарт
 - "pricing" — НМЦД, расценки, сметы, индексы, ФЕР, ГЭСН
@@ -55,10 +55,11 @@ const CLASSIFY_PROMPT = `Ты — классификатор запросов д
 - "unknown" — режим не определяется из запроса
 
 Правила для search_tags (2-5 штук, на русском, СТРОГО в нижнем регистре):
-- Включай релевантные теги: "223-фз", "вне 223-фз", "ценообразование", "матрица полномочий", "смр", "пир", "реестр", "договоры", "инструкции", "единственный источник", "рамочный договор", "аварийная закупка"
-- Для spu_search всегда добавляй "реестр"
+- Включай релевантные теги: "223-фз", "вне 223-фз", "ценообразование", "матрица полномочий", "смр", "пир", "реестр", "договоры", "инструкции", "единственный источник", "рамочный договор", "аварийная закупка", "карточка контрагента"
+- Для spu_search всегда добавляй "реестр" и "карточка контрагента"
 - Для pricing всегда добавляй "ценообразование"
 - При упоминании конкретных систем добавляй их аббревиатуру
+- Если пользователь спрашивает о конкретной компании/организации — это spu_search
 
 Правила для query_variants (1-3 штуки):
 - Переформулируй запрос для улучшения поиска
@@ -66,6 +67,35 @@ const CLASSIFY_PROMPT = `Ты — классификатор запросов д
 - Не дублируй оригинальный запрос
 
 Верни ТОЛЬКО валидный JSON. Без комментариев, без markdown.`;
+/* ── Post-LLM keyword override ── */
+// Strong signals that the query is about a specific company/contractor.
+// These override the LLM result when it misclassifies as "general".
+export const COMPANY_PATTERNS = [
+  // Legal entity abbreviations followed by a name
+  /(?:^|\s)(?:ооо|ао|зао|пао|ип|нпо|гк|ук|тк|нпп|гуп|муп|фгуп)\s+[«"а-яё]/i,
+  // "расскажи / информация / сведения / данные / опиши" + "компания / организация / фирма"
+  /расскаж.*(компани|организаци|фирм)|информаци.+о\s+(компани|организаци|фирм)|сведени.+о\s+(компани|организаци|фирм)|данные.+о\s+(компани|организаци|фирм)|опиши.*(компани|организаци|фирм)/i,
+  // "что знаешь/известно про X компанию" or "чем занимается"
+  /что (ты )?(знаешь|известно) про|чем занимается/i,
+  // Direct contractor/supplier mention
+  /подрядчик|контрагент|поставщик|исполнител/i,
+  // "найти / подбери компанию"
+  /найти.*(компани|организаци|фирм)|подбери.*(компани|организаци|фирм)/i,
+  // INN lookup
+  /инн\s+\d{10}/i,
+];
+
+function applyCompanyOverride(query: string, result: IntentResult): void {
+  if (result.intent === "spu_search") return; // already correct
+  const lower = query.toLowerCase();
+  if (COMPANY_PATTERNS.some((p) => p.test(lower))) {
+    console.log(`classifyIntent: override ${result.intent} → spu_search (keyword pattern matched)`);
+    result.intent = "spu_search";
+    if (!result.search_tags.includes("реестр")) result.search_tags.push("реестр");
+    if (!result.search_tags.includes("карточка контрагента")) result.search_tags.push("карточка контрагента");
+  }
+}
+
 /* ── LLM-based classification ── */
 
 export async function classifyIntent(query: string): Promise<IntentResult> {
@@ -107,6 +137,9 @@ export async function classifyIntent(query: string): Promise<IntentResult> {
     if (!Array.isArray(parsed.query_variants)) parsed.query_variants = [query];
     if (typeof parsed.confidence !== "number") parsed.confidence = 0.5;
 
+    // Post-LLM correction: force spu_search when query clearly mentions a company
+    applyCompanyOverride(query, parsed);
+
     console.log("classifyIntent:", JSON.stringify({
       intent: parsed.intent,
       fz_type: parsed.fz_type,
@@ -129,9 +162,21 @@ function fallbackClassify(query: string): IntentResult {
   const search_tags: string[] = [];
 
   // Intent detection
-  if (/подрядчик|контрагент|поставщик|исполнител|кто (делает|выполня|оказыва)|найти.*(компани|организаци)/i.test(lower)) {
+  if (/подрядчик|контрагент|поставщик|исполнител|кто (делает|выполня|оказыва)|найти.*(компани|организаци)|подбери.*(компани|организаци|фирм)/i.test(lower)) {
     intent = "spu_search";
-    search_tags.push("реестр");
+    search_tags.push("реестр", "карточка контрагента");
+  } else if (/что (ты )?(знаешь|известно) про.*(компани|организаци|фирм|ооо|ао |зао|пао)|чем занимается.*(компани|организаци|ооо|ао |зао|пао)|инн\s+\d{10}/i.test(lower)) {
+    // Direct company lookup — also route to contractor cards
+    intent = "spu_search";
+    search_tags.push("реестр", "карточка контрагента");
+  } else if (/расскаж.*(компани|организаци|фирм)|информаци.+о\s+(компани|организаци|фирм)|сведени.+о\s+(компани|организаци|фирм)|данные.+о\s+(компани|организаци|фирм)|опиши.*(компани|организаци|фирм)/i.test(lower)) {
+    // "расскажи о компании", "информация о компании", "опиши компанию" etc.
+    intent = "spu_search";
+    search_tags.push("реестр", "карточка контрагента");
+  } else if (/(?:^|\s)(?:ооо|ао|зао|пао|ип|нпо|гк|ук|тк|нпп|гуп|муп|фгуп)\s+[«"а-яё]/i.test(lower)) {
+    // Query starts with or contains a legal entity abbreviation (ООО, АО, ТК, etc.) followed by a name
+    intent = "spu_search";
+    search_tags.push("реестр", "карточка контрагента");
   } else if (/как (провести|организовать|запустить|оформить)|порядок|процедур|этап|шаг|алгоритм/i.test(lower)) {
     intent = "procedure";
   } else if (/закон|статья|норм[аы]|требовани|обязательн|запрещ|допускается/i.test(lower)) {

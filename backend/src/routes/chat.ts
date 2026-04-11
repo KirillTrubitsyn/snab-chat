@@ -1,9 +1,9 @@
 import { Router, Request, Response } from "express";
 import { type ModelMessage } from "ai";
 import { GoogleGenAI } from "@google/genai";
-import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, type SearchResult } from "../lib/retrieval.js";
+import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, searchContractorCards, type SearchResult } from "../lib/retrieval.js";
 import { rerank } from "../lib/reranker.js";
-import { classifyIntent } from "../lib/intent-classifier.js";
+import { classifyIntent, COMPANY_PATTERNS } from "../lib/intent-classifier.js";
 import { loadConversationContext, saveMessage } from "../lib/memory.js";
 import { getInviteCodeFromHeader, isAdminCode } from "../lib/auth.js";
 import { createServiceClient } from "../lib/supabase.js";
@@ -313,10 +313,16 @@ ${userMessage.content}
   const searchPromises = Array.from(searchVariants).map((q) =>
     hybridSearch(q, 20, searchHints)
   );
-  const [sectionResults, docResults, catalogResults, ...variantResults] = await Promise.all([
+  // For spu_search intent: also run dedicated contractor card search
+  const contractorSearchPromise = intentResult.intent === "spu_search"
+    ? searchContractorCards(searchQuery, 20)
+    : Promise.resolve([]);
+
+  const [sectionResults, docResults, catalogResults, contractorResults, ...variantResults] = await Promise.all([
     sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
     docRef ? fetchChunksByDocument(docRef, docRef.filenameHints.length > 2 ? 15 : 8, userMessage.content) : Promise.resolve([]),
     catalogQuery ? fetchCatalogResults(catalogQuery) : Promise.resolve([]),
+    contractorSearchPromise,
     ...searchPromises,
   ]);
 
@@ -358,8 +364,6 @@ ${userMessage.content}
   }
 
   if (catalogResults.length > 0) {
-    // Catalog results ensure full coverage for "list all X" queries.
-    // One chunk per source — boosted so they survive filtering.
     const newCatalogResults = catalogResults
       .filter((r) => !existingIds.has(r.id))
       .map((r) => ({ ...r, similarity: Math.max(r.similarity, 0.90) }));
@@ -368,8 +372,37 @@ ${userMessage.content}
     console.log(`[chat] Catalog lookup added ${newCatalogResults.length} new chunks from ${new Set(newCatalogResults.map((r) => r.source_filename)).size} sources`);
   }
 
+  // Flag: when true, we have a direct contractor card match — skip supplementary
+  // searches and reranker so the LLM reranker cannot demote the exact card we found.
+  let directContractorMatch = false;
+
+  if (contractorResults.length > 0) {
+    const queryLower = searchQuery.toLowerCase().replace(/[«»"'.,;:!?()\[\]]/g, "");
+    const isSpecificCompanyQuery = COMPANY_PATTERNS.some((p) => p.test(queryLower));
+    const directMatches = contractorResults.filter((r) => {
+      const fn = r.source_filename.toLowerCase().replace(/[«»"'.,;:!?()\[\]_]/g, " ");
+      const qWords = queryLower.split(/\s+/).filter((w: string) => w.length >= 3);
+      return qWords.some((w: string) => fn.includes(w) && !["расскаж", "компани", "организаци", "информаци", "сведени"].some((s: string) => w.startsWith(s)));
+    });
+
+    if (directMatches.length > 0 && isSpecificCompanyQuery) {
+      directContractorMatch = true;
+      const boostedDirect = directMatches.map((r) => ({ ...r, similarity: 0.98 }));
+      combinedResults = [...boostedDirect];
+      console.log(`[chat] Contractor card DIRECT MATCH: ${directMatches.map((r) => r.source_filename).join(", ")} — bypassing supplementary search and reranker`);
+    } else {
+      const newContractorResults = contractorResults
+        .filter((r) => !existingIds.has(r.id))
+        .map((r) => ({ ...r, similarity: Math.max(r.similarity, 0.85) }));
+      for (const r of newContractorResults) existingIds.add(r.id);
+      combinedResults = [...newContractorResults, ...combinedResults];
+      console.log(`[chat] Contractor card search added ${newContractorResults.length} new chunks (no direct match)`);
+    }
+  }
+
   // ── Intent-aware supplementary search ──
-  {
+  // Skip entirely when we have a direct contractor card match.
+  if (!directContractorMatch) {
     const supplementSearches: Promise<SearchResult[]>[] = [];
 
     // Determine if the user's query has a clear regime preference
@@ -514,14 +547,21 @@ ${userMessage.content}
         console.log(`[chat] Regime post-filter: removed ${removed} opposite-regime chunks (strict ${intentResult.fz_type})`);
       }
     }
-  }
+  } // end if (!directContractorMatch)
 
-  // Rerank and filter
-  const rerankedResults = intentAwareRerank(combinedResults, intentResult);
-  const rerankResult = await rerank(userMessage.content, rerankedResults);
-  const filtered = filterByRelevance(rerankResult);
-  relevantChunks = filtered.results;
-  lowConfidence = filtered.lowConfidence;
+  if (directContractorMatch) {
+    // Direct contractor card match: skip reranker entirely.
+    relevantChunks = combinedResults;
+    lowConfidence = false;
+    console.log(`[chat] Direct contractor match: bypassing reranker, returning ${relevantChunks.length} card chunks`);
+  } else {
+    // Standard path: rerank and filter
+    const rerankedResults = intentAwareRerank(combinedResults, intentResult);
+    const rerankResult = await rerank(userMessage.content, rerankedResults);
+    const filtered = filterByRelevance(rerankResult);
+    relevantChunks = filtered.results;
+    lowConfidence = filtered.lowConfidence;
+  }
 
   } // end deterministic path
 
