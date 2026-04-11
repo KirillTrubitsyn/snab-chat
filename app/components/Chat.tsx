@@ -324,7 +324,12 @@ export default function Chat() {
           "x-invite-code": encodeURIComponent(inviteCode),
           "x-device-id": deviceId,
         },
-      }).catch(() => {});
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.logout) handleLogout();
+        })
+        .catch(() => {});
     };
     sendHeartbeat();
     const interval = setInterval(sendHeartbeat, 2 * 60 * 1000);

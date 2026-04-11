@@ -4730,6 +4730,33 @@ input, textarea {
   font-size: 15px;
 }
 
+.admin-btn-disconnect {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #DC2626;
+  background: transparent;
+  border: 1px solid #FECACA;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.admin-btn-disconnect:hover:not(:disabled) {
+  background: #FEF2F2;
+  border-color: #F87171;
+}
+
+.admin-btn-disconnect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .admin-action-warning {
   color: #D97706;
 }

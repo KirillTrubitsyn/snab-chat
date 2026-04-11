@@ -25,6 +25,7 @@ function timeAgo(dateStr: string): string {
 export default function OnlineTab({ adminCode }: { adminCode: string }) {
   const [users, setUsers] = useState<OnlineUser[]>([]);
   const [loading, setLoading] = useState(false);
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -43,6 +44,20 @@ export default function OnlineTab({ adminCode }: { adminCode: string }) {
   useEffect(() => {
     loadOnlineUsers();
   }, [loadOnlineUsers]);
+
+  const disconnectUser = async (inviteCodeId: string, userName: string) => {
+    if (!confirm(`Отключить пользователя "${userName}"? Все устройства будут разлогинены.`)) return;
+    setDisconnecting(inviteCodeId);
+    try {
+      await fetch(apiUrl("/api/admin/disconnect-user"), {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ invite_code_id: inviteCodeId }),
+      });
+      setUsers((prev) => prev.filter((u) => u.invite_code_id !== inviteCodeId));
+    } catch { /* ignore */ }
+    setDisconnecting(null);
+  };
 
   // Auto-refresh every 30 seconds
   useEffect(() => {
@@ -108,6 +123,7 @@ export default function OnlineTab({ adminCode }: { adminCode: string }) {
                   <th>Организация</th>
                   <th>Устройства</th>
                   <th>Последняя активность</th>
+                  <th style={{ width: 100 }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -128,6 +144,17 @@ export default function OnlineTab({ adminCode }: { adminCode: string }) {
                       </span>
                     </td>
                     <td className="admin-text-muted">{timeAgo(u.last_seen_at)}</td>
+                    <td>
+                      <button
+                        className="admin-btn-disconnect"
+                        onClick={() => disconnectUser(u.invite_code_id, u.name)}
+                        disabled={disconnecting === u.invite_code_id}
+                        title="Отключить пользователя"
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>logout</span>
+                        <span>{disconnecting === u.invite_code_id ? "..." : "Отключить"}</span>
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
