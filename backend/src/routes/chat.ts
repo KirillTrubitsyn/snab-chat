@@ -37,10 +37,18 @@ function escapeXmlAttr(str: string): string {
 
 /** Санитизация содержимого документов для защиты от промпт-инъекций */
 function sanitizeDocContent(content: string): string {
-  return content
+  const filtered = content
     .replace(/<\/?(?:system|instructions?|prompt|override|admin|role)\b[^>]*>/gi, "[filtered]")
     .replace(/(?:ignore|forget|disregard|забудь|игнорируй|отбрось)\s+(?:all\s+|все\s+)?(?:previous|above|prior|предыдущие|прошлые|выше)\s+(?:instructions?|rules?|prompts?|инструкции|правила|промпт)/gi, "[filtered]")
-    .replace(/(?:SYSTEM\s*OVERRIDE|ADMIN\s*MODE|NEW\s*INSTRUCTIONS?|НОВЫЕ\s*ИНСТРУКЦИИ)/gi, "[filtered]");
+    .replace(/(?:SYSTEM\s*OVERRIDE|ADMIN\s*MODE|NEW\s*INSTRUCTIONS?|НОВЫЕ\s*ИНСТРУКЦИИ)/gi, "[filtered]")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+
+  // Экранируем XML-спецсимволы, чтобы содержимое документа
+  // не могло закрыть теги <document>/<documents> и подменить структуру промпта.
+  return filtered
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 router.post("/api/chat", async (req: Request, res: Response) => {
