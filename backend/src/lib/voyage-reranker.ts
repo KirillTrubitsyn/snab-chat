@@ -67,7 +67,7 @@ export async function voyageRerank(
     const maxOriginal = Math.max(...candidates.map((r) => r.similarity), 0.01);
 
     const reranked = candidates.map((r, i) => {
-      const voyageScore = scoreMap.get(i) ?? 0.5;
+      const voyageScore = scoreMap.get(i) ?? 0.2;
       const normalizedOriginal = r.similarity / maxOriginal;
       const blended = normalizedOriginal * 0.5 + voyageScore * 0.5;
       return { ...r, similarity: blended * maxOriginal };
