@@ -680,10 +680,10 @@ router.post("/api/auth/request-login-approval", async (req: Request, res: Respon
     // Определить геолокацию по IP
     let location = "";
     try {
-      const geoRes = await fetch(`http://ip-api.com/json/${ipAddress}?fields=status,country,city&lang=ru`);
+      const geoRes = await fetch(`https://ipwho.is/${ipAddress}?lang=ru`);
       if (geoRes.ok) {
         const geo = await geoRes.json();
-        if (geo.status === "success") {
+        if (geo.success) {
           location = [geo.city, geo.country].filter(Boolean).join(", ");
         }
       }
