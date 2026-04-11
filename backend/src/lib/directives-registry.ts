@@ -4,7 +4,7 @@
  * These are verbal or informal directives that are NOT yet in the document
  * knowledge base but must be communicated to users when relevant.
  *
- * Pattern mirrors sgk-registry.ts: hardcoded data + prompt generation function.
+ * Pattern: hardcoded data + prompt generation function.
  * Directives are conditionally injected into the system prompt based on
  * keyword and intent matching — so they don't bloat the prompt for unrelated queries.
  */
