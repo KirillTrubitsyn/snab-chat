@@ -70,7 +70,7 @@ const CLASSIFY_PROMPT = `Ты — классификатор запросов д
 /* ── Post-LLM keyword override ── */
 // Strong signals that the query is about a specific company/contractor.
 // These override the LLM result when it misclassifies as "general".
-const COMPANY_PATTERNS = [
+export const COMPANY_PATTERNS = [
   // Legal entity abbreviations followed by a name
   /(?:^|\s)(?:ооо|ао|зао|пао|ип|нпо|гк|ук|тк|нпп|гуп|муп|фгуп)\s+[«"а-яё]/i,
   // "расскажи / информация / сведения / данные / опиши" + "компания / организация / фирма"
