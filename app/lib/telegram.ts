@@ -72,7 +72,8 @@ export async function sendTelegramMessage(
 /** Отправить сообщение через 2FA-бот (@SC2FA_Bot) */
 export async function send2FAMessage(
   text: string,
-  chatId: string
+  chatId: string,
+  replyMarkup?: Record<string, unknown>
 ): Promise<boolean> {
   const token = BOT_2FA_TOKEN || BOT_TOKEN;
   if (!token || !chatId) return false;
@@ -83,6 +84,7 @@ export async function send2FAMessage(
       parse_mode: "HTML",
       disable_web_page_preview: true,
     };
+    if (replyMarkup) body.reply_markup = replyMarkup;
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -101,7 +103,7 @@ export async function send2FAMessage(
 }
 
 /** Отправить сообщение ВСЕМ админам параллельно */
-async function notifyAllAdmins(text: string, replyMarkup?: Record<string, unknown>): Promise<void> {
+export async function notifyAllAdmins(text: string, replyMarkup?: Record<string, unknown>): Promise<void> {
   if (ADMIN_CHAT_IDS.length === 0) return;
   await Promise.allSettled(ADMIN_CHAT_IDS.map((id) => sendTelegramMessage(text, id, replyMarkup)));
 }

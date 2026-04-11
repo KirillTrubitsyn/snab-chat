@@ -771,6 +771,130 @@ router.delete("/api/admin/support", async (req: Request, res: Response) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
+   /api/admin/online-users  —  GET
+   ══════════════════════════════════════════════════════════════ */
+
+router.get("/api/admin/online-users", async (req: Request, res: Response) => {
+  try {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+
+    const supabase = createServiceClient();
+
+    // "Online" = last_seen_at within the last 5 minutes
+    const ONLINE_THRESHOLD_MINUTES = 5;
+    const cutoff = new Date(Date.now() - ONLINE_THRESHOLD_MINUTES * 60 * 1000).toISOString();
+
+    // Get all devices seen recently
+    const { data: recentDevices, error: devErr } = await supabase
+      .from("devices")
+      .select("invite_code_id, device_id, user_agent, last_seen_at")
+      .gte("last_seen_at", cutoff)
+      .order("last_seen_at", { ascending: false });
+
+    if (devErr) {
+      console.error("DB error:", devErr.message);
+      return res.status(500).json({ error: "Внутренняя ошибка сервера" });
+    }
+
+    if (!recentDevices || recentDevices.length === 0) {
+      return res.json({ users: [], count: 0 });
+    }
+
+    // Group by invite_code_id
+    const byUser: Record<string, { devices: typeof recentDevices; lastSeen: string }> = {};
+    for (const d of recentDevices) {
+      if (!d.invite_code_id) continue;
+      if (!byUser[d.invite_code_id]) {
+        byUser[d.invite_code_id] = { devices: [], lastSeen: d.last_seen_at };
+      }
+      byUser[d.invite_code_id].devices.push(d);
+      if (d.last_seen_at > byUser[d.invite_code_id].lastSeen) {
+        byUser[d.invite_code_id].lastSeen = d.last_seen_at;
+      }
+    }
+
+    const inviteCodeIds = Object.keys(byUser);
+
+    // Get user info
+    const { data: codes } = await supabase
+      .from("invite_codes")
+      .select("id, code, name, organization")
+      .in("id", inviteCodeIds);
+
+    const codesMap: Record<string, { code: string; name: string; organization: string | null }> = {};
+    for (const c of codes || []) {
+      codesMap[c.id] = { code: c.code, name: c.name, organization: c.organization };
+    }
+
+    const users = inviteCodeIds
+      .filter((id) => id in codesMap)
+      .map((id) => ({
+        invite_code_id: id,
+        code: codesMap[id].code,
+        name: codesMap[id].name,
+        organization: codesMap[id].organization,
+        device_count: byUser[id].devices.length,
+        last_seen_at: byUser[id].lastSeen,
+      }))
+      .sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at));
+
+    return res.json({ users, count: users.length });
+  } catch (err) {
+    console.error("GET /api/admin/online-users error:", err);
+    return res.status(500).json({ error: "Внутренняя ошибка сервера" });
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
+   /api/admin/disconnect-user  —  POST
+   ══════════════════════════════════════════════════════════════ */
+
+router.post("/api/admin/disconnect-user", async (req: Request, res: Response) => {
+  try {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+
+    const { invite_code_id } = req.body;
+    if (!invite_code_id || typeof invite_code_id !== "string") {
+      return res.status(400).json({ error: "invite_code_id обязателен" });
+    }
+
+    const supabase = createServiceClient();
+
+    // Get user info for audit log
+    const { data: codeInfo } = await supabase
+      .from("invite_codes")
+      .select("name, code")
+      .eq("id", invite_code_id)
+      .single();
+
+    // Delete all devices for this user (forces logout on next heartbeat)
+    const { error } = await supabase
+      .from("devices")
+      .delete()
+      .eq("invite_code_id", invite_code_id);
+
+    if (error) {
+      console.error("DB error:", error.message);
+      return res.status(500).json({ error: "Внутренняя ошибка сервера" });
+    }
+
+    logAuditEvent({
+      action: "user.disconnect",
+      adminName: admin.adminName,
+      targetId: invite_code_id,
+      details: { userName: codeInfo?.name, code: codeInfo?.code },
+    });
+
+    return res.json({ ok: true, userName: codeInfo?.name });
+  } catch (err) {
+    console.error("POST /api/admin/disconnect-user error:", err);
+    return res.status(500).json({ error: "Внутренняя ошибка сервера" });
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
    /api/admin/off-topic  —  GET, DELETE
    ══════════════════════════════════════════════════════════════ */
 

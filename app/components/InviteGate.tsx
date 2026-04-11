@@ -13,7 +13,8 @@ type Step =
   | "recommend-2fa"
   | "setup-2fa"
   | "2fa-choose"
-  | "2fa-verify";
+  | "2fa-verify"
+  | "2fa-telegram-push";
 
 interface InviteGateProps {
   onSuccess: (data: {
@@ -61,6 +62,10 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
   const [setupMethod, setSetupMethod] = useState<"" | "telegram" | "sms" | "totp">("");
   const [setupSubStep, setSetupSubStep] = useState<"choose" | "configure" | "verify">("choose");
 
+  // Login approval (push-уведомление в Telegram)
+  const [approvalId, setApprovalId] = useState("");
+  const approvalPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const getOrCreateDeviceId = (): string => {
     const key = "snabchat_device_id";
     let deviceId = localStorage.getItem(key);
@@ -75,6 +80,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
   useEffect(() => {
     return () => {
       if (telegramPollRef.current) clearInterval(telegramPollRef.current);
+      if (approvalPollRef.current) clearInterval(approvalPollRef.current);
     };
   }, []);
 
@@ -141,6 +147,13 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         return;
       }
 
+      // Пароль верный, но вход заблокирован (лимит устройств и т.д.) — не пробовать как инвайт-код
+      if (pwRes.status === 403) {
+        const pwData = await pwRes.json();
+        setError(pwData.error || "Доступ запрещён");
+        return;
+      }
+
       // 2. Попробовать как инвайт-код (первый вход) или админ-код
       const codeRes = await fetch(apiUrl("/api/auth/login"), {
         method: "POST",
@@ -151,7 +164,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       const codeData = await codeRes.json();
 
       if (!codeRes.ok) {
-        setError("Неверный пароль или инвайт-код");
+        setError(codeData.error || "Неверный пароль или инвайт-код");
         return;
       }
 
@@ -281,7 +294,31 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     }
   };
 
-  /* ── Шаг 5: Отправка OTP для входа ── */
+  /* ── Шаг 5: Отправка OTP для входа (или push-уведомление для Telegram) ── */
+  const startApprovalPolling = useCallback((id: string) => {
+    if (approvalPollRef.current) clearInterval(approvalPollRef.current);
+    approvalPollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(apiUrl(`/api/auth/check-login-approval?id=${id}`));
+        const data = await res.json();
+        if (data.status === "approved") {
+          if (approvalPollRef.current) clearInterval(approvalPollRef.current);
+          completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code });
+        } else if (data.status === "denied") {
+          if (approvalPollRef.current) clearInterval(approvalPollRef.current);
+          setError("Вход отклонён. Если это не вы — смените пароль.");
+          setStep("2fa-choose");
+        } else if (data.status === "expired") {
+          if (approvalPollRef.current) clearInterval(approvalPollRef.current);
+          setError("Время подтверждения истекло. Попробуйте снова.");
+          setStep("2fa-choose");
+        }
+      } catch {
+        // Игнорируем ошибки сети при поллинге
+      }
+    }, 2000);
+  }, [completeLogin]);
+
   const handleSendLoginOTP = async (method: string) => {
     setError("");
     setLoading(true);
@@ -290,6 +327,32 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     if (method === "totp") {
       setStep("2fa-verify");
       setLoading(false);
+      return;
+    }
+
+    // Telegram: push-уведомление вместо OTP
+    if (method === "telegram") {
+      try {
+        const res = await fetch(apiUrl("/api/auth/request-login-approval"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: savedCode }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || "Ошибка отправки уведомления");
+          return;
+        }
+
+        setApprovalId(data.approval_id);
+        setStep("2fa-telegram-push");
+        startApprovalPolling(data.approval_id);
+      } catch {
+        setError("Ошибка подключения к серверу");
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 
@@ -656,6 +719,42 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
           </div>
         )}
 
+        {/* ══ Шаг 5b: Ожидание подтверждения из Telegram ══ */}
+        {step === "2fa-telegram-push" && (
+          <div className="invite-gate-form">
+            <div style={{ textAlign: "center", marginBottom: 16 }}>
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 2L11 13" />
+                <path d="M22 2L15 22L11 13L2 9L22 2Z" />
+              </svg>
+            </div>
+            <p className="invite-gate-register-hint" style={{ fontWeight: 500, marginBottom: 8 }}>
+              Подтвердите вход в Telegram
+            </p>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginBottom: 16 }}>
+              Мы отправили уведомление в ваш Telegram.
+              Нажмите &laquo;Да, это я&raquo; для подтверждения входа.
+            </p>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 16 }}>
+              <div className="spinner" style={{ width: 20, height: 20 }} />
+              <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Ожидаем подтверждение...</span>
+            </div>
+            {error && <p className="invite-gate-error">{error}</p>}
+            <button
+              type="button"
+              onClick={() => {
+                if (approvalPollRef.current) clearInterval(approvalPollRef.current);
+                setStep("2fa-choose");
+                setError("");
+                setApprovalId("");
+              }}
+              className="invite-gate-back"
+            >
+              Назад
+            </button>
+          </div>
+        )}
+
         {/* ══ Шаг 6: Проверка OTP при входе ══ */}
         {step === "2fa-verify" && (
           <form onSubmit={handleVerifyLoginOTP} className="invite-gate-form">
@@ -713,15 +812,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
                   >
                     {twoFAStatus.telegram ? "Telegram (привязан)" : "Привязать Telegram"}
                   </button>
-                  {/* SMS */}
-                  <button
-                    className="invite-gate-submit"
-                    style={{ margin: 0, background: twoFAStatus.sms ? "var(--success, #4caf50)" : undefined }}
-                    onClick={() => { if (!twoFAStatus.sms) { setSetupMethod("sms"); setSetupSubStep("configure"); } }}
-                    disabled={twoFAStatus.sms || loading}
-                  >
-                    {twoFAStatus.sms ? "SMS (привязан)" : "Привязать SMS"}
-                  </button>
+                  {/* SMS — скрыт до настройки провайдера */}
                   {/* TOTP */}
                   <button
                     className="invite-gate-submit"

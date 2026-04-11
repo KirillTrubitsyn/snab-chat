@@ -313,6 +313,29 @@ export default function Chat() {
     loadConversations();
   }, [loadConversations]);
 
+  /* ── Heartbeat: update online status every 2 min ── */
+  useEffect(() => {
+    if (!inviteCode) return;
+    const deviceId = typeof window !== "undefined" ? localStorage.getItem("snabchat_device_id") || "" : "";
+    const sendHeartbeat = () => {
+      fetch(apiUrl("/api/heartbeat"), {
+        method: "POST",
+        headers: {
+          "x-invite-code": encodeURIComponent(inviteCode),
+          "x-device-id": deviceId,
+        },
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.logout) handleLogout();
+        })
+        .catch(() => {});
+    };
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [inviteCode]);
+
   /* ── Load infographics ── */
   const loadInfographics = useCallback(async () => {
     if (!inviteCode) return;

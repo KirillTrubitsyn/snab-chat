@@ -13,14 +13,22 @@ Next.js 15 приложение — чат-бот на базе RAG (Retrieval-A
 - **Парсинг:** mammoth (DOCX), pdf-parse (PDF), xlsx (Excel)
 - **Стриминг:** Vercel AI SDK `streamText` + data stream protocol
 
-## Архитектура
+## Архитектура развёртывания
+
+**ВАЖНО: единственный бэкенд — Railway (`backend/src/`).**  
+Vercel обслуживает только фронтенд (Next.js SSR/статика). Все API-вызовы из браузера идут на Railway через `NEXT_PUBLIC_API_URL`. Файлы `app/api/` существуют как fallback, но в продакшне НЕ используются.
+
+**Правило: все изменения в серверной логике вносить ТОЛЬКО в `backend/src/`.**  
+Файлы `app/api/` и `app/lib/` — устаревшая копия. Не тратить время на их синхронизацию.
 
 ```
-Пользователь → Chat.tsx (React) → /api/chat (Next.js API Route)
-                                      ├── hybridSearch() → Supabase RPC `hybrid_search`
-                                      ├── filterByRelevance() → порог 0.35, макс 8 чанков
+Пользователь → Chat.tsx (React) → apiUrl("/api/chat")
+                                      ↓ NEXT_PUBLIC_API_URL
+                                   Railway (Express.js backend)
+                                      ├── hybridSearch() → Supabase RPC
+                                      ├── filterByRelevance() → порог 0.35, макс 15 чанков
                                       ├── loadConversationContext() → история + резюме
-                                      └── streamText(gemini-3-flash) → стриминг ответа
+                                      └── Gemini streamText → стриминг ответа
 ```
 
 ## Структура файлов

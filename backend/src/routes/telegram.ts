@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { createServiceClient } from "../lib/supabase.js";
 import { requireAdmin } from "../lib/auth.js";
-import { getAdminByChatId, notifySupportReply, answerCallbackQuery, sendTelegramMessage, send2FAMessage } from "../lib/telegram.js";
+import { getAdminByChatId, notifySupportReply, answerCallbackQuery, sendTelegramMessage, send2FAMessage, answer2FACallbackQuery, edit2FAMessage, notifyAllAdmins } from "../lib/telegram.js";
 import { getMoscowTime } from "../lib/date-utils.js";
 import { timingSafeEqual } from "crypto";
 
@@ -183,7 +183,7 @@ router.post("/api/telegram/setup", async (req: Request, res: Response) => {
       webhook2FAUrl = `${backendProtocol}://${backendHost}/api/telegram/webhook-2fa`;
       const body2FA: Record<string, unknown> = {
         url: webhook2FAUrl,
-        allowed_updates: ["message"],
+        allowed_updates: ["message", "callback_query"],
       };
       if (webhook2FASecret) {
         body2FA.secret_token = webhook2FASecret;
@@ -442,6 +442,110 @@ router.post("/api/telegram/webhook-2fa", async (req: Request, res: Response) => 
   }
 
   const update = req.body;
+
+  // ── Обработка callback_query (кнопки подтверждения входа) ──
+  const callbackQuery = update?.callback_query;
+  if (callbackQuery) {
+    const chatId = String(callbackQuery.message?.chat?.id ?? "");
+    const cbData = callbackQuery.data ?? "";
+    const messageId = callbackQuery.message?.message_id;
+
+    if (cbData.startsWith("login_approve:") || cbData.startsWith("login_deny:")) {
+      const approvalId = cbData.split(":")[1];
+      const approved = cbData.startsWith("login_approve:");
+      const supabase = createServiceClient();
+
+      // Проверить что approval существует и принадлежит этому chat_id
+      const { data: approval, error: fetchErr } = await supabase
+        .from("login_approvals")
+        .select("id, invite_code_id, status, ip_address, expires_at")
+        .eq("id", approvalId)
+        .single();
+
+      if (fetchErr || !approval) {
+        await answer2FACallbackQuery(callbackQuery.id, "Запрос не найден");
+        return res.json({ ok: true });
+      }
+
+      // Проверить что запрос принадлежит этому пользователю
+      const { data: invite } = await supabase
+        .from("invite_codes")
+        .select("telegram_chat_id, name")
+        .eq("id", approval.invite_code_id)
+        .single();
+
+      if (!invite || invite.telegram_chat_id !== chatId) {
+        await answer2FACallbackQuery(callbackQuery.id, "Нет доступа");
+        return res.json({ ok: true });
+      }
+
+      if (approval.status !== "pending") {
+        await answer2FACallbackQuery(callbackQuery.id, "Запрос уже обработан");
+        return res.json({ ok: true });
+      }
+
+      if (new Date(approval.expires_at) < new Date()) {
+        await answer2FACallbackQuery(callbackQuery.id, "Время подтверждения истекло");
+        return res.json({ ok: true });
+      }
+
+      // Обновить статус (атомарно — только если ещё pending)
+      const newStatus = approved ? "approved" : "denied";
+      const { data: updated, error: updateErr } = await supabase
+        .from("login_approvals")
+        .update({ status: newStatus, resolved_at: new Date().toISOString() })
+        .eq("id", approvalId)
+        .eq("status", "pending")
+        .select("id")
+        .maybeSingle();
+
+      if (updateErr || !updated) {
+        await answer2FACallbackQuery(callbackQuery.id, "Запрос уже обработан");
+        return res.json({ ok: true });
+      }
+
+      if (approved) {
+        await answer2FACallbackQuery(callbackQuery.id, "Вход подтверждён");
+        if (messageId) {
+          await edit2FAMessage(
+            chatId,
+            messageId,
+            `✅ <b>Вход подтверждён</b>\n\n` +
+            `👤 ${invite.name}\n` +
+            `🕐 ${getMoscowTime()}`
+          );
+        }
+      } else {
+        await answer2FACallbackQuery(callbackQuery.id, "Вход отклонён");
+        if (messageId) {
+          await edit2FAMessage(
+            chatId,
+            messageId,
+            `❌ <b>Вход отклонён</b>\n\n` +
+            `👤 ${invite.name}\n` +
+            `🌐 ${approval.ip_address || "unknown"}\n` +
+            `🕐 ${getMoscowTime()}`
+          );
+        }
+
+        // Уведомить админов о подозрительной попытке входа
+        const alertText =
+          `🚨 <b>Подозрительная попытка входа</b>\n\n` +
+          `Пользователь <b>${invite.name}</b> отклонил вход:\n` +
+          `🌐 IP: ${approval.ip_address || "unknown"}\n` +
+          `🕐 ${getMoscowTime()}\n\n` +
+          `Возможно, кто-то пытается войти в чужой аккаунт.`;
+        notifyAllAdmins(alertText).catch(() => {});
+      }
+
+      console.log(`[2FA Webhook] Login ${newStatus} for ${invite.name} (approval ${approvalId})`);
+      return res.json({ ok: true });
+    }
+
+    await answer2FACallbackQuery(callbackQuery.id);
+    return res.json({ ok: true });
+  }
+
   const message = update?.message;
   if (!message?.text) {
     return res.json({ ok: true });

@@ -23,6 +23,7 @@ import fetchUrlRouter from "./routes/fetch-url.js";
 import telegramRouter from "./routes/telegram.js";
 import miscRouter from "./routes/misc.js";
 import chatRouter from "./routes/chat.js";
+import heartbeatRouter from "./routes/heartbeat.js";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3001", 10);
@@ -64,7 +65,7 @@ app.use(cors({
   credentials: true,
   exposedHeaders: ["X-Sources", "X-Chunk-Images"],
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "x-invite-code", "x-admin-code"],
+  allowedHeaders: ["Content-Type", "x-invite-code", "x-admin-code", "x-device-id"],
 }));
 
 // ── Origin validation for mutation requests ──
@@ -116,6 +117,7 @@ app.use(fetchUrlRouter);
 app.use(telegramRouter);
 app.use(miscRouter);
 app.use(chatRouter);
+app.use(heartbeatRouter);
 
 // ── Error handling ──
 app.use(errorHandler);

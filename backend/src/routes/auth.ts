@@ -22,10 +22,12 @@ import {
   verifySetupOtpSchema,
   changePasswordSchema,
   twoFactorMethodSchema,
+  requestLoginApprovalSchema,
   parseBody,
 } from "../lib/validation.js";
 import { createServiceClient } from "../lib/supabase.js";
 import { notifyNewUser, send2FAMessage } from "../lib/telegram.js";
+import { getMoscowTime } from "../lib/date-utils.js";
 import {
   generateOTP,
   saveOTP,
@@ -36,6 +38,7 @@ import {
   verifyTOTP,
 } from "../lib/otp.js";
 import { sendSMS } from "../lib/sms.js";
+import { logSecurityEvent } from "../lib/security-log.js";
 
 const router = Router();
 
@@ -66,6 +69,11 @@ router.post("/api/auth/login", async (req: Request, res: Response) => {
     // 2. Проверка инвайт-кодов в БД
     const invite = await validateInviteCode(upperCode);
     if (!invite) {
+      logSecurityEvent("auth.invite_code_fail", {
+        ip: getClientIP(req),
+        userAgent: req.headers["user-agent"] as string,
+        details: { endpoint: "/api/auth/login" },
+      });
       return res.status(401).json({
         error: "Неверный или деактивированный инвайт-код",
       });
@@ -101,10 +109,8 @@ router.post("/api/auth/login", async (req: Request, res: Response) => {
       isNewDevice = newDevice;
     }
 
-    // 5. Уменьшаем счётчик только для пользователей БЕЗ пароля (первый вход)
-    if (!hasPassword) {
-      await consumeInviteCodeFallback(invite.id);
-    }
+    // 5. НЕ расходуем uses_remaining здесь — это делает set-password после установки пароля.
+    // Если расходовать на этапе login, то set-password и 2FA-роуты не смогут пройти валидацию.
 
     // 6. Уведомление при активации кода с нового устройства
     if (isNewDevice) {
@@ -143,27 +149,32 @@ router.post("/api/auth/set-password", async (req: Request, res: Response) => {
     if (parsed.error) return;
 
     const upperCode = parsed.data.code.toUpperCase();
-    const invite = await validateInviteCode(upperCode);
-    if (!invite) {
+    const supabase = createServiceClient();
+
+    // Ищем код напрямую, БЕЗ validateInviteCode —
+    // uses_remaining уже 0 после login, это нормально
+    const { data: invite, error: dbError } = await supabase
+      .from("invite_codes")
+      .select("id, password_hash, is_active")
+      .eq("code", upperCode)
+      .single();
+
+    if (dbError || !invite) {
       return res.status(401).json({ error: "Неверный инвайт-код" });
     }
 
-    const supabase = createServiceClient();
-    const { data: codeData } = await supabase
-      .from("invite_codes")
-      .select("password_hash")
-      .eq("id", invite.id)
-      .single();
+    if (!invite.is_active) {
+      return res.status(401).json({ error: "Этот инвайт-код деактивирован" });
+    }
 
-    if (codeData?.password_hash) {
+    if (invite.password_hash) {
       return res.status(400).json({ error: "Пароль уже установлен" });
     }
 
     const hash = await bcrypt.hash(parsed.data.password, 12);
-    const deadCode = `USED-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
     const { error: updateError } = await supabase
       .from("invite_codes")
-      .update({ password_hash: hash, uses_remaining: 0, code: deadCode })
+      .update({ password_hash: hash })
       .eq("id", invite.id);
 
     if (updateError) {
@@ -202,6 +213,12 @@ router.post("/api/auth/verify-password", async (req: Request, res: Response) => 
 
     const valid = await bcrypt.compare(parsed.data.password, codeData.password_hash);
     if (!valid) {
+      logSecurityEvent("auth.password_fail", {
+        ip: getClientIP(req),
+        userAgent: req.headers["user-agent"] as string,
+        inviteCodeId: invite.id,
+        details: { endpoint: "/api/auth/verify-password" },
+      });
       return res.status(401).json({ error: "Неверный пароль" });
     }
 
@@ -338,6 +355,12 @@ router.post("/api/auth/verify-otp", async (req: Request, res: Response) => {
     }
 
     if (!valid) {
+      logSecurityEvent("auth.otp_fail", {
+        ip: getClientIP(req),
+        userAgent: req.headers["user-agent"] as string,
+        inviteCodeId: invite.id,
+        details: { method: parsed.data.method, endpoint: "/api/auth/verify-otp" },
+      });
       return res.status(401).json({ error: "Неверный код" });
     }
 
@@ -618,6 +641,164 @@ router.post("/api/auth/change-password", async (req: Request, res: Response) => 
     }
 
     return res.json({ success: true });
+  } catch {
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// ── Push-уведомления при входе через Telegram ──
+
+function getClientIP(req: Request): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string") {
+    return forwarded.split(",")[0]?.trim() || "unknown";
+  }
+  const realIp = req.headers["x-real-ip"];
+  if (typeof realIp === "string") return realIp;
+  return req.ip || "unknown";
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// POST /api/auth/request-login-approval
+router.post("/api/auth/request-login-approval", async (req: Request, res: Response) => {
+  try {
+    const parsed = parseBody(req.body, requestLoginApprovalSchema, res);
+    if (parsed.error) return;
+
+    const upperCode = parsed.data.code.toUpperCase();
+    const invite = await validateInviteCode(upperCode);
+    if (!invite) {
+      return res.status(401).json({ error: "Неверный инвайт-код" });
+    }
+
+    const supabase = createServiceClient();
+    const { data: codeData } = await supabase
+      .from("invite_codes")
+      .select("telegram_chat_id")
+      .eq("id", invite.id)
+      .single();
+
+    if (!codeData?.telegram_chat_id) {
+      return res.status(400).json({ error: "Telegram не привязан" });
+    }
+
+    // Истечь старые pending approvals
+    await supabase
+      .from("login_approvals")
+      .update({ status: "denied", resolved_at: new Date().toISOString() })
+      .eq("invite_code_id", invite.id)
+      .eq("status", "pending");
+
+    const ipAddress = getClientIP(req);
+    const userAgent = req.headers["user-agent"] || "";
+
+    // Определить геолокацию по IP
+    let location = "";
+    if (ipAddress && ipAddress !== "unknown") {
+      try {
+        const geoRes = await fetch(`https://ipapi.co/${ipAddress}/json/`, {
+          headers: { "User-Agent": "snabchat/1.0" },
+          signal: AbortSignal.timeout(3000),
+        });
+        if (geoRes.ok) {
+          const geo = await geoRes.json() as { city?: string; country_name?: string; error?: boolean };
+          if (!geo.error && (geo.city || geo.country_name)) {
+            location = [geo.city, geo.country_name].filter(Boolean).join(", ");
+          }
+        }
+      } catch (e) {
+        console.log(`[geo] Failed for ${ipAddress}:`, e instanceof Error ? e.message : e);
+      }
+    }
+
+    // Создать новый запрос на подтверждение
+    const { data: approval, error: insertError } = await supabase
+      .from("login_approvals")
+      .insert({
+        invite_code_id: invite.id,
+        ip_address: ipAddress,
+        user_agent: userAgent,
+      })
+      .select("id")
+      .single();
+
+    if (insertError || !approval) {
+      console.error("[request-login-approval] DB error:", insertError?.message);
+      return res.status(500).json({ error: "Ошибка создания запроса" });
+    }
+
+    // Отправить уведомление в Telegram
+    const locationLine = location ? `\n📍 ${escapeHtml(location)}` : "";
+    const text =
+      `🔐 <b>Вход в СнабЧат</b>\n\n` +
+      `Кто-то входит в ваш аккаунт:\n` +
+      `👤 <b>${escapeHtml(invite.name)}</b>\n` +
+      `🌐 ${escapeHtml(ipAddress)}${locationLine}\n` +
+      `🕐 ${getMoscowTime()}\n\n` +
+      `Это вы?`;
+
+    const replyMarkup = {
+      inline_keyboard: [[
+        { text: "✅ Да, это я", callback_data: `login_approve:${approval.id}` },
+        { text: "❌ Нет, не я", callback_data: `login_deny:${approval.id}` },
+      ]],
+    };
+
+    const sent = await send2FAMessage(text, codeData.telegram_chat_id, replyMarkup);
+    if (!sent) {
+      return res.status(500).json({ error: "Ошибка отправки уведомления в Telegram" });
+    }
+
+    return res.json({ approval_id: approval.id });
+  } catch {
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// GET /api/auth/check-login-approval
+router.get("/api/auth/check-login-approval", async (req: Request, res: Response) => {
+  try {
+    const id = req.query.id as string | undefined;
+    if (!id) {
+      return res.status(400).json({ error: "ID не указан" });
+    }
+
+    const supabase = createServiceClient();
+    const { data: approval, error } = await supabase
+      .from("login_approvals")
+      .select("id, invite_code_id, status, expires_at")
+      .eq("id", id)
+      .single();
+
+    if (error || !approval) {
+      return res.status(404).json({ error: "Запрос не найден" });
+    }
+
+    // Проверить таймаут
+    if (approval.status === "pending" && new Date(approval.expires_at) < new Date()) {
+      return res.json({ status: "expired" });
+    }
+
+    if (approval.status === "approved") {
+      // Вернуть данные пользователя для завершения входа
+      const { data: invite } = await supabase
+        .from("invite_codes")
+        .select("id, code, name")
+        .eq("id", approval.invite_code_id)
+        .single();
+
+      return res.json({
+        status: "approved",
+        inviteCodeId: invite?.id,
+        name: invite?.name,
+        code: invite?.code,
+      });
+    }
+
+    return res.json({ status: approval.status });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });
   }

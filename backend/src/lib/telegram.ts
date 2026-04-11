@@ -70,7 +70,7 @@ export async function sendTelegramMessage(
 }
 
 /** Отправить сообщение ВСЕМ админам параллельно */
-async function notifyAllAdmins(text: string, replyMarkup?: Record<string, unknown>): Promise<void> {
+export async function notifyAllAdmins(text: string, replyMarkup?: Record<string, unknown>): Promise<void> {
   if (ADMIN_CHAT_IDS.length === 0) return;
   await Promise.allSettled(ADMIN_CHAT_IDS.map((id) => sendTelegramMessage(text, id, replyMarkup)));
 }
@@ -91,7 +91,8 @@ export async function answerCallbackQuery(callbackQueryId: string, text?: string
 /** Отправить сообщение через 2FA-бот (@SC2FA_Bot) */
 export async function send2FAMessage(
   text: string,
-  chatId: string
+  chatId: string,
+  replyMarkup?: Record<string, unknown>
 ): Promise<boolean> {
   const token = BOT_2FA_TOKEN || BOT_TOKEN;
   if (!token || !chatId) return false;
@@ -102,6 +103,7 @@ export async function send2FAMessage(
       parse_mode: "HTML",
       disable_web_page_preview: true,
     };
+    if (replyMarkup) body.reply_markup = replyMarkup;
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -117,6 +119,41 @@ export async function send2FAMessage(
     console.error(`[Telegram 2FA] Ошибка сети:`, e);
     return false;
   }
+}
+
+/** Ответить на callback_query через 2FA-бот */
+export async function answer2FACallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
+  const token = BOT_2FA_TOKEN || BOT_TOKEN;
+  if (!token) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
+    });
+  } catch { /* ignore */ }
+}
+
+/** Отредактировать сообщение через 2FA-бот (убрать кнопки, обновить текст) */
+export async function edit2FAMessage(
+  chatId: string,
+  messageId: number,
+  text: string
+): Promise<void> {
+  const token = BOT_2FA_TOKEN || BOT_TOKEN;
+  if (!token) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        text,
+        parse_mode: "HTML",
+      }),
+    });
+  } catch { /* ignore */ }
 }
 
 function escapeHtml(s: string): string {

@@ -147,6 +147,35 @@ export async function validateInviteCode(
   return data as InviteCode;
 }
 
+export type ValidateRejectReason = "not_found" | "inactive" | "uses_exhausted";
+export type ValidateDetailedResult =
+  | { ok: true; invite: InviteCode }
+  | { ok: false; reason: ValidateRejectReason };
+
+/**
+ * Расширенная валидация с причиной отказа — используется на экране входа
+ * для показа конкретной ошибки пользователю.
+ */
+export async function validateInviteCodeDetailed(
+  code: string
+): Promise<ValidateDetailedResult> {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("invite_codes")
+    .select("*")
+    .eq("code", code.toUpperCase())
+    .single();
+
+  if (error || !data) return { ok: false, reason: "not_found" };
+  if (!data.is_active) return { ok: false, reason: "inactive" };
+
+  if (data.uses_remaining !== null && data.uses_remaining <= 0 && !data.password_hash) {
+    return { ok: false, reason: "uses_exhausted" };
+  }
+
+  return { ok: true, invite: data as InviteCode };
+}
+
 export async function consumeInviteCode(codeId: string): Promise<void> {
   const supabase = createServiceClient();
   // Декремент uses_remaining только если он не null
