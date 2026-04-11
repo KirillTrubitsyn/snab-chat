@@ -6,6 +6,7 @@ import { google, withGoogleApiLimit } from "@/app/lib/google-ai";
 import { generateObject } from "ai";
 import { z } from "zod";
 import type { SearchResult } from "@/app/lib/retrieval";
+import { requireAdmin } from "@/app/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -261,6 +262,8 @@ const avg = (arr: number[]) =>
  *   models  - comma-separated list to restrict models, e.g. "no-rerank,gemini-llm"
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
+  const adminCheck = requireAdmin(req);
+  if (adminCheck instanceof NextResponse) return adminCheck;
   const params  = req.nextUrl.searchParams;
   const nRaw    = parseInt(params.get("n") ?? "5", 10);
   const nQ      = Math.max(1, Math.min(20, isNaN(nRaw) ? 5 : nRaw));
