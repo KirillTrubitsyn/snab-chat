@@ -109,7 +109,7 @@ export function intentAwareRerank(
     authority: ["матрица полномочий"],
     regulation: ["законодательство"],
     contract: ["договоры"],
-    spu_search: ["реестр"],
+    spu_search: ["реестр", "контрагенты", "карточка контрагента"],
     procedure: ["обучение"],
   };
   const boostTags = INTENT_BOOST_TAGS[intent.intent];
@@ -277,6 +277,7 @@ export async function intentAwareSearch(
     regulation: ["законодательство"],
     contract: ["договоры"],
     system: ["инструкции"],
+    spu_search: ["реестр", "контрагенты", "карточка контрагента"],
   };
   const extraTags = INTENT_TAG_MAP[intent.intent];
   if (extraTags) extraTags.forEach((t) => tagSet.add(t));
