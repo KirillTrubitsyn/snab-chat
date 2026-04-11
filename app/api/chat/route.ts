@@ -384,10 +384,12 @@ ${userMessage.content}
     console.log(`[chat] Catalog lookup added ${newCatalogResults.length} new chunks from ${new Set(newCatalogResults.map((r) => r.source_filename)).size} sources`);
   }
 
+  // Flag: when true, we have a direct contractor card match — skip supplementary
+  // searches and reranker so the LLM reranker cannot demote the exact card we found.
+  let directContractorMatch = false;
+
   if (contractorResults.length > 0) {
     // Contractor card results from dedicated search — these are primary for spu_search.
-    // Strategy: check if any contractor card is an exact match for the company name
-    // in the query. If so, that card dominates; other results become supplementary context.
     const queryLower = searchQuery.toLowerCase().replace(/[«»"'.,;:!?()\[\]]/g, "");
 
     // Detect if query mentions a specific company name (not generic "find me a contractor")
@@ -396,26 +398,21 @@ ${userMessage.content}
     // Check for direct name match in contractor results
     const directMatches = contractorResults.filter((r) => {
       const fn = r.source_filename.toLowerCase().replace(/[«»"'.,;:!?()\[\]_]/g, " ");
-      // Extract meaningful words from query (skip stopwords and short words)
       const qWords = queryLower.split(/\s+/).filter((w: string) => w.length >= 3);
-      // Check if filename contains at least one significant query word
       return qWords.some((w: string) => fn.includes(w) && !["расскаж", "компани", "организаци", "информаци", "сведени"].some((s: string) => w.startsWith(s)));
     });
 
     if (directMatches.length > 0 && isSpecificCompanyQuery) {
-      // Direct match found: make it the dominant result, demote everything else
+      // Direct match found — this is THE answer. No need for supplementary searches
+      // or reranking: the user asked about a specific company and we found its card.
+      directContractorMatch = true;
       const boostedDirect = directMatches.map((r) => ({
         ...r,
         similarity: 0.98,
       }));
-      // Demote existing hybrid results (they're about other companies, not the one asked about)
-      combinedResults = combinedResults.map((r) => ({
-        ...r,
-        similarity: r.similarity * 0.5,
-      }));
-      for (const r of boostedDirect) existingIds.add(r.id);
-      combinedResults = [...boostedDirect, ...combinedResults];
-      console.log(`[chat] Contractor card DIRECT MATCH: ${directMatches.map((r) => r.source_filename).join(", ")} — demoting ${combinedResults.length - boostedDirect.length} other results`);
+      // Keep only the direct match cards as primary results; drop hybrid noise entirely
+      combinedResults = [...boostedDirect];
+      console.log(`[chat] Contractor card DIRECT MATCH: ${directMatches.map((r) => r.source_filename).join(", ")} — using ONLY these ${boostedDirect.length} chunks, bypassing supplementary search and reranker`);
     } else {
       // No direct match — standard merge with moderate boost
       const newContractorResults = contractorResults
@@ -428,7 +425,9 @@ ${userMessage.content}
   }
 
   // ── Intent-aware supplementary search ──
-  {
+  // Skip entirely when we have a direct contractor card match — supplementary searches
+  // would only add irrelevant noise that the reranker could then score above the card.
+  if (!directContractorMatch) {
     const supplementSearches: Promise<SearchResult[]>[] = [];
 
     // Determine if the user's query has a clear regime preference
@@ -577,31 +576,38 @@ ${userMessage.content}
         console.log(`[chat] Regime post-filter: removed ${removed} opposite-regime chunks (strict ${intentResult.fz_type})`);
       }
     }
-  }
+  } // end if (!directContractorMatch)
 
-  // Rerank and filter
-  const rerankedResults = intentAwareRerank(combinedResults, intentResult);
-  const rerankResult = await rerank(userMessage.content, rerankedResults);
-  const filtered = filterByRelevance(rerankResult);
-  relevantChunks = filtered.results;
-  lowConfidence = filtered.lowConfidence;
+  if (directContractorMatch) {
+    // Direct contractor card match: skip reranker entirely.
+    // The card IS the answer — reranking would only demote it because the LLM
+    // scores raw Excel content poorly compared to prose documents.
+    relevantChunks = combinedResults;
+    lowConfidence = false;
+    console.log(`[chat] Direct contractor match: bypassing reranker, returning ${relevantChunks.length} card chunks`);
+  } else {
+    // Standard path: rerank and filter
+    const rerankedResults = intentAwareRerank(combinedResults, intentResult);
+    const rerankResult = await rerank(userMessage.content, rerankedResults);
+    const filtered = filterByRelevance(rerankResult);
+    relevantChunks = filtered.results;
+    lowConfidence = filtered.lowConfidence;
 
-  // For spu_search about a specific company: if the top result is a contractor card,
-  // apply aggressive filtering — keep only the card and closely related chunks.
-  // This prevents 16 irrelevant transport companies from showing up when asking about one.
-  if (intentResult.intent === "spu_search" && relevantChunks.length > 0) {
-    const topResult = relevantChunks[0];
-    const topIsContractorCard = topResult.tags.some((t) =>
-      t.toLowerCase() === "карточка контрагента"
-    );
-    if (topIsContractorCard && topResult.similarity >= 0.9) {
-      // Keep the top contractor card + any other cards within 80% of top score
-      const threshold = topResult.similarity * 0.8;
-      const tightFiltered = relevantChunks.filter(
-        (r) => r.similarity >= threshold
+    // For spu_search about a specific company: if the top result is a contractor card,
+    // apply aggressive filtering to prevent irrelevant noise
+    if (intentResult.intent === "spu_search" && relevantChunks.length > 0) {
+      const topResult = relevantChunks[0];
+      const topIsContractorCard = topResult.tags.some((t) =>
+        t.toLowerCase() === "карточка контрагента"
       );
-      console.log(`[chat] spu_search tight filter: ${relevantChunks.length} → ${tightFiltered.length} chunks`);
-      relevantChunks = tightFiltered;
+      if (topIsContractorCard && topResult.similarity >= 0.9) {
+        const threshold = topResult.similarity * 0.8;
+        const tightFiltered = relevantChunks.filter(
+          (r) => r.similarity >= threshold
+        );
+        console.log(`[chat] spu_search tight filter: ${relevantChunks.length} → ${tightFiltered.length} chunks`);
+        relevantChunks = tightFiltered;
+      }
     }
   }
 
