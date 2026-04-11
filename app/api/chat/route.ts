@@ -1,3 +1,9 @@
+/**
+ * ⚠️ DEPRECATED: этот файл НЕ используется в продакшне.
+ * Все API-запросы из браузера идут на Railway backend (backend/src/routes/chat.ts)
+ * через NEXT_PUBLIC_API_URL. Изменения в этот файл НЕ влияют на поведение приложения.
+ * Для внесения изменений редактируйте backend/src/routes/chat.ts.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { type ModelMessage } from "ai";
 import { GoogleGenAI } from "@google/genai";
