@@ -148,8 +148,8 @@ export async function classifyIntent(query: string): Promise<IntentResult> {
     // Post-LLM correction: force entity_lookup when query clearly mentions a company
     applyCompanyOverride(query, parsed);
 
-    // Assign SPU sub-intent when applicable
-    if (parsed.intent === "spu_search") {
+    // Assign entity sub-intent when applicable
+    if (parsed.intent === "entity_lookup") {
       parsed.spu_sub_intent = classifySpuSubIntent(query);
     }
 
@@ -219,7 +219,7 @@ function fallbackClassify(query: string): IntentResult {
     confidence: 0.3,
   };
 
-  if (intent === "spu_search") {
+  if (intent === "entity_lookup") {
     result.spu_sub_intent = classifySpuSubIntent(query);
   }
 

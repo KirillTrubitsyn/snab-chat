@@ -1103,7 +1103,7 @@ ${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФО
 ПРИМЕР ОТКАЗА (когда информации нет):
 Вопрос: Какова средняя зарплата в отделе закупок?
 Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${directivesBlock}
-${intentResult.intent === "spu_search" ? generateSpuPrompt(intentResult.spu_sub_intent) : ""}
+${intentResult.intent === "entity_lookup" ? generateSpuPrompt(intentResult.spu_sub_intent) : ""}
 
 === СТАВКА НДС ===
 
