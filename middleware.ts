@@ -57,12 +57,15 @@ const RATE_LIMITS: Record<string, [number, number]> = {
   "/api/ingest":     [15, 60_000],   // 15 req/min — indexing
   "/api/search":     [30, 60_000],   // 30 req/min — search
   "/api/kb-search":  [30, 60_000],   // 30 req/min — kb search
+  "/api/eval-reranker": [2, 60_000], // 2 req/min — expensive diagnostics endpoint
   "/api/infographic":[5,  60_000],   // 5 req/min — heavy LLM + image
   "/api/auth/login": [10, 60_000],   // 10 req/min — brute-force protection
   "/api/auth/login-password": [5, 60_000], // 5 req/min — password-only login (bcrypt-heavy)
   "/api/auth/verify-password": [10, 60_000], // 10 req/min — password check before 2FA
   "/api/auth/verify-otp": [8, 60_000], // 8 req/min — OTP brute-force reduction
   "/api/auth/verify-setup-otp": [6, 60_000], // 6 req/min — setup OTP brute-force reduction
+  "/api/auth/send-otp": [6, 60_000], // 6 req/min — OTP delivery abuse reduction
+  "/api/auth/setup-totp": [4, 60_000], // 4 req/min — TOTP setup abuse reduction
   "/api/auth/register": [5, 60_000], // 5 req/min — registration
   "/api/support":    [10, 60_000],   // 10 req/min — support messages
 };
@@ -83,6 +86,7 @@ const ORIGIN_PROTECTED_PATHS = [
   "/api/chat",
   "/api/parse",
   "/api/ingest",
+  "/api/auth",
 ];
 
 // Admin IP allowlist (empty = no restriction, comma-separated IPs in env)
