@@ -4,5 +4,7 @@ export { default as ExcelViewer } from "./ExcelViewer";
 export { default as MessageBubble } from "./MessageBubble";
 export { default as EmptyState } from "./EmptyState";
 export { default as ChatDocumentViewer } from "./ChatDocumentViewer";
+export { TableWrapper } from "./TableWrapper";
+export { MessageActions, FollowUpChips } from "./MessageActions";
 export * from "./icons";
 export * from "./types";

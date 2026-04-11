@@ -1,21 +1,15 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo, FormEvent } from "react";
-import { useRouter } from "next/navigation";
-// useChat removed in ai SDK v6 migration — streaming is fully manual
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useState, useEffect, useRef, useCallback } from "react";
 import InviteGate from "./InviteGate";
 import { containsMarkdownTable } from "@/app/lib/markdown-tables";
 import KBSearchBar from "@/app/components/KBSearchBar";
 import { formatDateRelative } from "@/app/lib/date-utils";
-import { sanitizeHtml } from "@/app/lib/sanitize";
 import { apiUrl } from "@/app/lib/api";
-import { getAvatarColor, setAvatarColor as saveAvatarColor, AVATAR_COLORS } from "@/app/lib/avatarColors";
+import { AVATAR_COLORS } from "@/app/lib/avatarColors";
 import {
   VoiceButton,
   CameraButton,
-  ExcelViewer,
   MessageBubble,
   EmptyState,
   ChatDocumentViewer,
@@ -23,10 +17,20 @@ import {
   MenuIcon,
   ArrowUpIcon,
   HistoryIcon,
-  SearchIcon,
   InfographicIcon,
 } from "./chat";
-import type { Conversation, Source, ChatFile, ChatPhoto, ExcelSheet } from "./chat/types";
+import type { Source } from "./chat/types";
+import {
+  useAuth,
+  useClickOutside,
+  useConversations,
+  useExport,
+  useFileAttachments,
+  useInfographics,
+  useSources,
+  useStreaming,
+  useSupport,
+} from "@/app/hooks";
 
 /* ── Helpers ── */
 
@@ -49,653 +53,97 @@ function TypingBubble() {
    ═══════════════════════════════════════════════ */
 
 export default function Chat() {
-  /* ── Auth State ── */
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [inviteCode, setInviteCode] = useState<string>("");
-  const inviteCodeRef = useRef<string>("");
-  const [userName, setUserName] = useState<string>("");
-  const [avatarColor, setAvatarColor] = useState<string>("#0099CC");
-  const [authLoading, setAuthLoading] = useState(true);
+  /* ── Hooks ── */
+  const auth = useAuth();
+  const {
+    isAuthenticated, inviteCode, inviteCodeRef, userName, userInitials,
+    avatarColor, setAvatarColor, authLoading, isAdmin, isDocAdmin,
+    handleAuthSuccess, handleLogout,
+  } = auth;
+
+  /* ── UI State (not extracted — purely local) ── */
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
-  const isAdmin = typeof window !== "undefined" && localStorage.getItem("snabchat_is_admin") === "true";
-  const isDocAdmin = typeof window !== "undefined" && localStorage.getItem("snabchat_is_doc_admin") === "true";
+  useClickOutside(userMenuRef, userMenuOpen, () => setUserMenuOpen(false));
+  useClickOutside(mobileMenuRef, mobileMenuOpen, () => setMobileMenuOpen(false));
 
-  /* ── Keep inviteCodeRef in sync ── */
-  useEffect(() => {
-    inviteCodeRef.current = inviteCode;
-  }, [inviteCode]);
+  const conv = useConversations(inviteCode, inviteCodeRef, handleLogout);
+  const {
+    conversations, activeConvId, setActiveConvId, convIdRef, pendingSubmitRef,
+    chatKey, setChatKey, hasSummary, setHasSummary, messages, setMessages,
+    input, setInput, isLoading, handleInputChange, loadConversations,
+    createConversation, deleteConversation, switchConversation, startNewChat,
+    deleteSelectedConversations, deleteAllConversations,
+    selectedConvIds, setSelectedConvIds, convBulkMode, setConvBulkMode,
+    renamingId, setRenamingId, renameValue, setRenameValue, startRename,
+    submitRenameConversation, reloadMessagesFromServer, CONV_LIMIT,
+  } = conv;
 
-  /* ── Check existing auth on mount ── */
-  useEffect(() => {
-    const code = localStorage.getItem("snabchat_invite_code");
-    const name = localStorage.getItem("snabchat_user_name");
-    if (code && name) {
-      setInviteCode(code);
-      inviteCodeRef.current = code;
-      setUserName(name);
-      setAvatarColor(getAvatarColor());
-      setIsAuthenticated(true);
-    }
-    setAuthLoading(false);
-  }, []);
+  const {
+    sources, allSourcesForMatching, selectedSourceIds, setSelectedSourceIds,
+    bulkSelectMode, setBulkSelectMode, deleteSelectedSources,
+  } = useSources(inviteCodeRef);
 
-  const handleAuthSuccess = useCallback((data: { type: string; code: string; userName: string }) => {
-    setInviteCode(data.code);
-    inviteCodeRef.current = data.code;
-    setUserName(data.userName);
-    setAvatarColor(getAvatarColor());
-    setIsAuthenticated(true);
-  }, []);
+  const fileAttach = useFileAttachments(inviteCodeRef);
+  const {
+    chatFiles, setChatFiles, chatPhotos, setChatPhotos, sessionDocsRef,
+    chatFileInputRef, handleChatFileSelect, handlePhotoCapture,
+    removeChatFile, removeChatPhoto, docFormatModal, setDocFormatModal,
+    MAX_CHAT_PHOTOS, ACCEPTED_CHAT_TYPES,
+  } = fileAttach;
 
-  const handleLogout = useCallback(() => {
-    localStorage.removeItem("snabchat_invite_code");
-    localStorage.removeItem("snabchat_invite_code_id");
-    localStorage.removeItem("snabchat_user_name");
-    localStorage.removeItem("snabchat_is_admin");
-    localStorage.removeItem("snabchat_admin_code");
-    localStorage.removeItem("snabchat_is_doc_admin");
-    setIsAuthenticated(false);
-    setInviteCode("");
-    setUserName("");
-  }, []);
+  const { handleExportDocx, handleExportExcel } = useExport();
 
-  // Close user menu on click outside
-  useEffect(() => {
-    if (!userMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
-        setUserMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [userMenuOpen]);
+  const support = useSupport(inviteCode, inviteCodeRef);
+  const {
+    showSupportModal, setShowSupportModal, supportModalTab, setSupportModalTab,
+    supportMessage, setSupportMessage, supportSending, supportFiles, setSupportFiles,
+    supportHistory, unreadSupportCount, sendSupportMessage, openSupportModal,
+  } = support;
 
-  // Close mobile menu on click outside
-  useEffect(() => {
-    if (!mobileMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
-        setMobileMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [mobileMenuOpen]);
-
-  // Helper: get initials from full name
-  const userInitials = userName
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() || "")
-    .join("");
-
-  /* ── State ── */
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeConvId, setActiveConvId] = useState<string | null>(null);
-  // Unique key for useChat to avoid stale message cache when starting new chats
-  const [chatKey, setChatKey] = useState(() => `new-${Date.now()}`);
-  const [hasSummary, setHasSummary] = useState(false);
+  /* ── Local UI state ── */
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
   const [leftCollapsed, setLeftCollapsed] = useState(true);
   const [rightCollapsed, setRightCollapsed] = useState(true);
-  const [sources, setSources] = useState<Source[]>([]);
-  const [hiddenSources, setHiddenSources] = useState<Source[]>([]);
-  const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);
-  const [isSending, setIsSending] = useState(false);
   const [viewingSource, setViewingSource] = useState<Source | null>(null);
-  const [chatFiles, setChatFiles] = useState<ChatFile[]>([]);
-  const [chatPhotos, setChatPhotos] = useState<ChatPhoto[]>([]);
-  // Phase 2: Session documents — keep uploaded document content across messages in the same conversation
-  const sessionDocsRef = useRef<Array<{ filename: string; markdown: string }>>([]);
-  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<number>>(new Set());
-  const [bulkSelectMode, setBulkSelectMode] = useState(false);
-  const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
-  const [convBulkMode, setConvBulkMode] = useState(false);
-  const [selectedInfographicIds, setSelectedInfographicIds] = useState<Set<string>>(new Set());
-  const [infoBulkMode, setInfoBulkMode] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<"chats" | "infographics">("chats");
-  const [infographics, setInfographics] = useState<Array<{ id: string; topic: string; style: string; aspect_ratio: string; description: string; created_at: string; conversation_id: string | null }>>([]);
-  const [viewingInfographic, setViewingInfographic] = useState<{ id: string; topic: string; image_base64: string; description: string; created_at: string } | null>(null);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const [chatError, setChatError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<"chat" | "knowledge-base">("chat");
   const [kbCategoryFilter, setKbCategoryFilter] = useState<string>("all");
   const [kbPage, setKbPage] = useState(1);
   const KB_PAGE_SIZE = 20;
-
-  // .doc / .xls format warning modal
-  const [showDocFormatModal, setShowDocFormatModal] = useState(false);
-  const [docFormatFileName, setDocFormatFileName] = useState("");
-  const [docFormatType, setDocFormatType] = useState<"doc" | "xls">("doc");
-
-  // Support modal state
-  const [showSupportModal, setShowSupportModal] = useState(false);
-  const [supportModalTab, setSupportModalTab] = useState<"help" | "support">("support");
-  const [supportMessage, setSupportMessage] = useState("");
-  const [supportSending, setSupportSending] = useState(false);
-  const [supportFiles, setSupportFiles] = useState<File[]>([]);
-  const [supportHistory, setSupportHistory] = useState<{ id: string; message: string; admin_reply: string | null; admin_number: number | null; status: string; created_at: string; replied_at: string | null }[]>([]);
-  const [unreadSupportCount, setUnreadSupportCount] = useState(0);
-
-  const router = useRouter();
-
-  const CONV_LIMIT = 20;
-  const INFO_LIMIT = 20;
-
-  /* ── Infographic navigation ── */
-  const navigateToInfographic = useCallback((content?: string) => {
-    if (infographics.length >= INFO_LIMIT) {
-      setChatError(`Достигнут лимит инфографик (${INFO_LIMIT}). Удалите старые, чтобы создать новую.`);
-      return;
-    }
-    const ctx: Record<string, string> = {};
-    if (content) ctx.documentText = content;
-    if (convIdRef.current) ctx.conversationId = convIdRef.current;
-    if (Object.keys(ctx).length > 0) {
-      sessionStorage.setItem("infographic_context", JSON.stringify(ctx));
-    }
-    router.push("/infographic");
-  }, [router, infographics.length, INFO_LIMIT]);
-
-  const [docxDownloading, setDocxDownloading] = useState(false);
-  const handleExportDocx = useCallback(async (answerContent: string, questionContent: string) => {
-    if (docxDownloading) return;
-    setDocxDownloading(true);
-    try {
-      const res = await fetch(apiUrl("/api/export"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: questionContent, answer: answerContent }),
-      });
-      if (!res.ok) throw new Error("Export failed");
-      // Extract filename from Content-Disposition header
-      const disposition = res.headers.get("Content-Disposition") || "";
-      const filenameMatch = disposition.match(/filename\*=UTF-8''(.+?)(?:;|$)/);
-      const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : `snabchat-${new Date().toISOString().slice(0, 10)}.docx`;
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      console.error("DOCX export error:", e);
-    } finally {
-      setDocxDownloading(false);
-    }
-  }, [docxDownloading]);
-
-  const [xlsxDownloading, setXlsxDownloading] = useState(false);
-  const handleExportExcel = useCallback(async (answerContent: string, questionContent: string) => {
-    if (xlsxDownloading) return;
-    setXlsxDownloading(true);
-    try {
-      const res = await fetch(apiUrl("/api/export-excel"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: questionContent, answer: answerContent }),
-      });
-      if (!res.ok) throw new Error("Excel export failed");
-      const disposition = res.headers.get("Content-Disposition") || "";
-      const filenameMatch = disposition.match(/filename\*=UTF-8''(.+?)(?:;|$)/);
-      const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : `snabchat-${new Date().toISOString().slice(0, 10)}.xlsx`;
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      console.error("Excel export error:", e);
-    } finally {
-      setXlsxDownloading(false);
-    }
-  }, [xlsxDownloading]);
-
-  /* ── Refs ── */
-  const convIdRef = useRef<string | null>(null);
-  const pendingSubmitRef = useRef<string | null>(null);
+  const [sidebarTab, setSidebarTab] = useState<"chats" | "infographics">("chats");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const chatFileInputRef = useRef<HTMLInputElement>(null);
 
-  /* ── Message & input state (manual streaming — useChat removed in ai SDK v6) ── */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [messages, setMessagesRaw] = useState<any[]>([]);
-  const [input, setInput] = useState("");
-  const isLoading = false; // streaming state managed by isSending
-  const handleInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setInput(e.target.value),
-    []
-  );
+  const streaming = useStreaming({
+    inviteCodeRef, convIdRef, pendingSubmitRef, sessionDocsRef,
+    input, setInput, isLoading, messages, setMessages,
+    chatFiles, setChatFiles, chatPhotos, setChatPhotos,
+    conversations, createConversation, loadConversations,
+    reloadMessagesFromServer, handleLogout, CONV_LIMIT,
+  });
+  const { handleSubmit, isSending, chatError, setChatError } = streaming;
 
-  // Reset messages when active conversation changes
-  useEffect(() => {
-    setMessagesRaw([]);
-  }, [activeConvId, chatKey]);
+  const infographicHook = useInfographics(inviteCode, inviteCodeRef, convIdRef, setChatError);
+  const {
+    infographics, loadInfographics, viewInfographic, viewingInfographic,
+    setViewingInfographic, deleteInfographic, deleteSelectedInfographics,
+    selectedInfographicIds, setSelectedInfographicIds, infoBulkMode,
+    setInfoBulkMode, navigateToInfographic, INFO_LIMIT,
+  } = infographicHook;
 
-  // Always use the latest setMessages via ref to avoid stale closure issues
-  const setMessagesRef = useRef(setMessagesRaw);
-  setMessagesRef.current = setMessagesRaw;
-  const setMessages = useCallback(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (updater: any[] | ((prev: any[]) => any[])) => setMessagesRef.current(updater),
-    []
-  );
+  /* ── Infographic rename (shares renamingId with conversations) ── */
 
-  /* ── Load conversations ── */
-  const loadConversations = useCallback(async () => {
-    if (!inviteCode) return;
-    try {
-      const res = await fetch(apiUrl("/api/conversations"), {
-        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-      });
-      const data = await res.json();
-      if (Array.isArray(data)) setConversations(data);
-    } catch {
-      // ignore
-    }
-  }, [inviteCode]);
+  const origSwitchConversation = switchConversation;
+  const handleSwitchConversation = useCallback((convId: string) => {
+    origSwitchConversation(convId);
+    setRightOpen(false);
+    sessionDocsRef.current = [];
+  }, [origSwitchConversation, sessionDocsRef]);
 
-  useEffect(() => {
-    loadConversations();
-  }, [loadConversations]);
-
-  /* ── Heartbeat: update online status every 2 min ── */
-  useEffect(() => {
-    if (!inviteCode) return;
-    const deviceId = typeof window !== "undefined" ? localStorage.getItem("snabchat_device_id") || "" : "";
-    const sendHeartbeat = () => {
-      fetch(apiUrl("/api/heartbeat"), {
-        method: "POST",
-        headers: {
-          "x-invite-code": encodeURIComponent(inviteCode),
-          "x-device-id": deviceId,
-        },
-      })
-        .then((r) => r.json())
-        .then((data) => {
-          if (data?.logout) handleLogout();
-        })
-        .catch(() => {});
-    };
-    sendHeartbeat();
-    const interval = setInterval(sendHeartbeat, 2 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [inviteCode]);
-
-  /* ── Load infographics ── */
-  const loadInfographics = useCallback(async () => {
-    if (!inviteCode) return;
-    try {
-      const res = await fetch(apiUrl("/api/infographics"), {
-        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-      });
-      const data = await res.json();
-      if (data.infographics) setInfographics(data.infographics);
-    } catch {
-      // ignore
-    }
-  }, [inviteCode]);
-
-  useEffect(() => {
-    loadInfographics();
-  }, [loadInfographics]);
-
-  /* ── Load sources ── */
-  const loadSources = useCallback(async () => {
-    try {
-      const res = await fetch(apiUrl("/api/sources?view=chat"));
-      const data = await res.json();
-      if (data.sources) setSources(data.sources);
-      if (data.denormalized) setHiddenSources(data.denormalized);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  useEffect(() => {
-    loadSources();
-  }, [loadSources]);
-
-  // Combined list for source matching in citations (visible + hidden denormalized)
-  const allSourcesForMatching = useMemo(
-    () => [...sources, ...hiddenSources],
-    [sources, hiddenSources]
-  );
-
-  /* ── Support ── */
-  const loadSupportHistory = useCallback(async () => {
-    if (!inviteCode) return;
-    try {
-      const res = await fetch(apiUrl("/api/support"), {
-        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-      });
-      const data = await res.json();
-      if (data.messages) {
-        setSupportHistory(data.messages);
-        // Count unread: answered messages that user hasn't seen
-        const lastSeen = localStorage.getItem("supportLastSeen") ?? "0";
-        const unread = data.messages.filter(
-          (m: { admin_reply: string | null; replied_at: string | null }) =>
-            m.admin_reply && m.replied_at && new Date(m.replied_at).getTime() > parseInt(lastSeen)
-        ).length;
-        setUnreadSupportCount(unread);
-      }
-    } catch (e) { console.error("[Support] load error:", e); }
-  }, [inviteCode]);
-
-  useEffect(() => {
-    loadSupportHistory();
-  }, [loadSupportHistory]);
-
-  // Polling: every 15s when modal is open, every 60s in background (for badge)
-  useEffect(() => {
-    if (!inviteCode) return;
-    const interval = setInterval(() => {
-      loadSupportHistory();
-    }, showSupportModal ? 15000 : 60000);
-    return () => clearInterval(interval);
-  }, [inviteCode, showSupportModal, loadSupportHistory]);
-
-  const sendSupportMessage = async () => {
-    if (!supportMessage.trim() || supportSending) return;
-    setSupportSending(true);
-    try {
-      const formData = new FormData();
-      formData.append("message", supportMessage.trim());
-      supportFiles.forEach((f) => formData.append("files", f));
-      const res = await fetch(apiUrl("/api/support"), {
-        method: "POST",
-        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-        body: formData,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        console.error("[Support] POST error:", err);
-      }
-      setSupportMessage("");
-      setSupportFiles([]);
-      await loadSupportHistory();
-    } catch (e) { console.error("[Support] send error:", e); }
-    setSupportSending(false);
-  };
-
-  const openSupportModal = (tab: "help" | "support" = "support") => {
-    setShowSupportModal(true);
-    setSupportModalTab(tab);
-    loadSupportHistory();
-    // Mark as seen
-    localStorage.setItem("supportLastSeen", String(Date.now()));
-    setUnreadSupportCount(0);
-  };
-
-  /* ── Switch conversation ── */
-  const switchConversation = useCallback(
-    (convId: string) => {
-      setActiveConvId(convId);
-      convIdRef.current = convId;
-      setRightOpen(false);
-      // Phase 2: Clear session documents when switching conversations
-      sessionDocsRef.current = [];
-    },
-    []
-  );
-
-  // Load messages after activeConvId changes (ensures useChat has re-initialized with new id)
-  useEffect(() => {
-    if (!activeConvId) return;
-    // Skip loading from server if we're about to submit a new message
-    // (createConversation sets activeConvId before the message is sent)
-    if (pendingSubmitRef.current) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(apiUrl(`/api/conversations/messages?id=${activeConvId}`), {
-          headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-        });
-        const data = await res.json();
-        if (cancelled) return;
-        setHasSummary(data.conversation?.hasSummary ?? false);
-        if (data.messages) {
-          setMessages(
-            data.messages.map(
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (m: { id: string; role: string; content: string; metadata?: any }) => ({
-                id: m.id,
-                role: m.role as "user" | "assistant",
-                content: m.content,
-                ...(m.metadata?.sources ? { sources: m.metadata.sources } : {}),
-                ...(m.metadata ? { metadata: m.metadata } : {}),
-              })
-            )
-          );
-        }
-      } catch {
-        if (!cancelled) setMessages([]);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [activeConvId]);  // setMessages is stable via ref wrapper
-
-  // ── Reload messages from server to replace temp IDs after streaming ──
-  const reloadMessagesFromServer = useCallback(async (convId: string, expectedCount: number) => {
-    // Retry a few times until server has all messages saved
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
-        const res = await fetch(apiUrl(`/api/conversations/messages?id=${convId}`), {
-          headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-        });
-        const data = await res.json();
-        if (data.messages && data.messages.length >= expectedCount) {
-          setMessages(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            data.messages.map((m: { id: string; role: string; content: string; metadata?: any }) => ({
-              id: m.id,
-              role: m.role as "user" | "assistant",
-              content: m.content,
-              ...(m.metadata?.sources ? { sources: m.metadata.sources } : {}),
-              ...(m.metadata ? { metadata: m.metadata } : {}),
-            }))
-          );
-          return; // Success — replaced temp IDs
-        }
-      } catch {
-        // ignore — will retry or give up
-      }
-    }
-    // All retries exhausted — messages still visible with temp IDs
-  }, []);  // setMessages is stable via ref wrapper
-
-  // ── Sync messages when admin deletes them (poll + tab focus) ──
-  useEffect(() => {
-    if (!activeConvId) return;
-    const SYNC_INTERVAL = 30_000; // 30 seconds
-
-    const syncMessages = async () => {
-      // Don't sync while user is streaming or sending
-      if (pendingSubmitRef.current || isSending) return;
-      try {
-        const res = await fetch(apiUrl(`/api/conversations/messages?id=${activeConvId}`), {
-          headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-        });
-        const data = await res.json();
-        if (!data.messages) return;
-        // Compare message IDs — only update if something changed
-        // Skip temp IDs (from streaming) — they won't exist on server yet
-        const serverIds = new Set<string>(data.messages.map((m: { id: string }) => m.id));
-        const localIds = new Set<string>(messages.filter((m) => !m.id.startsWith("temp-")).map((m) => m.id));
-        const hasTempIds = messages.some((m) => m.id.startsWith("temp-"));
-        const deleted = [...localIds].some((id) => !serverIds.has(id));
-        const added = [...serverIds].some((id) => !localIds.has(id));
-        if ((deleted || added) && !hasTempIds) {
-          setMessages(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            data.messages.map((m: { id: string; role: string; content: string; metadata?: any }) => ({
-              id: m.id,
-              role: m.role as "user" | "assistant",
-              content: m.content,
-              ...(m.metadata?.sources ? { sources: m.metadata.sources } : {}),
-              ...(m.metadata ? { metadata: m.metadata } : {}),
-            }))
-          );
-        }
-      } catch {
-        // ignore sync errors
-      }
-    };
-
-    const interval = setInterval(syncMessages, SYNC_INTERVAL);
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") syncMessages();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [activeConvId, messages, isSending]);  // setMessages is stable via ref wrapper
-
-  /* ── Create conversation (with retry for transient errors) ── */
-  const createConversation = useCallback(
-    async (title?: string) => {
-      const MAX_RETRIES = 2;
-      let lastError: Error | null = null;
-
-      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-        try {
-          const res = await fetch(apiUrl("/api/conversations"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-            body: JSON.stringify({ title: title || "Новый диалог" }),
-          });
-          if (!res.ok) {
-            // 401 is not retryable
-            if (res.status === 401) {
-              handleLogout();
-              throw new Error(`Не удалось создать диалог: ${res.status}`);
-            }
-            throw new Error(`Не удалось создать диалог: ${res.status}`);
-          }
-          const conv = await res.json();
-          if (!conv.id) {
-            throw new Error("Сервер не вернул ID диалога");
-          }
-          setConversations((prev) => [conv, ...prev]);
-          setActiveConvId(conv.id);
-          convIdRef.current = conv.id;
-          setMessages([]);
-          setHasSummary(false);
-          return conv.id as string;
-        } catch (err) {
-          lastError = err instanceof Error ? err : new Error(String(err));
-          // Don't retry auth errors
-          if (lastError.message.includes("401")) throw lastError;
-          if (attempt < MAX_RETRIES) {
-            await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-            continue;
-          }
-        }
-      }
-      throw lastError!;
-    },
-    [handleLogout]  // setMessages is stable via ref wrapper
-  );
-
-  /* ── Delete conversation ── */
-  const deleteConversation = useCallback(
-    async (convId: string, e?: React.MouseEvent) => {
-      e?.stopPropagation();
-      await fetch(apiUrl(`/api/conversations?id=${convId}`), {
-        method: "DELETE",
-        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-      });
-      setConversations((prev) => prev.filter((c) => c.id !== convId));
-      if (activeConvId === convId) {
-        setActiveConvId(null);
-        convIdRef.current = null;
-        setMessages([]);
-        setHasSummary(false);
-      }
-    },
-    [activeConvId]  // setMessages is stable via ref wrapper
-  );
-
-  /* ── Infographic helpers ── */
-  const viewInfographic = useCallback(async (id: string) => {
-    try {
-      const res = await fetch(apiUrl("/api/infographics"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-invite-code": encodeURIComponent(inviteCodeRef.current),
-        },
-        body: JSON.stringify({ id }),
-      });
-      const data = await res.json();
-      if (data.infographic) setViewingInfographic(data.infographic);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const deleteInfographic = useCallback(async (id: string, e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    await fetch(apiUrl(`/api/infographics?id=${id}`), {
-      method: "DELETE",
-      headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-    });
-    setInfographics((prev) => prev.filter((i) => i.id !== id));
-  }, []);
-
-  const deleteSelectedInfographics = useCallback(async () => {
-    if (selectedInfographicIds.size === 0) return;
-    const ids = Array.from(selectedInfographicIds);
-    await Promise.all(ids.map((id) =>
-      fetch(apiUrl(`/api/infographics?id=${id}`), {
-        method: "DELETE",
-        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-      })
-    ));
-    setInfographics((prev) => prev.filter((i) => !selectedInfographicIds.has(i.id)));
-    setSelectedInfographicIds(new Set());
-    setInfoBulkMode(false);
-  }, [selectedInfographicIds]);
-
-  /* ── Rename helpers ── */
-  const startRename = useCallback((id: string, currentName: string, e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    setRenamingId(id);
-    setRenameValue(currentName);
-  }, []);
-
-  const submitRenameConversation = useCallback(async () => {
-    if (!renamingId || !renameValue.trim()) { setRenamingId(null); return; }
-    const trimmed = renameValue.trim();
-    await fetch(apiUrl("/api/conversations"), {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        "x-invite-code": encodeURIComponent(inviteCodeRef.current),
-      },
-      body: JSON.stringify({ id: renamingId, title: trimmed }),
-    });
-    setConversations((prev) => prev.map((c) => c.id === renamingId ? { ...c, title: trimmed } : c));
-    setRenamingId(null);
-  }, [renamingId, renameValue]);
+  /* ── Infographic rename (uses shared renamingId from conversations) ── */
 
   const submitRenameInfographic = useCallback(async () => {
     if (!renamingId || !renameValue.trim()) { setRenamingId(null); return; }
@@ -708,515 +156,18 @@ export default function Chat() {
       },
       body: JSON.stringify({ id: renamingId, topic: trimmed }),
     });
-    setInfographics((prev) => prev.map((i) => i.id === renamingId ? { ...i, topic: trimmed } : i));
+    // Update local state via the infographics array reference
+    infographicHook.infographics.splice(0); // force re-render workaround
+    loadInfographics();
     setRenamingId(null);
-  }, [renamingId, renameValue]);
+  }, [renamingId, renameValue, inviteCodeRef, loadInfographics, setRenamingId, infographicHook.infographics]);
 
-  /* ── Chat file attach handlers ── */
-  const MAX_CHAT_FILES = 10;
-  const MAX_CHAT_PHOTOS = 10;
-  const MAX_CHAT_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
-  const ACCEPTED_CHAT_TYPES = ".pdf,.doc,.docx,.xlsx,.xls,.pptx,.txt,.md,.mp3,.wav,.jpg,.jpeg,.png,.gif,.bmp,.webp";
-  const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "bmp", "webp"];
-
-  const LARGE_FILE_THRESHOLD = 4 * 1024 * 1024; // 4 MB (Vercel body limit)
-
-  const parseFileViaApi = useCallback(async (file: File, fileId: string, isPhoto: boolean) => {
-    try {
-      const formData = new FormData();
-
-      // Large files: upload to Storage first, then pass storagePath to parse
-      if (file.size > LARGE_FILE_THRESHOLD) {
-        const urlRes = await fetch(apiUrl("/api/chat-upload-url"), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-invite-code": encodeURIComponent(inviteCodeRef.current),
-          },
-          body: JSON.stringify({ filename: file.name, mimeType: file.type }),
-        });
-        if (urlRes.ok) {
-          const { uploadUrl, storagePath } = await urlRes.json();
-          const putRes = await fetch(uploadUrl, {
-            method: "PUT",
-            headers: { "Content-Type": file.type, "x-upsert": "false" },
-            body: file,
-          });
-          if (putRes.ok) {
-            formData.append("storagePath", storagePath);
-            formData.append("storageBucket", "chat-uploads");
-            formData.append("filename", file.name);
-            formData.append("mimeType", file.type);
-          } else {
-            throw new Error("Storage upload failed");
-          }
-        } else {
-          throw new Error("Failed to get upload URL");
-        }
-      } else {
-        formData.append("file", file);
-      }
-
-      const res = await fetch(apiUrl("/api/parse"), { method: "POST", body: formData, headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) } });
-      if (!res.ok) {
-        let serverError = "Parse failed";
-        try { const errData = await res.json(); serverError = errData.error || serverError; } catch { /* ignore */ }
-        throw new Error(serverError);
-      }
-      const data = await res.json();
-      if (isPhoto) {
-        setChatPhotos((prev) =>
-          prev.map((p) => (p.id === fileId ? { ...p, markdown: data.markdown, parsing: false } : p))
-        );
-      } else {
-        setChatFiles((prev) =>
-          prev.map((f) => (f.id === fileId ? { ...f, markdown: data.markdown, parsing: false } : f))
-        );
-      }
-    } catch (err) {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "";
-      const errMsg = err instanceof Error ? err.message : "";
-
-      // Legacy .doc file → show resave modal
-      if (ext === "doc") {
-        setChatFiles((prev) => prev.filter((f) => f.id !== fileId));
-        setDocFormatFileName(file.name);
-        setDocFormatType("doc");
-        setShowDocFormatModal(true);
-        return;
-      }
-      // Old binary .xls format (Excel 97-2003) — may be disguised as .xlsx
-      if (ext === "xls" || errMsg.includes("Excel 97-2003") || errMsg.includes("старый формат")) {
-        setChatFiles((prev) => prev.filter((f) => f.id !== fileId));
-        setDocFormatFileName(file.name);
-        setDocFormatType("xls");
-        setShowDocFormatModal(true);
-        return;
-      }
-      if (isPhoto) {
-        setChatPhotos((prev) =>
-          prev.map((p) => (p.id === fileId ? { ...p, parsing: false, error: "Ошибка распознавания" } : p))
-        );
-      } else {
-        setChatFiles((prev) =>
-          prev.map((f) => (f.id === fileId ? { ...f, parsing: false, error: "Ошибка обработки" } : f))
-        );
-      }
-    }
-  }, []);
-
-  const handleChatFileSelect = useCallback(
-    async (files: FileList) => {
-      const newFiles = Array.from(files);
-
-      for (const file of newFiles) {
-        if (file.size > MAX_CHAT_FILE_SIZE) {
-          alert(`Файл "${file.name}" превышает 50 МБ`);
-          continue;
-        }
-        const ext = file.name.split(".").pop()?.toLowerCase() || "";
-
-        // Route images to photos
-        if (IMAGE_EXTENSIONS.includes(ext)) {
-          if (chatPhotos.length >= MAX_CHAT_PHOTOS) {
-            alert(`Максимум ${MAX_CHAT_PHOTOS} фото`);
-            continue;
-          }
-          const photoId = `cp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-          const preview = URL.createObjectURL(file);
-          setChatPhotos((prev) => {
-            if (prev.length >= MAX_CHAT_PHOTOS) return prev;
-            return [...prev, { id: photoId, file, preview, markdown: "", parsing: true }];
-          });
-          parseFileViaApi(file, photoId, true);
-          continue;
-        }
-
-        // Documents
-        if (!["pdf", "doc", "docx", "xlsx", "xls", "pptx", "txt", "md", "mp3", "wav"].includes(ext)) {
-          alert(`Формат .${ext} не поддерживается. Допустимые: PDF, DOC, DOCX, XLSX, PPTX, TXT, MD, MP3, WAV, изображения`);
-          continue;
-        }
-
-        if (chatFiles.length >= MAX_CHAT_FILES) {
-          alert(`Максимум ${MAX_CHAT_FILES} файлов`);
-          break;
-        }
-
-        const fileId = `cf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-        setChatFiles((prev) => {
-          if (prev.length >= MAX_CHAT_FILES) return prev;
-          return [...prev, { id: fileId, file, filename: file.name, markdown: "", parsing: true }];
-        });
-        parseFileViaApi(file, fileId, false);
-      }
-    },
-    [chatFiles.length, chatPhotos.length, parseFileViaApi]
-  );
-
-  const handlePhotoCapture = useCallback(
-    (file: File) => {
-      if (chatPhotos.length >= MAX_CHAT_PHOTOS) return;
-      const photoId = `cp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      const preview = URL.createObjectURL(file);
-      setChatPhotos((prev) => {
-        if (prev.length >= MAX_CHAT_PHOTOS) return prev;
-        return [...prev, { id: photoId, file, preview, markdown: "", parsing: true }];
-      });
-      parseFileViaApi(file, photoId, true);
-    },
-    [chatPhotos.length, parseFileViaApi]
-  );
-
-  const removeChatFile = useCallback((fileId: string) => {
-    setChatFiles((prev) => prev.filter((f) => f.id !== fileId));
-  }, []);
-
-  const removeChatPhoto = useCallback((photoId: string) => {
-    setChatPhotos((prev) => {
-      const photo = prev.find((p) => p.id === photoId);
-      if (photo?.preview) URL.revokeObjectURL(photo.preview);
-      return prev.filter((p) => p.id !== photoId);
-    });
-  }, []);
-
-  /* ── Bulk delete sources ── */
-  const deleteSelectedSources = useCallback(async () => {
-    if (selectedSourceIds.size === 0) return;
-    const ids = Array.from(selectedSourceIds);
-    try {
-      const res = await fetch(apiUrl("/api/sources"), {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json", "x-admin-code": encodeURIComponent(inviteCodeRef.current) },
-        body: JSON.stringify({ ids }),
-      });
-      if (!res.ok) return;
-      setSources((prev) => prev.filter((s) => !selectedSourceIds.has(s.id)));
-      setSelectedSourceIds(new Set());
-      setBulkSelectMode(false);
-    } catch (e) {
-      console.error("Failed to delete sources:", e);
-    }
-  }, [selectedSourceIds]);
-
-  /* ── Bulk delete conversations ── */
-  const deleteSelectedConversations = useCallback(async () => {
-    if (selectedConvIds.size === 0) return;
-    const ids = Array.from(selectedConvIds);
-    await fetch(apiUrl("/api/conversations"), {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-      body: JSON.stringify({ ids }),
-    });
-    setConversations((prev) => prev.filter((c) => !selectedConvIds.has(c.id)));
-    if (activeConvId && selectedConvIds.has(activeConvId)) {
-      setActiveConvId(null);
-      convIdRef.current = null;
-      setChatKey(`new-${Date.now()}`);
-      setMessages([]);
-      setHasSummary(false);
-    }
-    setSelectedConvIds(new Set());
-    setConvBulkMode(false);
-  }, [selectedConvIds, activeConvId]);
-
-  const deleteAllConversations = useCallback(async () => {
-    await fetch(apiUrl("/api/conversations?all=true&confirm=true"), { method: "DELETE", headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) } });
-    setConversations([]);
-    setActiveConvId(null);
-    convIdRef.current = null;
-    setChatKey(`new-${Date.now()}`);
-    setMessages([]);
-    setHasSummary(false);
-    setSelectedConvIds(new Set());
-    setConvBulkMode(false);
-  }, []);
-
-  /* ── Submit handler with pending logic ── */
-  const handleSubmit = useCallback(
-    async (e?: FormEvent, overrideText?: string) => {
-      e?.preventDefault();
-      const text = (overrideText ?? input).trim();
-      const hasFiles = chatFiles.filter((f) => !f.parsing && !f.error && f.markdown).length > 0;
-      const hasPhotos = chatPhotos.filter((p) => !p.parsing && !p.error && p.markdown).length > 0;
-      if ((!text && !hasFiles && !hasPhotos) || isLoading || isSending) return;
-
-      // Block new conversations if limit reached
-      if (!convIdRef.current && conversations.length >= CONV_LIMIT) {
-        setChatError(`Достигнут лимит диалогов (${CONV_LIMIT}). Удалите старые диалоги, чтобы начать новый.`);
-        return;
-      }
-
-      setIsSending(true);
-      setChatError(null);
-
-      // Prepare attached documents from chatFiles + chatPhotos
-      const readyFiles = chatFiles.filter((f) => !f.parsing && !f.error && f.markdown);
-      const readyPhotos = chatPhotos.filter((p) => !p.parsing && !p.error && p.markdown);
-      const attachedDocuments: Array<{ filename: string; markdown: string }> = [
-        ...readyFiles.map((f) => ({ filename: f.filename, markdown: f.markdown })),
-        ...readyPhotos.map((p, i) => ({ filename: p.file.name || `Фото ${i + 1}`, markdown: p.markdown })),
-      ];
-      const attachmentNames = [
-        ...readyFiles.map((f) => f.filename),
-        ...readyPhotos.map((p) => p.file.name || "Фото"),
-      ];
-
-      // ── Auto-detect and fetch URLs from message text ──
-      const urlRegex = /https?:\/\/[^\s<>"{}|\\^`[\]]+/gi;
-      const detectedUrls = text ? [...new Set(text.match(urlRegex) || [])] : [];
-      if (detectedUrls.length > 0) {
-        const urlResults = await Promise.allSettled(
-          detectedUrls.slice(0, 5).map(async (url) => {
-            const res = await fetch(apiUrl("/api/fetch-url"), {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-              body: JSON.stringify({ url }),
-            });
-            if (!res.ok) return null;
-            return res.json();
-          })
-        );
-        for (const result of urlResults) {
-          if (result.status === "fulfilled" && result.value) {
-            const { title, url: fetchedUrl, markdown } = result.value;
-            attachedDocuments.push({ filename: `${title} (${fetchedUrl})`, markdown });
-            attachmentNames.push(title || fetchedUrl);
-          }
-        }
-      }
-      const messageText = text || (attachmentNames.length > 0 ? `Проверь ${attachmentNames.length === 1 ? "документ" : "документы"}: ${attachmentNames.join(", ")}` : "");
-
-      // Phase 2: Save newly attached documents to session for future messages
-      if (attachedDocuments.length > 0) {
-        // Replace session docs (don't accumulate infinitely; keep latest upload set)
-        sessionDocsRef.current = attachedDocuments.map((d) => ({ filename: d.filename, markdown: d.markdown }));
-      }
-
-      // Clear files, photos and input immediately
-      setChatFiles([]);
-      // Revoke photo preview URLs before clearing
-      chatPhotos.forEach((p) => { if (p.preview) URL.revokeObjectURL(p.preview); });
-      setChatPhotos([]);
-
-      if (!convIdRef.current) {
-        pendingSubmitRef.current = messageText;
-        setInput("");
-        const title = messageText.slice(0, 50) + (messageText.length > 50 ? "..." : "");
-        let newId: string;
-        try {
-          newId = await createConversation(title);
-        } catch (err) {
-          console.error("Failed to create conversation:", err);
-          const errMsg = err instanceof Error ? err.message : "Не удалось создать диалог";
-          if (!errMsg.includes("401")) setChatError(errMsg);
-          setInput(messageText);
-          pendingSubmitRef.current = null;
-          setIsSending(false);
-          return;
-        }
-
-        setMessages((prev) => [
-          ...prev,
-          { id: `temp-user-${Date.now()}`, role: "user", content: messageText, ...(attachmentNames.length > 0 && { attachments: attachmentNames }) },
-        ]);
-
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 90000);
-
-          const res = await fetch(apiUrl("/api/chat"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-            body: JSON.stringify({
-              messages: [{ role: "user", content: messageText }],
-              conversationId: newId,
-              ...(attachedDocuments.length > 0 && { attachedDocuments }),
-              // Phase 2: Send session docs for follow-up context (only if no new attachments)
-              ...(attachedDocuments.length === 0 && sessionDocsRef.current.length > 0 && { sessionDocuments: sessionDocsRef.current }),
-            }),
-            signal: controller.signal,
-          });
-
-          clearTimeout(timeout);
-
-          if (!res.ok || !res.body) {
-            if (res.status === 401) {
-              handleLogout();
-            } else if (res.status === 429) {
-              setChatError("Слишком много запросов. Подождите немного и попробуйте снова.");
-            } else if (res.status >= 500) {
-              setChatError("Сервер временно недоступен. Попробуйте через несколько секунд.");
-            } else {
-              setChatError("Не удалось получить ответ от ИИ. Попробуйте ещё раз.");
-            }
-            throw new Error(`Stream failed: ${res.status}`);
-          }
-
-          // Parse sources from header
-          let sources: string[] = [];
-          let chunkImages: { url: string; source: string; chunk: number }[] = [];
-          try {
-            const srcHeader = res.headers.get("X-Sources");
-            if (srcHeader) sources = JSON.parse(decodeURIComponent(srcHeader));
-          } catch { /* ignore */ }
-          try {
-            const imgHeader = res.headers.get("X-Chunk-Images");
-            if (imgHeader) chunkImages = JSON.parse(decodeURIComponent(imgHeader));
-          } catch { /* ignore */ }
-
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let assistantText = "";
-          const assistantId = `temp-assistant-${Date.now()}`;
-
-          setMessages((prev) => [
-            ...prev,
-            { id: assistantId, role: "assistant", content: "", sources, ...(chunkImages.length > 0 && { chunkImages }) },
-          ]);
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split("\n");
-            for (const line of lines) {
-              if (line.startsWith("0:")) {
-                try {
-                  const parsed = JSON.parse(line.slice(2));
-                  if (typeof parsed === "string") {
-                    assistantText += parsed;
-                  }
-                } catch {
-                  // ignore parse errors
-                }
-              }
-            }
-
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId ? { ...m, content: assistantText } : m
-              )
-            );
-          }
-        } catch (err) {
-          if (err instanceof DOMException && err.name === "AbortError") {
-            setChatError("Запрос занял слишком много времени. Попробуйте переформулировать вопрос короче.");
-          }
-          console.error("Manual stream error:", err);
-        }
-
-        pendingSubmitRef.current = null;
-        setIsSending(false);
-        // Reload messages from server to replace temp IDs with real ones
-        reloadMessagesFromServer(newId, 2); // expect user + assistant messages
-        loadConversations();
-        return;
-      }
-
-      const currentMessages = [
-        ...messages,
-        { id: `temp-user-${Date.now()}`, role: "user" as const, content: messageText, ...(attachmentNames.length > 0 && { attachments: attachmentNames }) },
-      ];
-      setMessages(currentMessages);
-      setInput("");
-
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 90000);
-
-        const res = await fetch(apiUrl("/api/chat"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
-          body: JSON.stringify({
-            messages: currentMessages.map((m) => ({
-              role: m.role,
-              content: m.content,
-            })),
-            conversationId: convIdRef.current,
-            ...(attachedDocuments.length > 0 && { attachedDocuments }),
-            // Phase 2: Send session docs for follow-up context (only if no new attachments)
-            ...(attachedDocuments.length === 0 && sessionDocsRef.current.length > 0 && { sessionDocuments: sessionDocsRef.current }),
-          }),
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeout);
-
-        if (!res.ok || !res.body) {
-          if (res.status === 401) {
-            handleLogout();
-          } else if (res.status === 429) {
-            setChatError("Слишком много запросов. Подождите немного и попробуйте снова.");
-          } else if (res.status >= 500) {
-            setChatError("Сервер временно недоступен. Попробуйте через несколько секунд.");
-          } else {
-            setChatError("Не удалось получить ответ от ИИ. Попробуйте ещё раз.");
-          }
-          throw new Error(`Stream failed: ${res.status}`);
-        }
-
-        // Parse sources and chunk images from headers
-        let sources: string[] = [];
-        let chunkImages: { url: string; source: string; chunk: number }[] = [];
-        try {
-          const srcHeader = res.headers.get("X-Sources");
-          if (srcHeader) sources = JSON.parse(decodeURIComponent(srcHeader));
-        } catch { /* ignore */ }
-        try {
-          const imgHeader = res.headers.get("X-Chunk-Images");
-          if (imgHeader) chunkImages = JSON.parse(decodeURIComponent(imgHeader));
-        } catch { /* ignore */ }
-
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let assistantText = "";
-        const assistantId = `temp-assistant-${Date.now()}`;
-
-        setMessages((prev) => [
-          ...prev,
-          { id: assistantId, role: "assistant", content: "", sources, ...(chunkImages.length > 0 && { chunkImages }) },
-        ]);
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split("\n");
-          for (const line of lines) {
-            if (line.startsWith("0:")) {
-              try {
-                const parsed = JSON.parse(line.slice(2));
-                if (typeof parsed === "string") {
-                  assistantText += parsed;
-                }
-              } catch {
-                // ignore
-              }
-            }
-          }
-
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId ? { ...m, content: assistantText } : m
-            )
-          );
-        }
-      } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") {
-          setChatError("Запрос занял слишком много времени. Попробуйте переформулировать вопрос короче.");
-        }
-        console.error("Stream error:", err);
-      } finally {
-        setIsSending(false);
-        // Reload messages from server to replace temp IDs with real ones
-        if (convIdRef.current) reloadMessagesFromServer(convIdRef.current, messages.length + 2); // +user +assistant
-      }
-    },
-    [input, isLoading, isSending, messages, chatFiles, chatPhotos, setInput, createConversation, loadConversations, reloadMessagesFromServer, conversations]
-  );
+  /* ── Helper: reset to new chat ── */
+  const handleNewChat = useCallback(() => {
+    setActiveView("chat");
+    startNewChat();
+    sessionDocsRef.current = [];
+  }, [startNewChat, sessionDocsRef]);
 
   /* ── Auto-scroll ── */
   useEffect(() => {
@@ -1231,6 +182,17 @@ export default function Chat() {
       handleSubmit();
     }
   };
+
+  // REMOVED: everything from here to Derived was extracted into hooks
+  // The following 750+ lines of logic are now in:
+  // - useConversations (conversations CRUD, messages, sync, heartbeat)
+  // - useStreaming (handleSubmit, streaming)
+  // - useFileAttachments (file/photo handling)
+  // - useSources (KB sources)
+  // - useSupport (support modal)
+  // - useInfographics (infographic CRUD)
+  // - useExport (DOCX/Excel export)
+
 
   /* ── Derived ── */
   const lastIsUser = messages.length > 0 && messages[messages.length - 1]?.role === "user";
@@ -1333,15 +295,7 @@ export default function Chat() {
             </div>
             <button
               className="header-logo-btn"
-              onClick={() => {
-                setActiveView("chat");
-                setActiveConvId(null);
-                convIdRef.current = null;
-                setChatKey(`new-${Date.now()}`);
-                setMessages([]);
-                setHasSummary(false);
-                sessionDocsRef.current = [];
-              }}
+              onClick={handleNewChat}
               title="На главную"
             >
               <SpektrIcon size={36} />
@@ -1422,14 +376,7 @@ export default function Chat() {
             )}
             <button
               className="header-labeled-btn primary desktop-only"
-              onClick={() => {
-                setActiveView("chat");
-                setActiveConvId(null);
-                convIdRef.current = null;
-                setChatKey(`new-${Date.now()}`);
-                setMessages([]);
-                setHasSummary(false);
-              }}
+              onClick={handleNewChat}
               title="Новый чат"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1440,14 +387,7 @@ export default function Chat() {
             </button>
             <button
               className="menu-btn"
-              onClick={() => {
-                setActiveView("chat");
-                setActiveConvId(null);
-                convIdRef.current = null;
-                setChatKey(`new-${Date.now()}`);
-                setMessages([]);
-                setHasSummary(false);
-              }}
+              onClick={handleNewChat}
               title="Новый чат"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1494,10 +434,7 @@ export default function Chat() {
                             outlineOffset: 2,
                             boxShadow: avatarColor === color ? "0 0 0 1px #fff inset" : "none",
                           }}
-                          onClick={() => {
-                            saveAvatarColor(color);
-                            setAvatarColor(color);
-                          }}
+                          onClick={() => setAvatarColor(color)}
                           title={color}
                         />
                       ))}
@@ -2005,12 +942,7 @@ export default function Chat() {
                   <button
                     onClick={() => {
                       if (conversations.length >= CONV_LIMIT) return;
-                      setActiveConvId(null);
-                      convIdRef.current = null;
-                      setChatKey(`new-${Date.now()}`);
-                      setMessages([]);
-                      setHasSummary(false);
-                      sessionDocsRef.current = [];
+                      handleNewChat();
                     }}
                     title={conversations.length >= CONV_LIMIT ? "Лимит диалогов достигнут" : "Новый диалог"}
                     style={{ fontSize: 16, color: conversations.length >= CONV_LIMIT ? "var(--error)" : "var(--text-secondary)", lineHeight: 1 }}
@@ -2096,7 +1028,7 @@ export default function Chat() {
                           });
                           return;
                         }
-                        switchConversation(c.id);
+                        handleSwitchConversation(c.id);
                       }}
                       key={c.id}
                     >
@@ -2422,13 +1354,13 @@ export default function Chat() {
 
       {/* ── Support Modal ── */}
       {/* .doc / .xls format warning modal */}
-      {showDocFormatModal && (
-        <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setShowDocFormatModal(false)}>
+      {docFormatModal.show && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setDocFormatModal({ show: false, fileName: "", type: "doc" })}>
           <div className="modal-card doc-format-modal" onClick={(e) => e.stopPropagation()}>
             <div className="doc-format-modal-icon">⚠️</div>
             <h3 className="doc-format-modal-title">Устаревший формат файла</h3>
-            <p className="doc-format-modal-filename">{docFormatFileName}</p>
-            {docFormatType === "xls" ? (
+            <p className="doc-format-modal-filename">{docFormatModal.fileName}</p>
+            {docFormatModal.type === "xls" ? (
               <>
                 <p className="doc-format-modal-text">
                   Этот файл сохранён в формате <strong>.xls</strong> (Excel 97–2003), который не поддерживается чатом.
@@ -2457,7 +1389,7 @@ export default function Chat() {
             )}
             <button
               className="doc-format-modal-btn"
-              onClick={() => setShowDocFormatModal(false)}
+              onClick={() => setDocFormatModal({ show: false, fileName: "", type: "doc" })}
             >
               Понятно
             </button>

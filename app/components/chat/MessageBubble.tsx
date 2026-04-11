@@ -1,70 +1,12 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Source } from "./types";
 import { InfographicIcon } from "./icons";
-
-function TableWrapper({ children, ...props }: React.HTMLAttributes<HTMLTableElement>) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [overflows, setOverflows] = useState(false);
-  const [fullscreen, setFullscreen] = useState(false);
-
-  const checkOverflow = useCallback(() => {
-    const el = containerRef.current;
-    if (el) {
-      setOverflows(el.scrollWidth > el.clientWidth + 2);
-    }
-  }, []);
-
-  useEffect(() => {
-    checkOverflow();
-    window.addEventListener("resize", checkOverflow);
-    return () => window.removeEventListener("resize", checkOverflow);
-  }, [checkOverflow]);
-
-  return (
-    <>
-      <div className={`table-container${overflows ? " table-overflows" : ""}`} ref={containerRef}>
-        <table {...props}>{children}</table>
-        {overflows && !fullscreen && (
-          <button
-            className="table-fullscreen-btn"
-            onClick={() => setFullscreen(true)}
-            title="Развернуть таблицу на весь экран"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 3 21 3 21 9" />
-              <polyline points="9 21 3 21 3 15" />
-              <line x1="21" y1="3" x2="14" y2="10" />
-              <line x1="3" y1="21" x2="10" y2="14" />
-            </svg>
-            Развернуть
-          </button>
-        )}
-      </div>
-      {fullscreen && (
-        <div className="table-fullscreen-overlay" onClick={() => setFullscreen(false)}>
-          <div className="table-fullscreen-content" onClick={(e) => e.stopPropagation()}>
-            <button className="table-fullscreen-close" onClick={() => setFullscreen(false)}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="4 14 10 14 10 20" />
-                <polyline points="20 10 14 10 14 4" />
-                <line x1="14" y1="10" x2="21" y2="3" />
-                <line x1="3" y1="21" x2="10" y2="14" />
-              </svg>
-              Свернуть
-            </button>
-            <div className="table-fullscreen-scroll">
-              <table {...props}>{children}</table>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
+import { TableWrapper } from "./TableWrapper";
+import { MessageActions, FollowUpChips } from "./MessageActions";
 
 interface ChunkImage {
   url: string;
@@ -345,17 +287,8 @@ export default function MessageBubble({
         >
           {processedContent}
         </ReactMarkdown>
-        {hasFollowUp && followUpQuestions.length > 0 && (
-          <div className="followup-section">
-            <div className="followup-label">💡 Вам также может быть полезно:</div>
-            <div className="followup-chips">
-              {followUpQuestions.map((q, i) => (
-                <button key={i} className="followup-chip" onClick={() => onFollowUpClick!(q)}>
-                  {q}
-                </button>
-              ))}
-            </div>
-          </div>
+        {hasFollowUp && (
+          <FollowUpChips questions={followUpQuestions} onFollowUpClick={onFollowUpClick!} />
         )}
       </div>
       {message.chunkImages && message.chunkImages.length > 0 && (
@@ -393,51 +326,12 @@ export default function MessageBubble({
           onSourceClick={handleSourceClick}
         />
       )}
-      {(onCreateInfographic || onExportDocx || onExportExcel) && (
-        <div className="message-infographic-row">
-          {onCreateInfographic && (
-            <button
-              className="message-infographic-btn"
-              onClick={() => onCreateInfographic(message.content)}
-              title="Создать инфографику на основе этого ответа"
-            >
-              <InfographicIcon size={14} />
-              Создать инфографику
-            </button>
-          )}
-          {onExportDocx && (
-            <button
-              className="message-infographic-btn message-export-btn"
-              onClick={() => onExportDocx(message.content)}
-              title="Скачать ответ в формате DOCX"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <line x1="12" y1="18" x2="12" y2="12" />
-                <polyline points="9 15 12 18 15 15" />
-              </svg>
-              Скачать .docx
-            </button>
-          )}
-          {onExportExcel && (
-            <button
-              className="message-infographic-btn message-export-btn"
-              onClick={() => onExportExcel(message.content)}
-              title="Скачать таблицы в формате Excel"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <line x1="3" y1="9" x2="21" y2="9" />
-                <line x1="3" y1="15" x2="21" y2="15" />
-                <line x1="9" y1="3" x2="9" y2="21" />
-                <line x1="15" y1="3" x2="15" y2="21" />
-              </svg>
-              Скачать .xlsx
-            </button>
-          )}
-        </div>
-      )}
+      <MessageActions
+        content={message.content}
+        onCreateInfographic={onCreateInfographic}
+        onExportDocx={onExportDocx}
+        onExportExcel={onExportExcel}
+      />
     </div>
   );
 }

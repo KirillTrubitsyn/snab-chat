@@ -1,0 +1,457 @@
+/* ── Modal ── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(4px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 200ms ease-out;
+}
+
+.modal-card {
+  background: var(--bg-white);
+  max-width: 560px;
+  width: calc(100% - 32px);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  padding: 28px;
+  animation: scaleIn 200ms ease-out;
+}
+
+/* ── .doc format warning modal ── */
+
+.doc-format-modal {
+  text-align: center;
+  max-width: 460px;
+}
+
+.doc-format-modal-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+}
+
+.doc-format-modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+
+.doc-format-modal-filename {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 16px;
+  word-break: break-all;
+}
+
+.doc-format-modal-text {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  margin: 0 0 16px;
+  text-align: left;
+}
+
+.doc-format-modal-steps {
+  text-align: left;
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.7;
+  margin: 0 0 24px;
+  padding-left: 20px;
+}
+
+.doc-format-modal-steps li {
+  margin-bottom: 4px;
+}
+
+.doc-format-modal-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 32px;
+  border-radius: 10px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.doc-format-modal-btn:hover {
+  background: var(--accent-dark, #1a6bba);
+}
+
+/* ── Drop zone ── */
+
+.drop-zone {
+  border: 2px dashed var(--border-hover);
+  border-radius: var(--radius);
+  padding: 40px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: pointer;
+  text-align: center;
+  color: var(--text-secondary);
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.drop-zone:hover,
+.drop-zone.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* ── Review / Tags / Chunks panels ── */
+
+.review-panel,
+.tags-section,
+.chunks-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ══════════════════════════════════════════════════
+   InviteGate
+   ══════════════════════════════════════════════════ */
+
+.invite-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--bg-main);
+  padding: 20px;
+}
+
+.invite-gate-card {
+  background: var(--bg-white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 48px 40px;
+  max-width: 400px;
+  width: 100%;
+  text-align: center;
+}
+
+.invite-gate-logo {
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+
+.invite-gate-title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 4px;
+}
+
+.invite-gate-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 32px;
+}
+
+.invite-gate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.invite-gate-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.invite-gate-input {
+  width: 100%;
+  padding: 12px 44px 12px 16px;
+  font-size: 15px;
+  font-family: var(--font-mono);
+  letter-spacing: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-main);
+  color: var(--text-primary);
+  text-align: center;
+  transition: border-color var(--transition);
+}
+
+.invite-gate-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.invite-gate-toggle {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.invite-gate-error {
+  color: var(--error);
+  font-size: 13px;
+  margin: 0;
+}
+
+.invite-gate-submit {
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: var(--font-display);
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.invite-gate-submit:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.invite-gate-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.invite-gate-register-hint {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+
+.invite-gate-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+
+.invite-gate-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  padding-left: 2px;
+}
+
+.invite-gate-input-text {
+  text-align: left;
+  letter-spacing: normal;
+  font-family: var(--font-body);
+}
+
+.invite-gate-back {
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: var(--font-display);
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.invite-gate-back:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.invite-gate-back:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ══════════════════════════════════════════════════
+   QR Code Page
+   ══════════════════════════════════════════════════ */
+
+.qr-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--bg-main);
+  padding: 20px;
+}
+
+.qr-card {
+  background: var(--bg-white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 48px 48px 40px;
+  max-width: 460px;
+  width: 100%;
+  text-align: center;
+}
+
+.qr-logo {
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
+.qr-title {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 4px;
+}
+
+.qr-subtitle {
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin: 0 0 32px;
+}
+
+.qr-code-wrapper {
+  display: flex;
+  justify-content: center;
+  padding: 24px;
+  background: #fff;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+
+.qr-hint {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+
+.qr-hint-secondary {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 24px;
+}
+
+.qr-hint-secondary strong {
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.qr-url-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+}
+
+.qr-url-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.qr-url-input {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-main);
+  color: var(--text-primary);
+  transition: border-color var(--transition);
+}
+
+.qr-url-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ── Infographic viewer modal ── */
+
+.infographic-viewer-modal {
+  background: var(--bg-white);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  max-width: 800px;
+  width: 95vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 24px;
+  position: relative;
+}
+
+.infographic-viewer-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition), color var(--transition);
+}
+
+.infographic-viewer-close:hover {
+  background: var(--bg-sidebar-hover);
+  color: var(--text-primary);
+}
+
+.infographic-viewer-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+  padding-right: 32px;
+}
+
+.infographic-viewer-date {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.infographic-viewer-image {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.infographic-viewer-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 12px;
+  line-height: 1.5;
+}
+
+.infographic-viewer-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  justify-content: flex-end;
+}
