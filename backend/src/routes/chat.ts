@@ -228,7 +228,13 @@ router.post("/api/chat", async (req: Request, res: Response) => {
         let preAdded = 0;
         for (const r of preResults) {
           if (!agenticCtx.chunks.has(r.id)) {
-            agenticCtx.chunks.set(r.id, { ...r, similarity: Math.max(r.similarity, 0.92) });
+            // Only boost if the chunk has reasonable base similarity — prevents
+            // irrelevant chunks from surviving all filters just because they're
+            // from the right document.
+            const boostedSim = r.similarity >= 0.25
+              ? Math.max(r.similarity, 0.75)
+              : r.similarity;
+            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim });
             preAdded++;
           }
         }
@@ -246,7 +252,10 @@ router.post("/api/chat", async (req: Request, res: Response) => {
         let catAdded = 0;
         for (const r of catResults) {
           if (!agenticCtx.chunks.has(r.id)) {
-            agenticCtx.chunks.set(r.id, { ...r, similarity: Math.max(r.similarity, 0.90) });
+            const boostedSim = r.similarity >= 0.25
+              ? Math.max(r.similarity, 0.75)
+              : r.similarity;
+            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim });
             catAdded++;
           }
         }
@@ -291,7 +300,7 @@ ${userMessage.content}
 
       console.log(`[chat] Agentic search complete: ${agenticCtx.searchCount} searches, ${agenticCtx.chunks.size} chunks collected`);
 
-      const filtered = await finalizeAgenticResults(agenticCtx, userMessage.content, preSeededEntities.length >= 2 ? preSeededEntities : undefined);
+      const filtered = await finalizeAgenticResults(agenticCtx, userMessage.content, preSeededEntities.length >= 2 ? preSeededEntities : undefined, intentResult);
       relevantChunks = filtered.results;
       lowConfidence = filtered.lowConfidence;
     } catch (agenticError) {
@@ -362,9 +371,13 @@ ${userMessage.content}
     // Boost targeted document results so they survive reranking/filtering.
     // These are specifically matched by document type + organization name,
     // so they should outrank generic hybrid search results.
+    // Only boost chunks with reasonable base similarity to avoid promoting junk.
     const boostedDocResults = docResults
       .filter((r) => !existingIds.has(r.id))
-      .map((r) => ({ ...r, similarity: Math.max(r.similarity, 0.92) }));
+      .map((r) => ({
+        ...r,
+        similarity: r.similarity >= 0.25 ? Math.max(r.similarity, 0.80) : r.similarity,
+      }));
     for (const r of boostedDocResults) existingIds.add(r.id);
     // Prepend (not append) so they appear before generic search results
     combinedResults = [...boostedDocResults, ...combinedResults];
@@ -374,7 +387,10 @@ ${userMessage.content}
   if (catalogResults.length > 0) {
     const newCatalogResults = catalogResults
       .filter((r) => !existingIds.has(r.id))
-      .map((r) => ({ ...r, similarity: Math.max(r.similarity, 0.90) }));
+      .map((r) => ({
+        ...r,
+        similarity: r.similarity >= 0.25 ? Math.max(r.similarity, 0.80) : r.similarity,
+      }));
     for (const r of newCatalogResults) existingIds.add(r.id);
     combinedResults = [...newCatalogResults, ...combinedResults];
     console.log(`[chat] Catalog lookup added ${newCatalogResults.length} new chunks from ${new Set(newCatalogResults.map((r) => r.source_filename)).size} sources`);
