@@ -489,12 +489,20 @@ router.post("/api/telegram/webhook-2fa", async (req: Request, res: Response) => 
         return res.json({ ok: true });
       }
 
-      // Обновить статус
+      // Обновить статус (атомарно — только если ещё pending)
       const newStatus = approved ? "approved" : "denied";
-      await supabase
+      const { data: updated, error: updateErr } = await supabase
         .from("login_approvals")
         .update({ status: newStatus, resolved_at: new Date().toISOString() })
-        .eq("id", approvalId);
+        .eq("id", approvalId)
+        .eq("status", "pending")
+        .select("id")
+        .maybeSingle();
+
+      if (updateErr || !updated) {
+        await answer2FACallbackQuery(callbackQuery.id, "Запрос уже обработан");
+        return res.json({ ok: true });
+      }
 
       if (approved) {
         await answer2FACallbackQuery(callbackQuery.id, "Вход подтверждён");
