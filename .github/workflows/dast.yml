@@ -1,0 +1,73 @@
+name: DAST Scan
+
+on:
+  schedule:
+    - cron: "0 3 * * 1" # every Monday at 3:00 UTC
+  workflow_dispatch: # manual trigger
+
+jobs:
+  zap-baseline:
+    name: OWASP ZAP Baseline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: ${{ secrets.APP_URL }}
+          rules_file_name: ".zap-rules.tsv"
+          fail_action: true
+          cmd_options: "-a"
+
+      - name: Upload ZAP Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: report_html.html
+          retention-days: 30
+
+  nuclei-scan:
+    name: Nuclei Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nuclei
+        run: |
+          curl -sL https://github.com/projectdiscovery/nuclei/releases/latest/download/nuclei_$(curl -s https://api.github.com/repos/projectdiscovery/nuclei/releases/latest | grep tag_name | cut -d '"' -f4 | sed 's/^v//')_linux_amd64.zip -o nuclei.zip
+          unzip -o nuclei.zip nuclei
+          chmod +x nuclei
+          sudo mv nuclei /usr/local/bin/
+
+      - name: Update Nuclei templates
+        run: nuclei -update-templates
+
+      - name: Run Nuclei scan
+        run: |
+          nuclei \
+            -u "${{ secrets.APP_URL }}" \
+            -severity critical,high \
+            -silent \
+            -o nuclei-results.txt \
+            -stats
+
+      - name: Check results
+        run: |
+          if [ -s nuclei-results.txt ]; then
+            echo "::error::Nuclei found critical/high vulnerabilities:"
+            cat nuclei-results.txt
+            exit 1
+          else
+            echo "No critical/high vulnerabilities found."
+          fi
+
+      - name: Upload Nuclei Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuclei-report
+          path: nuclei-results.txt
+          retention-days: 30
+          if-no-files-found: ignore
