@@ -31,6 +31,11 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 20;
 
+  // Bulk delete confirmation challenge
+  const [showDeleteChallenge, setShowDeleteChallenge] = useState(false);
+  const [deleteChallenge, setDeleteChallenge] = useState("");
+  const [deleteChallengeInput, setDeleteChallengeInput] = useState("");
+
   // Upload state
   const [showUpload, setShowUpload] = useState(false);
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
@@ -73,9 +78,28 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
     } catch { /* ignore */ }
   };
 
-  const deleteSelectedSources = async () => {
+  const generateChallenge = () => {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let result = "";
+    for (let i = 0; i < 8; i++) result += chars[Math.floor(Math.random() * chars.length)];
+    return result;
+  };
+
+  const requestDeleteSelected = () => {
     if (selectedSourceIds.size === 0) return;
-    if (!confirm(`Удалить ${selectedSourceIds.size} документ(ов) из базы знаний?`)) return;
+    if (selectedSourceIds.size === 1) {
+      if (!confirm("Удалить этот документ из базы знаний?")) return;
+      executeDeleteSelected();
+      return;
+    }
+    const code = generateChallenge();
+    setDeleteChallenge(code);
+    setDeleteChallengeInput("");
+    setShowDeleteChallenge(true);
+  };
+
+  const executeDeleteSelected = async () => {
+    setShowDeleteChallenge(false);
     try {
       const ids = Array.from(selectedSourceIds);
       await fetch(apiUrl("/api/sources"), {
@@ -334,7 +358,7 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
                   </span>
                   {filteredSources.length > 0 && filteredSources.every((s) => selectedSourceIds.has(s.id)) ? "Снять всё" : "Выбрать все"}
                 </button>
-                <button className="admin-btn-secondary" style={{ color: selectedSourceIds.size > 0 ? "var(--admin-danger, #ef4444)" : undefined }} disabled={selectedSourceIds.size === 0} onClick={deleteSelectedSources}>
+                <button className="admin-btn-secondary" style={{ color: selectedSourceIds.size > 0 ? "var(--admin-danger, #ef4444)" : undefined }} disabled={selectedSourceIds.size === 0} onClick={requestDeleteSelected}>
                   <span className="material-symbols-outlined">delete</span>Удалить ({selectedSourceIds.size})
                 </button>
                 <button className="admin-btn-secondary" onClick={() => { setSelectedSourceIds(new Set()); setBulkSelectMode(false); }}>
@@ -679,6 +703,54 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
         )}
       </div>
       {viewingSource && <DocumentViewer source={viewingSource} onClose={() => setViewingSource(null)} authCode={adminCode} />}
+
+      {/* Bulk delete challenge modal */}
+      {showDeleteChallenge && (
+        <div className="admin-modal-overlay" onClick={() => setShowDeleteChallenge(false)}>
+          <div className="admin-modal admin-delete-challenge-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3>Подтверждение удаления</h3>
+              <button onClick={() => setShowDeleteChallenge(false)} className="admin-modal-close">&times;</button>
+            </div>
+            <div className="admin-modal-body">
+              <p style={{ marginBottom: 8 }}>
+                Вы собираетесь удалить <strong>{selectedSourceIds.size}</strong> документ(ов) из базы знаний.
+                Это действие необратимо.
+              </p>
+              <p style={{ marginBottom: 16, color: "#64748B", fontSize: 13 }}>
+                Для подтверждения введите код, показанный ниже:
+              </p>
+              <div className="admin-challenge-code">{deleteChallenge}</div>
+              <input
+                className="admin-challenge-input"
+                type="text"
+                placeholder="Введите код..."
+                value={deleteChallengeInput}
+                onChange={(e) => setDeleteChallengeInput(e.target.value.toUpperCase())}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && deleteChallengeInput === deleteChallenge) {
+                    executeDeleteSelected();
+                  }
+                }}
+              />
+              <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+                <button className="admin-btn-secondary" onClick={() => setShowDeleteChallenge(false)}>
+                  Отмена
+                </button>
+                <button
+                  className="admin-btn-danger"
+                  disabled={deleteChallengeInput !== deleteChallenge}
+                  onClick={() => executeDeleteSelected()}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                  Удалить {selectedSourceIds.size} файлов
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* .doc format warning modal */}
       {showDocFormatModal && (
