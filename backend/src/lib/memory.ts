@@ -2,7 +2,6 @@ import { createServiceClient } from "./supabase.js";
 import { google, withGoogleApiLimit } from "./google-ai.js";
 import { generateText } from "ai";
 
-const HISTORY_TOKEN_BUDGET = 30000;
 const SUMMARIZE_THRESHOLD = 25000;
 const RECENT_MESSAGES_KEEP = 10;
 
