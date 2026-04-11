@@ -682,7 +682,7 @@ router.post("/api/auth/request-login-approval", async (req: Request, res: Respon
     try {
       const geoRes = await fetch(`https://ipwho.is/${ipAddress}?lang=ru`);
       if (geoRes.ok) {
-        const geo = await geoRes.json();
+        const geo = await geoRes.json() as { success?: boolean; city?: string; country?: string };
         if (geo.success) {
           location = [geo.city, geo.country].filter(Boolean).join(", ");
         }
