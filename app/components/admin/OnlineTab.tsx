@@ -27,6 +27,7 @@ export default function OnlineTab({ adminCode }: { adminCode: string }) {
   const [loading, setLoading] = useState(false);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [search, setSearch] = useState("");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const headers = { "x-admin-code": encodeURIComponent(adminCode) };
@@ -59,6 +60,16 @@ export default function OnlineTab({ adminCode }: { adminCode: string }) {
     setDisconnecting(null);
   };
 
+  const q = search.toLowerCase().trim();
+  const filteredUsers = q
+    ? users.filter(
+        (u) =>
+          u.name.toLowerCase().includes(q) ||
+          u.code.toLowerCase().includes(q) ||
+          (u.organization && u.organization.toLowerCase().includes(q))
+      )
+    : users;
+
   // Auto-refresh every 30 seconds
   useEffect(() => {
     if (autoRefresh) {
@@ -76,9 +87,17 @@ export default function OnlineTab({ adminCode }: { adminCode: string }) {
         <div className="admin-card-header">
           <div className="admin-card-header-left">
             <h2 className="admin-card-title">Онлайн-пользователи</h2>
-            <span className="admin-card-badge">{users.length}</span>
+            <span className="admin-card-badge">{search ? `${filteredUsers.length} / ${users.length}` : users.length}</span>
           </div>
           <div className="admin-card-actions">
+            <div className="admin-search-field">
+              <input
+                type="text"
+                placeholder="Поиск по имени, коду, организации..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
             <label className="admin-online-auto-refresh">
               <input
                 type="checkbox"
@@ -113,6 +132,13 @@ export default function OnlineTab({ adminCode }: { adminCode: string }) {
               Пользователи считаются онлайн, если были активны в последние 5 минут
             </p>
           </div>
+        ) : filteredUsers.length === 0 ? (
+          <div className="admin-empty-state">
+            <span className="material-symbols-outlined" style={{ fontSize: 48, color: "#94A3B8" }}>
+              search_off
+            </span>
+            <p>Ничего не найдено</p>
+          </div>
         ) : (
           <div className="admin-table-wrap">
             <table className="admin-table">
@@ -127,7 +153,7 @@ export default function OnlineTab({ adminCode }: { adminCode: string }) {
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => (
+                {filteredUsers.map((u) => (
                   <tr key={u.invite_code_id}>
                     <td>
                       <span className="admin-online-dot" />
