@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { type ModelMessage } from "ai";
 import { GoogleGenAI } from "@google/genai";
-import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, type SearchResult } from "../lib/retrieval.js";
+import { hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, type SearchResult } from "../lib/retrieval.js";
 import { rerank } from "../lib/reranker.js";
 import { classifyIntent } from "../lib/intent-classifier.js";
 import { loadConversationContext, saveMessage } from "../lib/memory.js";
@@ -991,7 +991,7 @@ ${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФО
 Уровень 1 (высший): Законодательство (раздел 01: 223-ФЗ, подзаконные акты).
 Уровень 2: Стандарты СГК (раздел 02), Положения о закупках (разделы 03, 04, 05).
 Уровень 3: Инструкции и методики (раздел 06).
-Уровень 4: Справочные материалы (разделы 07–12, включая реестр СПУ).
+Уровень 4: Справочные материалы (разделы 07–12).
 
 Если информация из разных уровней противоречит друг другу, приоритет у более высокого уровня.
 При ответе указывай источник: «Согласно Положению о закупках…», «В соответствии с Инструкцией…».
