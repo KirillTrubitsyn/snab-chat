@@ -20,8 +20,9 @@ export interface SearchResult {
 
 /* ── Relevance filtering constants ── */
 const SIMILARITY_THRESHOLD = 0.35;
-const CLIFF_RATIO = 0.6;
-const CLIFF_RATIO_RELAXED = 0.5;
+const CLIFF_RATIO = 0.6;          // Drop > 40% from previous = cut
+const CLIFF_RATIO_RELAXED = 0.5;  // Drop > 50% from best = cut (relaxed mode)
+const MAX_FROM_BEST_RATIO = 0.4;  // Must be >= 40% of best result's score
 const MAX_CHUNKS = 15;
 const MIN_CHUNKS_BEFORE_RELAX = 3;
 
@@ -41,11 +42,17 @@ export function filterByRelevance(results: SearchResult[]): FilteredSearchResult
     return { results: [sorted[0]], lowConfidence: true };
   }
 
+  const bestScore = sorted[0].similarity;
+  const minFromBest = bestScore * MAX_FROM_BEST_RATIO;
   const filtered: SearchResult[] = [sorted[0]];
 
   for (let i = 1; i < sorted.length; i++) {
     if (sorted[i].similarity < SIMILARITY_THRESHOLD) break;
     if (sorted[i].similarity < sorted[i - 1].similarity * CLIFF_RATIO) break;
+    // Additional guard: chunk must be at least 40% of the best result.
+    // Prevents long tails of marginally-relevant chunks from leaking through
+    // when scores decrease gradually (0.80, 0.78, 0.55, 0.40, 0.35...).
+    if (sorted[i].similarity < minFromBest) break;
     if (filtered.length >= MAX_CHUNKS) break;
     filtered.push(sorted[i]);
   }
