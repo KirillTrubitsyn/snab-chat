@@ -177,11 +177,25 @@ function getClientIP(req: Request): string {
   return req.ip || "unknown";
 }
 
+// Admin IP allowlist (empty = no restriction)
+const ADMIN_ALLOWED_IPS = (process.env.ADMIN_ALLOWED_IPS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 // ── Express middleware ──
 
 export async function rateLimitMiddleware(req: Request, res: Response, next: NextFunction) {
   try {
     const pathname = req.path;
+
+    // Admin IP allowlist: block admin endpoints from unauthorized IPs
+    if (pathname.startsWith("/api/admin") && ADMIN_ALLOWED_IPS.length > 0) {
+      const ip = getClientIP(req);
+      if (!ADMIN_ALLOWED_IPS.includes(ip)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+    }
 
     // Skip webhook (Telegram sends retries if we reject)
     if (pathname === "/api/telegram/webhook") {

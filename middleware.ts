@@ -85,6 +85,12 @@ const ORIGIN_PROTECTED_PATHS = [
   "/api/ingest",
 ];
 
+// Admin IP allowlist (empty = no restriction, comma-separated IPs in env)
+const ADMIN_ALLOWED_IPS = (process.env.ADMIN_ALLOWED_IPS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -100,6 +106,14 @@ export async function middleware(req: NextRequest) {
       const response = NextResponse.next({ request: { headers: requestHeaders } });
       response.headers.set("Content-Security-Policy", buildCSP(nonce, pathname));
       return response;
+    }
+
+    // Admin IP allowlist: block admin endpoints from unauthorized IPs
+    if (pathname.startsWith("/api/admin") && ADMIN_ALLOWED_IPS.length > 0) {
+      const ip = getClientIP(req);
+      if (!ADMIN_ALLOWED_IPS.includes(ip)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
     }
 
     // Block POST requests without valid Origin/Referer on sensitive endpoints
