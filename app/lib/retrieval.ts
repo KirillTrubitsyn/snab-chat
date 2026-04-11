@@ -270,42 +270,90 @@ export async function searchContractorCards(
     console.log("searchContractorCards: RPC unavailable, using FTS+vector fallback");
   }
 
-  // Fallback: FTS search within contractor cards via PostgREST,
-  // then compute cosine similarity in the app
-  const { data: ftsData, error: ftsError } = await supabase
-    .from("chunks")
-    .select("id, content, source_filename, chunk_index, tags, image_paths, embedding")
-    .contains("tags", ["карточка контрагента"])
-    .textSearch("fts", query, { type: "plain", config: "russian" })
-    .limit(matchCount * 3);
+  // Fallback: FTS + multi-word ILIKE search within contractor cards,
+  // then compute cosine similarity in the app.
 
-  // Also try ILIKE search on content for company names
-  // (FTS may miss proper nouns that the stemmer doesn't know)
-  const words = query.replace(/[?!.,;:()]/g, "").split(/\s+/).filter((w) => w.length >= 3);
-  const longestWord = words.sort((a, b) => b.length - a.length)[0] || query;
+  // Filter out generic procurement stopwords that won't appear in card content.
+  const CONTRACTOR_STOPWORDS = new Set([
+    "подрядчик", "подрядчика", "подрядчики", "подрядчиков",
+    "контрагент", "контрагента", "контрагенты", "контрагентов",
+    "поставщик", "поставщика", "поставщики", "поставщиков",
+    "исполнитель", "исполнителя", "исполнители",
+    "компания", "компании", "компанию", "организация", "организации",
+    "фирма", "фирмы", "фирму",
+    "подбери", "подбор", "найди", "найти", "поиск",
+    "выполняет", "выполняют", "делает", "делают", "оказывает",
+    "занимается", "занимаются", "знаешь", "известно", "какие",
+    "какой", "какая", "работы", "работ", "услуги", "услуг",
+    "что", "кто", "чем", "про", "для", "как", "все",
+  ]);
 
-  const { data: ilikeData, error: ilikeError } = await supabase
-    .from("chunks")
-    .select("id, content, source_filename, chunk_index, tags, image_paths, embedding")
-    .contains("tags", ["карточка контрагента"])
-    .ilike("content", `%${longestWord}%`)
-    .limit(matchCount * 2);
+  const cleanQuery = query.replace(/[?!.,;:()«»"']/g, "");
+  const allWords = cleanQuery.split(/\s+/).filter((w) => w.length >= 3);
+  const searchWords = allWords.filter(
+    (w) => !CONTRACTOR_STOPWORDS.has(w.toLowerCase())
+  );
 
-  // Merge FTS + ILIKE results (dedup by id)
-  interface ContractorChunkRow {
-    id: string;
-    content: string;
-    source_filename: string;
-    chunk_index: number;
-    tags: string[] | null;
-    image_paths: string[] | null;
-    embedding: string | number[] | null;
+  // If all words were stopwords, use the original words sorted by length desc
+  const wordsForSearch = searchWords.length > 0
+    ? searchWords
+    : allWords.sort((a, b) => b.length - a.length).slice(0, 3);
+
+  console.log("searchContractorCards: search words =", wordsForSearch.join(", "));
+
+  // Step A: FTS search using ONLY the meaningful words (not full query)
+  // Full query FTS uses AND semantics, so "подрядчик AND теплоизоляция"
+  // would fail because "подрядчик" is not in card content.
+  const ftsQuery = wordsForSearch.join(" ");
+  const ftsPromises = wordsForSearch.slice(0, 3).map((word) =>
+    supabase
+      .from("chunks")
+      .select("id, content, source_filename, chunk_index, tags, image_paths, embedding")
+      .contains("tags", ["карточка контрагента"])
+      .textSearch("fts", word, { type: "plain", config: "russian" })
+      .limit(matchCount * 2)
+  );
+
+  // Step B: ILIKE search using stem-truncated words
+  // Russian morphology: cut last 2-3 chars to approximate stem
+  // "теплоизоляцию" → "теплоизоляц" matches "теплоизоляционные"
+  function approximateStem(word: string): string {
+    if (word.length <= 4) return word;
+    // For words ending in common Russian suffixes, trim more aggressively
+    if (/[аеёиоуыэюя]$/i.test(word)) return word.slice(0, -1);
+    return word;
   }
 
-  const allChunks = new Map<string, ContractorChunkRow>();
-  for (const row of [...((ftsData ?? []) as ContractorChunkRow[]), ...((ilikeData ?? []) as ContractorChunkRow[])]) {
-    if (!allChunks.has(row.id)) {
-      allChunks.set(row.id, row);
+  const ilikePromises = wordsForSearch.slice(0, 4).map((word) => {
+    const stem = approximateStem(word);
+    return supabase
+      .from("chunks")
+      .select("id, content, source_filename, chunk_index, tags, image_paths, embedding")
+      .contains("tags", ["карточка контрагента"])
+      .ilike("content", `%${stem}%`)
+      .limit(matchCount * 2);
+  });
+
+  const [ftsResults, ilikeResults] = await Promise.all([
+    Promise.all(ftsPromises),
+    Promise.all(ilikePromises),
+  ]);
+
+  // Merge FTS + all ILIKE results (dedup by id)
+  type ChunkRow = { id: string; content: string; source_filename: string; chunk_index: number; tags: string[]; image_paths: string[] | null; embedding: string | number[] | null };
+  const allChunks = new Map<string, ChunkRow>();
+  for (const { data } of ftsResults) {
+    for (const row of (data ?? [])) {
+      if (!allChunks.has(row.id)) {
+        allChunks.set(row.id, row as ChunkRow);
+      }
+    }
+  }
+  for (const { data } of ilikeResults) {
+    for (const row of (data ?? [])) {
+      if (!allChunks.has(row.id)) {
+        allChunks.set(row.id, row as ChunkRow);
+      }
     }
   }
 
