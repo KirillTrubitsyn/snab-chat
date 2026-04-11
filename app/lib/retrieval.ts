@@ -229,6 +229,123 @@ export async function hybridSearch(
   return results;
 }
 
+/* ── Contractor card search (bypasses pgvector index filtering issue) ── */
+
+/**
+ * Dedicated search for contractor cards.
+ * The pgvector HNSW index scans ALL chunks for nearest neighbors,
+ * then applies the tag filter — so filtered results are often empty.
+ * This function uses a dedicated RPC (with CTE-based pre-filtering)
+ * or falls back to FTS + cosine similarity computed in the app.
+ */
+export async function searchContractorCards(
+  query: string,
+  matchCount: number = 20
+): Promise<SearchResult[]> {
+  const supabase = createServiceClient();
+  const queryEmbedding = await embedQuery(query);
+  const embeddingStr = `[${queryEmbedding.join(",")}]`;
+
+  console.log("searchContractorCards: query =", query.slice(0, 100));
+
+  // Try dedicated RPC first (requires migration)
+  const { data: rpcData, error: rpcError } = await supabase.rpc(
+    "search_contractor_cards",
+    {
+      query_text: query,
+      query_embedding: embeddingStr,
+      match_count: matchCount,
+    }
+  );
+
+  if (!rpcError && rpcData && rpcData.length > 0) {
+    console.log("searchContractorCards: RPC returned", rpcData.length, "results");
+    return (rpcData as SearchResult[]).map((r) => ({
+      ...r,
+      image_paths: r.image_paths ?? [],
+    }));
+  }
+
+  if (rpcError) {
+    console.log("searchContractorCards: RPC unavailable, using FTS+vector fallback");
+  }
+
+  // Fallback: FTS search within contractor cards via PostgREST,
+  // then compute cosine similarity in the app
+  const { data: ftsData, error: ftsError } = await supabase
+    .from("chunks")
+    .select("id, content, source_filename, chunk_index, tags, image_paths, embedding")
+    .contains("tags", ["карточка контрагента"])
+    .textSearch("fts", query, { type: "plain", config: "russian" })
+    .limit(matchCount * 3);
+
+  // Also try ILIKE search on content for company names
+  // (FTS may miss proper nouns that the stemmer doesn't know)
+  const words = query.replace(/[?!.,;:()]/g, "").split(/\s+/).filter((w) => w.length >= 3);
+  const longestWord = words.sort((a, b) => b.length - a.length)[0] || query;
+
+  const { data: ilikeData, error: ilikeError } = await supabase
+    .from("chunks")
+    .select("id, content, source_filename, chunk_index, tags, image_paths, embedding")
+    .contains("tags", ["карточка контрагента"])
+    .ilike("content", `%${longestWord}%`)
+    .limit(matchCount * 2);
+
+  // Merge FTS + ILIKE results (dedup by id)
+  const allChunks = new Map<string, typeof ftsData extends (infer T)[] ? T : never>();
+  for (const row of [...(ftsData ?? []), ...(ilikeData ?? [])]) {
+    if (!allChunks.has(row.id)) {
+      allChunks.set(row.id, row);
+    }
+  }
+
+  if (allChunks.size === 0) {
+    console.log("searchContractorCards: no results from FTS/ILIKE fallback");
+    return [];
+  }
+
+  // Compute cosine similarity in the app
+  function cosineSimilarity(a: number[], b: number[]): number {
+    let dot = 0, normA = 0, normB = 0;
+    for (let i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+    return dot / (Math.sqrt(normA) * Math.sqrt(normB) + 1e-10);
+  }
+
+  const results: SearchResult[] = [];
+  for (const [, row] of allChunks) {
+    let similarity = 0.5; // default if no embedding
+    if (row.embedding) {
+      const chunkEmb: number[] = typeof row.embedding === "string"
+        ? JSON.parse(row.embedding)
+        : row.embedding;
+      similarity = cosineSimilarity(queryEmbedding, chunkEmb);
+    }
+    results.push({
+      id: row.id,
+      content: row.content,
+      source_filename: row.source_filename,
+      chunk_index: row.chunk_index,
+      similarity,
+      tags: row.tags ?? [],
+      image_paths: row.image_paths ?? [],
+    });
+  }
+
+  results.sort((a, b) => b.similarity - a.similarity);
+  console.log(
+    "searchContractorCards: fallback returned",
+    results.length,
+    "results, top sim =",
+    results[0]?.similarity?.toFixed(4) ?? "N/A"
+  );
+
+  return results.slice(0, matchCount);
+}
+
 /* ── Multi-query search ── */
 
 export async function multiQuerySearch(
