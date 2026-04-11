@@ -17,22 +17,12 @@ export type QueryIntent =
 
 export type FzType = "223" | "non-223" | "both" | "unknown";
 
-/* ── SPU sub-intent types ── */
-
-export type SpuSubIntent =
-  | "find_by_work"       // Подбор контрагентов по виду работ/объекту/БЕ
-  | "company_info"       // Полная информация о конкретной компании
-  | "check_participant"  // Проверка: есть ли компания в базе, с каким статусом
-  | "contacts"           // Поиск контактных данных
-  | "compare";           // Сравнение контрагентов
-
 export interface IntentResult {
   intent: QueryIntent;
   fz_type: FzType;
   search_tags: string[];
   query_variants: string[];
   confidence: number;
-  spu_sub_intent?: SpuSubIntent;
 }
 /* ── LLM classification prompt ── */
 
@@ -148,17 +138,11 @@ export async function classifyIntent(query: string): Promise<IntentResult> {
     // Post-LLM correction: force entity_lookup when query clearly mentions a company
     applyCompanyOverride(query, parsed);
 
-    // Assign entity sub-intent when applicable
-    if (parsed.intent === "entity_lookup") {
-      parsed.spu_sub_intent = classifySpuSubIntent(query);
-    }
-
     console.log("classifyIntent:", JSON.stringify({
       intent: parsed.intent,
       fz_type: parsed.fz_type,
       tags: parsed.search_tags,
       confidence: parsed.confidence,
-      spu_sub_intent: parsed.spu_sub_intent,
     }));
 
     return parsed;
@@ -211,48 +195,11 @@ function fallbackClassify(query: string): IntentResult {
     search_tags.push("вне 223-фз");
   }
 
-  const result: IntentResult = {
+  return {
     intent,
     fz_type,
     search_tags,
     query_variants: [query],
     confidence: 0.3,
   };
-
-  if (intent === "entity_lookup") {
-    result.spu_sub_intent = classifySpuSubIntent(query);
-  }
-
-  return result;
-}
-
-/* ── SPU sub-intent classifier (regex, zero latency) ── */
-
-export function classifySpuSubIntent(query: string): SpuSubIntent {
-  const q = query.toLowerCase();
-
-  // 1. Contacts: explicit request for phone/email/address
-  if (/контакт|телефон|номер|email|e-mail|почт[аыу]|адрес|позвонить|написать|связаться/i.test(q)) {
-    return "contacts";
-  }
-
-  // 2. Compare: explicit comparison of multiple companies
-  if (/сравни|сопостав|отличи[яе]|разниц[аыу]|vs\.?|против\s|лучше\s.*или/i.test(q)) {
-    return "compare";
-  }
-
-  // 3. Check participant: verification queries
-  if (/провер[ьи]|есть ли .*(базе|реестре|системе)|числится|зарегистрирован|участвует|работал[аи]? (с нами|у нас|в сгк)|статус.*(компани|контрагент|поставщик)|допущен/i.test(q)) {
-    return "check_participant";
-  }
-
-  // 4. Company info: query about a specific named company (ООО/АО/etc. + name, or "расскажи о компании X")
-  const hasLegalEntity = /(?:^|\s)(?:ооо|ао|зао|пао|ип|нпо|гк|ук|тк|нпп|гуп|муп|фгуп)\s+[«"а-яё]/i.test(q);
-  const asksAboutCompany = /расскаж.*(компани|организаци|фирм)|что (ты )?(знаешь|известно) про|чем занимается|информаци.+о\s+(компани|организаци)|инн\s+\d{10}/i.test(q);
-  if (hasLegalEntity || asksAboutCompany) {
-    return "company_info";
-  }
-
-  // 5. Default: find by work type / object / business unit
-  return "find_by_work";
 }
