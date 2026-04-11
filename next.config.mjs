@@ -27,10 +27,17 @@ if (backendUrl) {
 
 const nextConfig = {
   output: 'standalone',
+  serverExternalPackages: ['ioredis'],
   experimental: {
     serverActions: {
       bodySizeLimit: '30mb',
     },
+  },
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.externals.push('ioredis');
+    }
+    return config;
   },
   async headers() {
     return [
