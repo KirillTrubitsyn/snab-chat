@@ -6,5 +6,6 @@ export { default as SupportTab } from "./SupportTab";
 export { default as ErrorsTab } from "./ErrorsTab";
 export { default as MessagesTab } from "./MessagesTab";
 export { default as SettingsTab } from "./SettingsTab";
+export { default as OnlineTab } from "./OnlineTab";
 export * from "./types";
 export * from "./constants";
