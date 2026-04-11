@@ -677,6 +677,18 @@ router.post("/api/auth/request-login-approval", async (req: Request, res: Respon
     const ipAddress = getClientIP(req);
     const userAgent = req.headers["user-agent"] || "";
 
+    // Определить геолокацию по IP
+    let location = "";
+    try {
+      const geoRes = await fetch(`http://ip-api.com/json/${ipAddress}?fields=status,country,city&lang=ru`);
+      if (geoRes.ok) {
+        const geo = await geoRes.json();
+        if (geo.status === "success") {
+          location = [geo.city, geo.country].filter(Boolean).join(", ");
+        }
+      }
+    } catch { /* ignore geo errors */ }
+
     // Создать новый запрос на подтверждение
     const { data: approval, error: insertError } = await supabase
       .from("login_approvals")
@@ -694,11 +706,12 @@ router.post("/api/auth/request-login-approval", async (req: Request, res: Respon
     }
 
     // Отправить уведомление в Telegram
+    const locationLine = location ? `\n📍 ${escapeHtml(location)}` : "";
     const text =
       `🔐 <b>Вход в СнабЧат</b>\n\n` +
       `Кто-то входит в ваш аккаунт:\n` +
       `👤 <b>${escapeHtml(invite.name)}</b>\n` +
-      `🌐 ${escapeHtml(ipAddress)}\n` +
+      `🌐 ${escapeHtml(ipAddress)}${locationLine}\n` +
       `🕐 ${getMoscowTime()}\n\n` +
       `Это вы?`;
 
