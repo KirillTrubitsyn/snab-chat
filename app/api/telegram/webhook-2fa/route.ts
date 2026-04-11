@@ -127,10 +127,19 @@ export async function POST(req: NextRequest) {
       }
 
       const newStatus = approved ? "approved" : "denied";
-      await supabase
+      const { data: updated, error: updateErr } = await supabase
         .from("login_approvals")
         .update({ status: newStatus, resolved_at: new Date().toISOString() })
-        .eq("id", approvalId);
+        .eq("id", approvalId)
+        .eq("status", "pending")
+        .select("id")
+        .maybeSingle();
+
+      if (updateErr || !updated) {
+        // Уже обработано другим запросом (race condition)
+        await answer2FACallbackQuery(callbackQuery.id, "Запрос уже обработан");
+        return NextResponse.json({ ok: true });
+      }
 
       if (approved) {
         await answer2FACallbackQuery(callbackQuery.id, "Вход подтверждён");
