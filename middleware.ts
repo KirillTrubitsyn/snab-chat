@@ -45,8 +45,8 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Skip webhook (Telegram sends retries if we reject)
-  if (pathname === "/api/telegram/webhook") {
+  // Skip webhooks (Telegram sends retries if we reject)
+  if (pathname.startsWith("/api/telegram/webhook")) {
     return NextResponse.next();
   }
 
