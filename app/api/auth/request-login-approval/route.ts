@@ -57,15 +57,20 @@ export async function POST(req: NextRequest) {
 
     // Определить геолокацию по IP
     let location = "";
-    try {
-      const geoRes = await fetch(`https://ipwho.is/${ipAddress}?lang=ru`);
-      if (geoRes.ok) {
-        const geo = await geoRes.json();
-        if (geo.success) {
-          location = [geo.city, geo.country].filter(Boolean).join(", ");
+    if (ipAddress && ipAddress !== "unknown") {
+      try {
+        const geoRes = await fetch(`https://ipapi.co/${ipAddress}/json/`, {
+          headers: { "User-Agent": "snabchat/1.0" },
+          signal: AbortSignal.timeout(3000),
+        });
+        if (geoRes.ok) {
+          const geo = await geoRes.json() as { city?: string; country_name?: string; error?: boolean };
+          if (!geo.error && (geo.city || geo.country_name)) {
+            location = [geo.city, geo.country_name].filter(Boolean).join(", ");
+          }
         }
-      }
-    } catch { /* ignore geo errors */ }
+      } catch { /* ignore geo errors */ }
+    }
 
     // Создать новый запрос на подтверждение
     const { data: approval, error: insertError } = await supabase
