@@ -292,8 +292,18 @@ export async function searchContractorCards(
     .limit(matchCount * 2);
 
   // Merge FTS + ILIKE results (dedup by id)
-  const allChunks = new Map<string, typeof ftsData extends (infer T)[] ? T : never>();
-  for (const row of [...(ftsData ?? []), ...(ilikeData ?? [])]) {
+  interface ContractorChunkRow {
+    id: string;
+    content: string;
+    source_filename: string;
+    chunk_index: number;
+    tags: string[] | null;
+    image_paths: string[] | null;
+    embedding: string | number[] | null;
+  }
+
+  const allChunks = new Map<string, ContractorChunkRow>();
+  for (const row of [...((ftsData ?? []) as ContractorChunkRow[]), ...((ilikeData ?? []) as ContractorChunkRow[])]) {
     if (!allChunks.has(row.id)) {
       allChunks.set(row.id, row);
     }
