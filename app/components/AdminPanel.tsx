@@ -9,6 +9,7 @@ import {
   SupportTab,
   ErrorsTab,
   SettingsTab,
+  OnlineTab,
 } from "./admin";
 
 interface AdminPanelProps {
@@ -25,10 +26,11 @@ function getInitials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-type TabKey = "codes" | "activity" | "documents" | "nontarget" | "support" | "errors" | "settings";
+type TabKey = "codes" | "activity" | "online" | "documents" | "nontarget" | "support" | "errors" | "settings";
 
 const navItems: { key: TabKey; label: string; icon: string }[] = [
   { key: "activity", label: "Активность", icon: "monitoring" },
+  { key: "online", label: "Онлайн", icon: "group" },
   { key: "codes", label: "Инвайт-коды", icon: "key" },
   { key: "documents", label: "База знаний", icon: "menu_book" },
   { key: "nontarget", label: "Нецелевые запросы", icon: "block" },
@@ -122,6 +124,7 @@ export default function AdminPanel({ adminCode, userName, isDocAdmin, canDeleteC
           <div className="admin-content">
             {tab === "codes" && <CodesTab adminCode={adminCode} canDeleteCodes={canDeleteCodes} />}
             {tab === "activity" && <ActivityTab adminCode={adminCode} />}
+            {tab === "online" && <OnlineTab adminCode={adminCode} />}
             {tab === "documents" && <DocumentsTab adminCode={adminCode} isDocAdmin={isDocAdmin} />}
             {tab === "nontarget" && <NontargetTab adminCode={adminCode} />}
             {tab === "support" && <SupportTab adminCode={adminCode} />}
