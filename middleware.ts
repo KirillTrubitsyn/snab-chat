@@ -37,7 +37,7 @@ const ORIGIN_PROTECTED_PATHS = [
   "/api/ingest",
 ];
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Only rate-limit API routes
@@ -88,7 +88,7 @@ export function middleware(req: NextRequest) {
 
   const [maxRequests, windowMs] = config;
   const key = `${ip}:${matchedPath}`;
-  const result = checkRateLimit(key, maxRequests, windowMs);
+  const result = await checkRateLimit(key, maxRequests, windowMs);
 
   if (result) {
     const retryAfter = Math.ceil(result.retryAfterMs / 1000);

@@ -17,6 +17,7 @@
     "bcryptjs": "^3.0.3",
     "docx": "^9.6.1",
     "exceljs": "^4.4.0",
+    "ioredis": "^5.10.1",
     "isomorphic-dompurify": "^3.7.1",
     "jszip": "^3.10.1",
     "mammoth": "^1.8.0",
