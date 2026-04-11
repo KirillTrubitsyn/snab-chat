@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     webhook2FAUrl = `${protocol}://${host}/api/telegram/webhook-2fa`;
     const body2FA: Record<string, unknown> = {
       url: webhook2FAUrl,
-      allowed_updates: ["message"],
+      allowed_updates: ["message", "callback_query"],
     };
     if (webhook2FASecret) {
       body2FA.secret_token = webhook2FASecret;
