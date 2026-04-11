@@ -137,6 +137,14 @@ function fallbackClassify(query: string): IntentResult {
     // Direct company lookup — also route to contractor cards
     intent = "spu_search";
     search_tags.push("реестр", "карточка контрагента");
+  } else if (/расскаж.*(компани|организаци|фирм)|информаци.+о\s+(компани|организаци|фирм)|сведени.+о\s+(компани|организаци|фирм)|данные.+о\s+(компани|организаци|фирм)|опиши.*(компани|организаци|фирм)/i.test(lower)) {
+    // "расскажи о компании", "информация о компании", "опиши компанию" etc.
+    intent = "spu_search";
+    search_tags.push("реестр", "карточка контрагента");
+  } else if (/(?:^|\s)(?:ооо|ао|зао|пао|ип|нпо|гк|ук|тк|нпп|гуп|муп|фгуп)\s+[«"а-яё]/i.test(lower)) {
+    // Query starts with or contains a legal entity abbreviation (ООО, АО, ТК, etc.) followed by a name
+    intent = "spu_search";
+    search_tags.push("реестр", "карточка контрагента");
   } else if (/как (провести|организовать|запустить|оформить)|порядок|процедур|этап|шаг|алгоритм/i.test(lower)) {
     intent = "procedure";
   } else if (/закон|статья|норм[аы]|требовани|обязательн|запрещ|допускается/i.test(lower)) {
