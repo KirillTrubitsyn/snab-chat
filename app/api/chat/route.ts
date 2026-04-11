@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { type ModelMessage } from "ai";
 import { GoogleGenAI } from "@google/genai";
-import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, type SearchResult } from "@/app/lib/retrieval";
+import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, searchContractorCards, type SearchResult } from "@/app/lib/retrieval";
 import { rerank } from "@/app/lib/reranker";
 import { classifyIntent } from "@/app/lib/intent-classifier";
 import { loadConversationContext, saveMessage } from "@/app/lib/memory";
@@ -322,10 +322,17 @@ ${userMessage.content}
   const searchPromises = Array.from(searchVariants).map((q) =>
     hybridSearch(q, 20, searchHints)
   );
-  const [sectionResults, docResults, catalogResults, ...variantResults] = await Promise.all([
+  // For spu_search intent: also run dedicated contractor card search
+  // (bypasses pgvector index filtering issue where tag-filtered results are empty)
+  const contractorSearchPromise = intentResult.intent === "spu_search"
+    ? searchContractorCards(searchQuery, 20)
+    : Promise.resolve([]);
+
+  const [sectionResults, docResults, catalogResults, contractorResults, ...variantResults] = await Promise.all([
     sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
     docRef ? fetchChunksByDocument(docRef, docRef.filenameHints.length > 2 ? 15 : 8, userMessage.content) : Promise.resolve([]),
     catalogQuery ? fetchCatalogResults(catalogQuery) : Promise.resolve([]),
+    contractorSearchPromise,
     ...searchPromises,
   ]);
 
@@ -375,6 +382,16 @@ ${userMessage.content}
     for (const r of newCatalogResults) existingIds.add(r.id);
     combinedResults = [...newCatalogResults, ...combinedResults];
     console.log(`[chat] Catalog lookup added ${newCatalogResults.length} new chunks from ${new Set(newCatalogResults.map((r) => r.source_filename)).size} sources`);
+  }
+
+  if (contractorResults.length > 0) {
+    // Contractor card results from dedicated search — boosted to survive filtering
+    const newContractorResults = contractorResults
+      .filter((r) => !existingIds.has(r.id))
+      .map((r) => ({ ...r, similarity: Math.max(r.similarity, 0.85) }));
+    for (const r of newContractorResults) existingIds.add(r.id);
+    combinedResults = [...newContractorResults, ...combinedResults];
+    console.log(`[chat] Contractor card search added ${newContractorResults.length} new chunks`);
   }
 
   // ── Intent-aware supplementary search ──
