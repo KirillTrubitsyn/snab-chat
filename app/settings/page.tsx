@@ -364,15 +364,7 @@ export default function SettingsPage() {
             loading={loading && setupMethod === "telegram"}
           />
 
-          {/* SMS */}
-          <MethodCard
-            name="SMS"
-            enabled={twoFA.sms}
-            detail={twoFA.sms ? (twoFA.phone || "Привязан") : undefined}
-            onEnable={() => { setSetupMethod("sms"); setSetupStep("configure"); }}
-            onDisable={() => handleRemoveMethod("sms")}
-            loading={loading && setupMethod === "sms"}
-          />
+          {/* SMS — скрыт до настройки провайдера */}
 
           {/* TOTP */}
           <MethodCard
