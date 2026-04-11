@@ -13,7 +13,6 @@ import { logError } from "../lib/error-logger.js";
 import { extractSearchHints, detectSectionReference, detectDocumentReference, detectCatalogQuery } from "../lib/query-analyzer.js";
 import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgenticResults } from "../lib/agentic-rag.js";
 import { expandByRelationships } from "../lib/relationships.js";
-import { generateRegistryPromptBlock, findEntity } from "../lib/sgk-registry.js";
 import { getMatchingDirectives, generateDirectivesPromptBlock } from "../lib/directives-registry.js";
 import { classifyDocumentIntent, getDocumentIntentPrompt } from "../lib/document-intent.js";
 
@@ -24,6 +23,24 @@ const router = Router();
 const MAX_UPLOADED_DOC_CHARS = 50000;
 const MAX_CHUNK_IMAGES = 3; // Max images to include per chunk in prompt
 const MAX_TOTAL_IMAGES = 12; // Max total images in entire prompt
+
+/**
+ * Detects whether a user query mentions SGK group organizations,
+ * requiring the "Перечень компаний Общества" registry document.
+ * Triggers on: entity names (ТЭЦ, ГРЭС, теплосеть), legal forms (АО, ООО),
+ * group structure keywords, regime questions, etc.
+ */
+const ORG_MENTION_PATTERNS = [
+  /тэц|грэс|гтэс|теплосет|теплоэнерг|теплотранзит/i,
+  /(?:ао|зао|пао)\s*[«"]/i,
+  /ооо\s*[«"]сгк[»"]/i,
+  /енисейск|кузбасс|кемеров|абакан|барнаул|новосибирск|минусинск|канск|бийск|рубцовск|приморск|рефтинск|барабинск|томь-усинск|беловск|ново-кемеровск|кузнецк/i,
+  /тгк.?13|етгк|сибэко|сибэм|кемген|юстк|мтск|ртк.генерац|нтск/i,
+  /сгк.?алтай|сгк.?новосибирск/i,
+  /группа?\s*(сгк|компаний)|организаци.*(группы|сгк)|структур.*(сгк|группы)|филиал|дочерн/i,
+  /223.?фз.*(кто|как|организац|компан|юрлиц|общество)|режим.*(закупк|организац|компан)|по какому.*(закон|режим|фз)/i,
+  /перечень.*(компаний|организаций|обществ)/i,
+];
 
 /** Экранирует строку для безопасного использования в XML-атрибутах */
 function escapeXmlAttr(str: string): string {
@@ -262,6 +279,33 @@ router.post("/api/chat", async (req: Request, res: Response) => {
         console.log(`[chat] Pre-seeded ${catAdded} catalog chunks from ${new Set(catResults.map(r => r.source_filename)).size} sources`);
       } catch (catError) {
         console.error("[chat] Catalog pre-seed failed (non-fatal):", catError);
+      }
+    }
+
+    // ── Pre-seed: organization registry when query mentions SGK entities ──
+    const mentionsOrgAgentic = ORG_MENTION_PATTERNS.some((p) => p.test(userMessage.content));
+    if (mentionsOrgAgentic) {
+      try {
+        const regResults = await fetchChunksByDocument(
+          { filenameHints: ["Перечень_компаний", "Перечень компаний"] },
+          4,
+          userMessage.content
+        );
+        let regAdded = 0;
+        for (const r of regResults) {
+          if (!agenticCtx.chunks.has(r.id)) {
+            const boostedSim = r.similarity >= 0.25
+              ? Math.max(r.similarity, 0.75)
+              : r.similarity;
+            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim });
+            regAdded++;
+          }
+        }
+        if (regAdded > 0) {
+          console.log(`[chat] Pre-seeded ${regAdded} org registry chunks (Перечень компаний Общества)`);
+        }
+      } catch (regError) {
+        console.error("[chat] Org registry pre-seed failed (non-fatal):", regError);
       }
     }
 
@@ -505,6 +549,25 @@ ${userMessage.content}
     const uniqueSources = new Set(combinedResults.map((r) => r.source_filename));
     if (uniqueSources.size <= 2 && combinedResults.length >= 5 && intentResult.search_tags.length > 0) {
       supplementSearches.push(hybridSearch(searchQuery, 10, intentResult.search_tags));
+    }
+
+    // 5. Organization registry: fetch "Перечень компаний Общества" when query mentions SGK entities
+    const mentionsOrg = ORG_MENTION_PATTERNS.some((p) => p.test(userMessage.content));
+    if (mentionsOrg) {
+      const hasRegistryAlready = combinedResults.some((r) =>
+        r.source_filename.toLowerCase().includes("перечень_компаний") ||
+        r.source_filename.toLowerCase().includes("перечень компаний")
+      );
+      if (!hasRegistryAlready) {
+        supplementSearches.push(
+          fetchChunksByDocument(
+            { filenameHints: ["Перечень_компаний", "Перечень компаний"] },
+            4,
+            userMessage.content
+          )
+        );
+        console.log("[chat] Organization mention detected — fetching Перечень компаний Общества");
+      }
     }
 
     if (supplementSearches.length > 0) {
@@ -762,11 +825,7 @@ ${userMessage.content}
         ? `\n\nПРИМЕЧАНИЕ: Среди найденных документов есть только материалы вне 223-ФЗ. Если вопрос может относиться к обоим режимам, укажи, что информация по 223-ФЗ в текущих документах не найдена.`
         : "";
 
-  // Auto-detect entity regime from the query using hardcoded registry
-  const detectedEntity = findEntity(userMessage.content);
-  const entityRegimeHint = detectedEntity
-    ? `\n\n🏢 ОПРЕДЕЛЕНА ОРГАНИЗАЦИЯ: ${detectedEntity.name} — режим: ${detectedEntity.regime === "223-fz" ? "ПО 223-ФЗ" : "ВНЕ 223-ФЗ"}${detectedEntity.parentEntity ? ` (${detectedEntity.type} ${detectedEntity.parentEntity})` : ""}${detectedEntity.region ? `, регион: ${detectedEntity.region}` : ""}${detectedEntity.thresholdKRub ? `, порог закупки: ${detectedEntity.thresholdKRub} тыс. руб. без НДС` : ""}. Отвечай ТОЛЬКО по документам этого режима.`
-    : "";
+  // Auto-detect entity regime: handled via RAG from "Перечень компаний Общества" document
 
   // ── Operational directives: conditionally inject based on query keywords/intent ──
   const matchedDirectives = getMatchingDirectives(userMessage.content, intentResult.intent);
@@ -890,8 +949,7 @@ ${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФО
 
 ПРИМЕР ОТКАЗА (когда информации нет):
 Вопрос: Какова средняя зарплата в отделе закупок?
-Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${entityRegimeHint}${directivesBlock}
-${generateRegistryPromptBlock()}
+Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${directivesBlock}
 
 === СТАВКА НДС ===
 
@@ -901,29 +959,18 @@ ${generateRegistryPromptBlock()}
 
 В базе знаний есть документы двух режимов закупок:
 1) Закупки по 223-ФЗ — для АО (акционерных обществ) группы СГК, зарегистрированных в реестре ЕИС.
-2) Закупки не по 223-ФЗ — ТОЛЬКО для ООО «СГК» (головной офис) и его филиалов (Красноярский, Кузбасский, Алтайский, Новосибирский), ОСП «СибЭМ» и других ООО.
+2) Закупки не по 223-ФЗ — ТОЛЬКО для ООО «СГК» (головной офис) и его филиалов, ОСП «СибЭМ» и других ООО.
 
-КАК ОПРЕДЕЛИТЬ РЕЖИМ ДОКУМЕНТА:
-- Смотри на теги документа в атрибутах XML (tags в <document>). Если есть тег «223-фз» — это документ по 223-ФЗ. Если «вне 223-фз» — это документ вне 223-ФЗ.
-- «Положения о закупках» (АО «СГК-Алтай», АО «СГК-Новосибирск», АО «Енисейская ТГК», АО «Кузбассэнерго» и другие АО) — это документы ПО 223-ФЗ, принятые в соответствии с законом.
-- «Стандарт закупок ТРУ вне 223-ФЗ» (С-ГК-В5-03) — это документ для ООО «СГК», вне 223-ФЗ.
-- Не путай: «Положение о закупках» ≠ «Стандарт закупок». Положения — по 223-ФЗ, Стандарт ООО СГК — вне.
+КАК ОПРЕДЕЛИТЬ РЕЖИМ ЗАКУПКИ ОРГАНИЗАЦИИ:
+- В <documents> может быть документ «Перечень компаний Общества» — это АКТУАЛЬНЫЙ реестр всех организаций группы СГК с указанием режима (223-ФЗ или вне 223-ФЗ). Если он есть в контексте — используй его как первоисточник для определения режима.
+- Смотри на теги документа в атрибутах XML. Если есть тег «223-фз» — это документ по 223-ФЗ. Если «вне 223-фз» — это документ вне 223-ФЗ.
+- «Положения о закупках» (АО) — это документы ПО 223-ФЗ. «Стандарт закупок ТРУ вне 223-ФЗ» (С-ГК-В5-03) — для ООО «СГК», вне 223-ФЗ.
 
-КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА РАЗГРАНИЧЕНИЯ:
-1. Если пользователь указывает конкретный объект или юрлицо — СНАЧАЛА определи режим закупки по РЕЕСТРУ ОРГАНИЗАЦИЙ ГРУППЫ СГК (выше), и отвечай ТОЛЬКО по этому режиму. НЕ делай предположений о режиме; если организации нет в реестре — скажи, что не можешь определить режим.
-2. Если пользователь НЕ указывает конкретный объект и из вопроса НЕ ясно, о каком режиме идёт речь — ты ОБЯЗАН ответить ПО ОБОИМ РЕЖИМАМ. Структурируй ответ двумя блоками:
-
-## По 223-ФЗ
-[ответ на основе Положений о закупках АО и федерального закона]
-
-## Вне 223-ФЗ (ООО «СГК»)
-[ответ на основе Стандарта закупок ТРУ ООО СГК]
-
-3. Если в предоставленных документах есть информация только по одному режиму — ответь по нему и ЯВНО укажи: «По второму режиму (223-ФЗ / вне 223-ФЗ) информация в загруженных документах не найдена».
-4. НИКОГДА не смешивай правила двух режимов в одном абзаце без указания, к какому режиму относится каждое утверждение.
-
-Раздел 03 базы знаний (Закупки по ФЗ) содержит документы для 223-ФЗ.
-Раздел 04 базы знаний (Закупки не по ФЗ) содержит документы для режима вне 223-ФЗ.
+ПРАВИЛА РАЗГРАНИЧЕНИЯ:
+1. Если пользователь указывает конкретный объект или юрлицо — определи режим закупки по «Перечню компаний Общества» из <documents> и отвечай ТОЛЬКО по этому режиму.
+2. Если пользователь НЕ указывает конкретный объект и режим НЕ ясен — ты ОБЯЗАН ответить ПО ОБОИМ РЕЖИМАМ двумя блоками: «## По 223-ФЗ» и «## Вне 223-ФЗ (ООО «СГК»)».
+3. Если в документах информация только по одному режиму — ответь по нему и ЯВНО укажи, что по второму режиму информация не найдена.
+4. НИКОГДА не смешивай правила двух режимов без указания, к какому режиму относится утверждение.
 
 === ПРИОРИТЕТ ИСТОЧНИКОВ ===
 
