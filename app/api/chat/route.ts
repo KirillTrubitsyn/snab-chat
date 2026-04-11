@@ -432,7 +432,10 @@ ${userMessage.content}
       spu_search: ["карточка контрагента"],
     };
     const intentTags = intentTagMap[intentResult.intent];
-    if (intentTags && intentResult.confidence >= 0.5) {
+    // For spu_search, ALWAYS add contractor card search regardless of confidence
+    // (company name queries must always check contractor cards)
+    const minConfidence = intentResult.intent === "spu_search" ? 0 : 0.5;
+    if (intentTags && intentResult.confidence >= minConfidence) {
       const hasIntentTag = combinedResults.some((r) =>
         r.tags.some((t) => intentTags.includes(t.toLowerCase()))
       );
