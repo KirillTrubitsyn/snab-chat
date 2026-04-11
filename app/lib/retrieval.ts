@@ -334,9 +334,22 @@ export async function searchContractorCards(
       .limit(matchCount * 2);
   });
 
-  const [ftsResults, ilikeResults] = await Promise.all([
+  // Step C: filename search — card filenames contain the company name
+  // e.g. "ТК АВТОПЛЮС, ООО.xlsx" → search by each meaningful word in filename
+  const filenamePromises = wordsForSearch.slice(0, 4).map((word) => {
+    const stem = approximateStem(word);
+    return supabase
+      .from("chunks")
+      .select("id, content, source_filename, chunk_index, tags, image_paths, embedding")
+      .contains("tags", ["карточка контрагента"])
+      .ilike("source_filename", `%${stem}%`)
+      .limit(matchCount * 2);
+  });
+
+  const [ftsResults, ilikeResults, filenameResults] = await Promise.all([
     Promise.all(ftsPromises),
     Promise.all(ilikePromises),
+    Promise.all(filenamePromises),
   ]);
 
   // Merge FTS + all ILIKE results (dedup by id)
@@ -350,6 +363,13 @@ export async function searchContractorCards(
     }
   }
   for (const { data } of ilikeResults) {
+    for (const row of (data ?? [])) {
+      if (!allChunks.has(row.id)) {
+        allChunks.set(row.id, row as ChunkRow);
+      }
+    }
+  }
+  for (const { data } of filenameResults) {
     for (const row of (data ?? [])) {
       if (!allChunks.has(row.id)) {
         allChunks.set(row.id, row as ChunkRow);

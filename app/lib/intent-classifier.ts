@@ -67,6 +67,35 @@ const CLASSIFY_PROMPT = `Ты — классификатор запросов д
 - Не дублируй оригинальный запрос
 
 Верни ТОЛЬКО валидный JSON. Без комментариев, без markdown.`;
+/* ── Post-LLM keyword override ── */
+// Strong signals that the query is about a specific company/contractor.
+// These override the LLM result when it misclassifies as "general".
+const COMPANY_PATTERNS = [
+  // Legal entity abbreviations followed by a name
+  /(?:^|\s)(?:ооо|ао|зао|пао|ип|нпо|гк|ук|тк|нпп|гуп|муп|фгуп)\s+[«"а-яё]/i,
+  // "расскажи / информация / сведения / данные / опиши" + "компания / организация / фирма"
+  /расскаж.*(компани|организаци|фирм)|информаци.+о\s+(компани|организаци|фирм)|сведени.+о\s+(компани|организаци|фирм)|данные.+о\s+(компани|организаци|фирм)|опиши.*(компани|организаци|фирм)/i,
+  // "что знаешь/известно про X компанию" or "чем занимается"
+  /что (ты )?(знаешь|известно) про|чем занимается/i,
+  // Direct contractor/supplier mention
+  /подрядчик|контрагент|поставщик|исполнител/i,
+  // "найти / подбери компанию"
+  /найти.*(компани|организаци|фирм)|подбери.*(компани|организаци|фирм)/i,
+  // INN lookup
+  /инн\s+\d{10}/i,
+];
+
+function applyCompanyOverride(query: string, result: IntentResult): void {
+  if (result.intent === "spu_search") return; // already correct
+  const lower = query.toLowerCase();
+  if (COMPANY_PATTERNS.some((p) => p.test(lower))) {
+    console.log(`classifyIntent: override ${result.intent} → spu_search (keyword pattern matched)`);
+    result.intent = "spu_search";
+    if (!result.search_tags.includes("реестр")) result.search_tags.push("реестр");
+    if (!result.search_tags.includes("карточка контрагента")) result.search_tags.push("карточка контрагента");
+  }
+}
+
 /* ── LLM-based classification ── */
 
 export async function classifyIntent(query: string): Promise<IntentResult> {
@@ -107,6 +136,9 @@ export async function classifyIntent(query: string): Promise<IntentResult> {
     parsed.search_tags = parsed.search_tags.map((t) => t.toLowerCase());
     if (!Array.isArray(parsed.query_variants)) parsed.query_variants = [query];
     if (typeof parsed.confidence !== "number") parsed.confidence = 0.5;
+
+    // Post-LLM correction: force spu_search when query clearly mentions a company
+    applyCompanyOverride(query, parsed);
 
     console.log("classifyIntent:", JSON.stringify({
       intent: parsed.intent,
