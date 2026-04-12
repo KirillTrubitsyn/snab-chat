@@ -40,6 +40,14 @@ export default function InfographicPage() {
   const [resultDescription, setResultDescription] = useState("");
   const [error, setError] = useState("");
 
+  // Auth guard: redirect to login if no invite code in localStorage
+  useEffect(() => {
+    const code = localStorage.getItem("snabchat_invite_code");
+    if (!code) {
+      router.replace("/");
+    }
+  }, [router]);
+
   useEffect(() => {
     const ctx = sessionStorage.getItem("infographic_context");
     if (ctx) {

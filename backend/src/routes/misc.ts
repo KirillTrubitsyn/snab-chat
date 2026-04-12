@@ -123,6 +123,20 @@ router.post("/api/migrate", async (req: Request, res: Response) => {
           ) THEN
             ALTER TABLE conversations ADD COLUMN admin_name text;
           END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'infographics' AND column_name = 'admin_name'
+          ) THEN
+            ALTER TABLE infographics ADD COLUMN admin_name text;
+          END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'infographics' AND column_name = 'ip_address'
+          ) THEN
+            ALTER TABLE infographics ADD COLUMN ip_address text;
+          END IF;
         END $$;
       `,
     });
