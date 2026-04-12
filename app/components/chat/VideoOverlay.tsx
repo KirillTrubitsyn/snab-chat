@@ -18,7 +18,7 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
   const [muted, setMuted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
-  const hideTimer = useRef<ReturnType<typeof setTimeout>>();
+  const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   /* ── Auto-hide controls ── */
   const scheduleHide = useCallback(() => {
