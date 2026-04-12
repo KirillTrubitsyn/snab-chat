@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const response = await ai.models.generateContent({
-            model: 'gemini-3-flash',
+            model: 'gemini-3-flash-preview',
             contents: [
               { role: 'user', parts: [{ text: `${EXTRACTION_PROMPT}\n\nТЕКСТ ДЛЯ АНАЛИЗА:\n\n${batchText}` }] }
             ],
