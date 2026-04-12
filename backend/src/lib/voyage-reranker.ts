@@ -5,6 +5,10 @@ const VOYAGE_MODEL = "rerank-2.5";
 const MAX_CHUNKS_TO_RERANK = 20;
 const MAX_CHUNK_CHARS = 4000; // Voyage rerank-2.5 handles up to ~16K tokens per doc; 4K chars is safe
 
+// Score thresholds aligned with Gemini LLM reranker to keep filterByRelevance compatible
+const HARD_REJECT_SCORE = 0.15;  // Voyage 0–1 scale; below this = near-zero relevance
+const STRONG_KEEP_SCORE = 0.65;  // Above this = highly relevant chunk
+
 interface VoyageRerankResponse {
   data: { index: number; relevance_score: number }[];
   usage: { total_tokens: number };
@@ -62,15 +66,30 @@ export async function voyageRerank(
       scoreMap.set(item.index, item.relevance_score);
     }
 
-    // Blend: 50% original hybrid score (normalized) + 50% Voyage score
-    // Voyage is a strong cross-encoder, so we give it equal weight
+    // Blend: 40% original hybrid score + 60% Voyage cross-encoder score.
+    // Voyage is a purpose-built cross-encoder — give it dominant weight.
+    // Apply hard reject / boost to match the score distribution that
+    // filterByRelevance expects (calibrated for Gemini LLM reranker).
     const maxOriginal = Math.max(...candidates.map((r) => r.similarity), 0.01);
 
     const reranked = candidates.map((r, i) => {
-      const voyageScore = scoreMap.get(i) ?? 0.2;
+      const voyageScore = scoreMap.get(i) ?? 0.1; // default low if missing
       const normalizedOriginal = r.similarity / maxOriginal;
-      const blended = normalizedOriginal * 0.5 + voyageScore * 0.5;
-      return { ...r, similarity: blended * maxOriginal };
+      const blended = normalizedOriginal * 0.4 + voyageScore * 0.6;
+
+      let finalScore = blended;
+      // Hard suppress garbage: low Voyage score means the cross-encoder
+      // confidently judged this chunk as irrelevant.
+      if (voyageScore < HARD_REJECT_SCORE) {
+        finalScore *= 0.25;
+      }
+      // Boost highly relevant chunks to increase separation from the tail.
+      if (voyageScore >= STRONG_KEEP_SCORE) {
+        finalScore *= 1.05;
+      }
+
+      // Scale back to original score range for filterByRelevance compatibility
+      return { ...r, similarity: finalScore * maxOriginal };
     });
 
     reranked.sort((a, b) => b.similarity - a.similarity);
