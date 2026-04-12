@@ -8,7 +8,7 @@ const router = Router();
 const ALLOWED_EXTENSIONS = new Set([
   "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
   "txt", "csv", "rtf", "odt", "ods", "odp",
-  "png", "jpg", "jpeg", "gif", "webp", "svg",
+  "png", "jpg", "jpeg", "gif", "webp",
   "mp3", "wav", "ogg", "m4a", "webm",
 ]);
 
@@ -60,9 +60,7 @@ router.post("/api/upload-url", async (req: Request, res: Response) => {
 
     if (error) {
       console.error("Signed URL error:", error);
-      return res.status(500).json({
-        error: `Failed to create upload URL: ${error.message}`,
-      });
+      return res.status(500).json({ error: "Не удалось создать URL для загрузки" });
     }
 
     return res.json({
@@ -71,8 +69,8 @@ router.post("/api/upload-url", async (req: Request, res: Response) => {
       token: data.token,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Internal error";
-    return res.status(500).json({ error: message });
+    console.error("Upload URL error:", err);
+    return res.status(500).json({ error: "Ошибка при создании URL для загрузки" });
   }
 });
 
@@ -117,10 +115,8 @@ router.post("/api/chat-upload-url", async (req: Request, res: Response) => {
       .createSignedUploadUrl(safeName);
 
     if (error) {
-      console.error("Signed URL error:", error);
-      return res.status(500).json({
-        error: `Failed to create upload URL: ${error.message}`,
-      });
+      console.error("Chat signed URL error:", error);
+      return res.status(500).json({ error: "Не удалось создать URL для загрузки" });
     }
 
     return res.json({
@@ -129,8 +125,8 @@ router.post("/api/chat-upload-url", async (req: Request, res: Response) => {
       token: data.token,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Internal error";
-    return res.status(500).json({ error: message });
+    console.error("Chat upload URL error:", err);
+    return res.status(500).json({ error: "Ошибка при создании URL для загрузки" });
   }
 });
 

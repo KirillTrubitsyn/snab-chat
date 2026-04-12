@@ -116,6 +116,28 @@ router.post("/api/fetch-url", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Поддерживаются только HTTP/HTTPS ссылки" });
     }
 
+    // V04: Block private/internal IP ranges to prevent SSRF
+    const hostname = parsedUrl.hostname.toLowerCase();
+    const BLOCKED_HOST_PATTERNS = [
+      /^localhost$/,
+      /^127\./,
+      /^0\./,
+      /^10\./,
+      /^172\.(1[6-9]|2\d|3[01])\./,
+      /^192\.168\./,
+      /^169\.254\./,
+      /^\[?::1\]?$/,
+      /^\[?fe80:/i,
+      /^\[?fc00:/i,
+      /^\[?fd/i,
+      /\.internal$/,
+      /\.local$/,
+      /\.localhost$/,
+    ];
+    if (BLOCKED_HOST_PATTERNS.some((p) => p.test(hostname))) {
+      return res.status(403).json({ error: "Обращение к внутренним адресам запрещено" });
+    }
+
     // Fetch the page
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
