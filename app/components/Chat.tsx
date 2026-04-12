@@ -129,7 +129,7 @@ export default function Chat() {
     localStorage.removeItem("snabchat_admin_code");
     localStorage.removeItem("snabchat_is_doc_admin");
     localStorage.removeItem("snabchat_auth_token");
-    localStorage.removeItem("snabchat_video_seen");
+    // snabchat_video_seen intentionally preserved — user already watched the onboarding video
     setIsAuthenticated(false);
     setInviteCode("");
     setUserName("");
