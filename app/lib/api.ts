@@ -10,8 +10,15 @@ export function apiUrl(path: string): string {
 }
 
 /**
+ * Backend API key for request validation.
+ * When set, all API requests include x-api-key header to prevent
+ * unauthorized direct access to the backend even if its URL leaks.
+ */
+const BACKEND_API_KEY = process.env.NEXT_PUBLIC_BACKEND_API_KEY || "";
+
+/**
  * Build auth headers for API requests.
- * Includes x-invite-code and x-auth-token from localStorage.
+ * Includes x-invite-code, x-auth-token from localStorage, and x-api-key.
  */
 export function getAuthHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -20,5 +27,6 @@ export function getAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
   if (code) headers["x-invite-code"] = encodeURIComponent(code);
   if (token) headers["x-auth-token"] = token;
+  if (BACKEND_API_KEY) headers["x-api-key"] = BACKEND_API_KEY;
   return headers;
 }

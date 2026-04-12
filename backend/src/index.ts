@@ -70,17 +70,21 @@ console.log(`[backend] Allowed CORS origins: ${JSON.stringify(uniqueOrigins)}`);
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (server-to-server, health checks)
-    if (!origin) return callback(null, true);
-    // Exact match
+    // Allow health check and webhook (no browser origin)
+    if (!origin) {
+      // Non-browser requests (curl, server-to-server) — allow but origin validation
+      // middleware below will block mutations without valid Origin header
+      return callback(null, true);
+    }
+    // Exact match against allowed frontend origins
     if (uniqueOrigins.includes(origin)) return callback(null, true);
     console.warn(`[CORS] Blocked origin: ${origin}`);
-    callback(new Error(`Origin ${origin} not allowed by CORS`));
+    callback(new Error("CORS"));
   },
   credentials: true,
   exposedHeaders: ["X-Sources", "X-Chunk-Images"],
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "x-invite-code", "x-admin-code", "x-device-id", "x-auth-token"],
+  allowedHeaders: ["Content-Type", "x-invite-code", "x-admin-code", "x-device-id", "x-auth-token", "x-api-key"],
 }));
 
 // ── Origin validation for mutation requests ──
@@ -105,6 +109,25 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// ── API key validation ──
+// Optional shared secret between frontend and backend. When BACKEND_API_KEY is set,
+// all API requests (except /health and webhook) must include x-api-key header.
+// This prevents direct API access even if the backend URL leaks.
+const BACKEND_API_KEY = process.env.BACKEND_API_KEY || "";
+const API_KEY_EXEMPT_PATHS = ["/health", "/api/telegram/webhook"];
+if (BACKEND_API_KEY) {
+  app.use((req, res, next) => {
+    if (API_KEY_EXEMPT_PATHS.some((p) => req.path.startsWith(p))) return next();
+    const clientKey = req.headers["x-api-key"] as string;
+    if (clientKey !== BACKEND_API_KEY) {
+      console.warn(`[API-Key] Rejected ${req.method} ${req.path} — invalid or missing key`);
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    next();
+  });
+  console.log("[backend] API key validation enabled");
+}
 
 // ── Body parsing ──
 app.use(express.json({ limit: "50mb" }));

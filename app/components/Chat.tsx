@@ -370,7 +370,7 @@ export default function Chat() {
   /* ── Load sources ── */
   const loadSources = useCallback(async () => {
     try {
-      const res = await fetch(apiUrl("/api/sources?view=chat"));
+      const res = await fetch(apiUrl("/api/sources?view=chat"), { headers: getAuthHeaders() });
       const data = await res.json();
       if (data.sources) setSources(data.sources);
       if (data.denormalized) setHiddenSources(data.denormalized);

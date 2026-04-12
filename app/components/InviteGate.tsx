@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { apiUrl } from "@/app/lib/api";
+import { apiUrl, getAuthHeaders } from "@/app/lib/api";
 import { getOrAssignAvatarColor } from "@/app/lib/avatarColors";
 import { QRCodeSVG } from "qrcode.react";
 
@@ -141,7 +141,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       // 1. Попробовать как пароль (возвращающиеся пользователи)
       const pwRes = await fetch(apiUrl("/api/auth/login-password"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ password: input, device_id: deviceId }),
       });
 
@@ -174,7 +174,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       // 2. Попробовать как инвайт-код (первый вход) или админ-код
       const codeRes = await fetch(apiUrl("/api/auth/login"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ code: input.toUpperCase(), device_id: deviceId }),
       });
 
@@ -244,7 +244,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     try {
       const res = await fetch(apiUrl("/api/auth/set-password"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ code: savedCode, password }),
       });
 
@@ -284,7 +284,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
 
       const res = await fetch(apiUrl(url), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify(body),
       });
 
@@ -320,7 +320,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     if (approvalPollRef.current) clearInterval(approvalPollRef.current);
     approvalPollRef.current = setInterval(async () => {
       try {
-        const res = await fetch(apiUrl(`/api/auth/check-login-approval?id=${id}`));
+        const res = await fetch(apiUrl(`/api/auth/check-login-approval?id=${id}`), { headers: getAuthHeaders() });
         const data = await res.json();
         if (data.status === "approved") {
           if (approvalPollRef.current) clearInterval(approvalPollRef.current);
@@ -357,7 +357,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       try {
         const res = await fetch(apiUrl("/api/auth/request-login-approval"), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
           body: JSON.stringify({ code: savedCode }),
         });
 
@@ -381,7 +381,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     try {
       const res = await fetch(apiUrl("/api/auth/send-otp"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ code: savedCode, method }),
       });
 
@@ -408,7 +408,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     try {
       const res = await fetch(apiUrl("/api/auth/verify-otp"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ code: savedCode, otp, method: chosen2FAMethod }),
       });
 
@@ -430,7 +430,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
   /* ── Загрузка статуса 2FA ── */
   const loadTwoFAStatus = useCallback(async () => {
     try {
-      const res = await fetch(apiUrl(`/api/auth/2fa-status?code=${encodeURIComponent(savedCode)}`));
+      const res = await fetch(apiUrl(`/api/auth/2fa-status?code=${encodeURIComponent(savedCode)}`), { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         setTwoFAStatus(data);
@@ -449,7 +449,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     try {
       const res = await fetch(apiUrl("/api/auth/telegram-link"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ code: savedCode }),
       });
       const data = await res.json();
@@ -488,7 +488,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     try {
       const res = await fetch(apiUrl("/api/auth/setup-sms"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ code: savedCode, phone }),
       });
       const data = await res.json();
@@ -509,7 +509,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     setError("");
     setLoading(true);
     try {
-      const res = await fetch(apiUrl(`/api/auth/setup-totp?code=${encodeURIComponent(savedCode)}`));
+      const res = await fetch(apiUrl(`/api/auth/setup-totp?code=${encodeURIComponent(savedCode)}`), { headers: getAuthHeaders() });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "Ошибка");
@@ -541,7 +541,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
 
       const res = await fetch(apiUrl("/api/auth/verify-setup-otp"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify(body),
       });
       const data = await res.json();
