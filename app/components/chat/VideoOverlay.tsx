@@ -17,6 +17,7 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -29,14 +30,27 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
     }, 3000);
   }, [playing]);
 
+  /* ── Play when opened ── */
   useEffect(() => {
-    if (open && videoRef.current) {
-      videoRef.current.currentTime = 0;
-      videoRef.current.play().catch(() => {});
-      setPlaying(true);
-      scheduleHide();
-    }
-    return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
+    if (!open || !videoRef.current) return;
+    const v = videoRef.current;
+    setError(null);
+    setLoading(true);
+    v.load();
+
+    const onReady = () => {
+      v.play()
+        .then(() => { setPlaying(true); scheduleHide(); })
+        .catch(() => setError("Браузер заблокировал автозапуск. Нажмите ▶ для воспроизведения."));
+    };
+
+    if (v.readyState >= 2) onReady();
+    else v.addEventListener("canplay", onReady, { once: true });
+
+    return () => {
+      v.removeEventListener("canplay", onReady);
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+    };
   }, [open, scheduleHide]);
 
   useEffect(() => {
@@ -48,8 +62,9 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
 
   const toggle = () => {
     if (!videoRef.current) return;
+    setError(null);
     if (playing) { videoRef.current.pause(); setPlaying(false); }
-    else { videoRef.current.play(); setPlaying(true); }
+    else { videoRef.current.play().then(() => setPlaying(true)).catch((e) => setError(e.message)); }
     scheduleHide();
   };
 
@@ -105,6 +120,7 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
         <video
           ref={videoRef}
           src={VIDEO_URL}
+          crossOrigin="anonymous"
           playsInline
           preload="auto"
           style={{
@@ -116,10 +132,20 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
           onEnded={() => { setPlaying(false); setControlsVisible(true); }}
           onWaiting={() => setLoading(true)}
           onCanPlay={() => setLoading(false)}
+          onError={(e) => {
+            const v = e.currentTarget;
+            const code = v.error?.code;
+            const msg = code === 2 ? "Сетевая ошибка загрузки видео"
+              : code === 3 ? "Формат видео не поддерживается"
+              : code === 4 ? "Видео недоступно"
+              : "Ошибка воспроизведения";
+            setError(msg);
+            setLoading(false);
+          }}
         />
 
         {/* Loading spinner */}
-        {loading && (
+        {loading && !error && (
           <div style={{
             position: "absolute", inset: 0,
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -133,8 +159,33 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
           </div>
         )}
 
+        {/* Error message */}
+        {error && (
+          <div style={{
+            position: "absolute", inset: 0,
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            gap: 16, padding: 24,
+          }}>
+            <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 15, textAlign: "center", maxWidth: 400 }}>
+              {error}
+            </div>
+            <button
+              className="vo-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                setError(null);
+                setLoading(true);
+                if (videoRef.current) { videoRef.current.load(); }
+              }}
+              style={{ background: "rgba(255,255,255,0.15)", padding: "10px 24px", borderRadius: 10, fontSize: 14 }}
+            >
+              Повторить
+            </button>
+          </div>
+        )}
+
         {/* Large play button (when paused) */}
-        {!playing && !loading && (
+        {!playing && !loading && !error && (
           <div style={{
             position: "absolute", inset: 0,
             display: "flex", alignItems: "center", justifyContent: "center",
