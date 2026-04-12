@@ -117,6 +117,7 @@ export interface InviteCode {
   device_limit: number | null;
   is_active: boolean;
   created_at: string;
+  video_seen?: boolean;
 }
 
 export async function validateInviteCode(

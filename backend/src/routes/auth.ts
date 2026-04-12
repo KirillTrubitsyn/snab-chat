@@ -412,7 +412,7 @@ router.post("/api/auth/verify-otp", async (req: Request, res: Response) => {
       name: invite.name,
       code: upperCode,
       authToken,
-      videoSeen: !!(invite as Record<string, unknown>).video_seen,
+      videoSeen: !!invite.video_seen,
     });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });
