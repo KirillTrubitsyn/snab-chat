@@ -3,6 +3,10 @@ import { createServiceClient } from "@/app/lib/supabase";
 import { requireAdmin } from "@/app/lib/auth";
 
 export async function POST(req: NextRequest) {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const adminCheck = requireAdmin(req);
   if (adminCheck instanceof NextResponse) return adminCheck;
 

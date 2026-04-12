@@ -3,6 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 import { withGoogleApiLimit } from "@/app/lib/google-ai";
 import { createServiceClient } from "@/app/lib/supabase";
 import { getInviteCodeFromHeader, requireAuth } from "@/app/lib/auth";
+import { logAuditEvent } from "@/app/lib/audit-log";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -194,6 +195,23 @@ export async function POST(req: NextRequest) {
         }
 
         console.log(`Infographic generated successfully with model: ${modelId}`);
+
+        const actorName = authCheck.isAdmin
+          ? (invite?.name || "Админ")
+          : (invite?.name || "Пользователь");
+        logAuditEvent({
+          action: "infographic.generate",
+          adminName: actorName,
+          targetId: savedId,
+          details: {
+            isAdmin: authCheck.isAdmin,
+            inviteCodeId: invite?.id || null,
+            conversationId: (conversationId && typeof conversationId === "string") ? conversationId : null,
+            style: style || "business_infographic",
+            aspectRatio: aspectRatio || "16:9",
+          },
+        }).catch(() => {});
+
         return NextResponse.json({
           image_base64: imageBase64,
           description: descText,

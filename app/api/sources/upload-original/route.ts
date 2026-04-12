@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     if (findErr) {
       return NextResponse.json(
-        { error: `DB error: ${findErr.message}` },
+        { error: "Внутренняя ошибка сервера" },
         { status: 500 }
       );
     }
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
 
     if (uploadErr) {
       return NextResponse.json(
-        { error: `Storage upload error: ${uploadErr.message}` },
+        { error: "Ошибка загрузки файла" },
         { status: 500 }
       );
     }
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
 
     if (updateErr) {
       return NextResponse.json(
-        { error: `DB update error: ${updateErr.message}` },
+        { error: "Внутренняя ошибка сервера" },
         { status: 500 }
       );
     }
@@ -109,7 +109,6 @@ export async function POST(req: NextRequest) {
       mime_type: newMimeType,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "Внутренняя ошибка сервера" }, { status: 500 });
   }
 }
