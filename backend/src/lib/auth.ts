@@ -352,16 +352,17 @@ export async function getInviteCodeFromHeader(
 
   if (error || !data) return null;
 
-  // SECURITY: if the user has set a password, require a valid auth token.
-  // This prevents unauthorized access by anyone who only knows the invite code.
-  if (data.password_hash) {
-    const authToken = getHeader(req, "x-auth-token");
-    if (!authToken || !verifyAuthToken(authToken, data.id)) {
-      console.warn(
-        `[auth] Rejected request for code ${code.toUpperCase()}: password is set but auth token is missing or invalid`
-      );
-      return null;
-    }
+  // SECURITY: ALWAYS require a valid auth token for API access.
+  // Auth tokens are issued only after password creation (set-password)
+  // or password verification (verify-password / login-password).
+  // This ensures that invite code alone is never sufficient —
+  // users MUST set a password on first login and authenticate with it thereafter.
+  const authToken = getHeader(req, "x-auth-token");
+  if (!authToken || !verifyAuthToken(authToken, data.id)) {
+    console.warn(
+      `[auth] Rejected request for code ${code.toUpperCase()}: auth token is missing or invalid`
+    );
+    return null;
   }
 
   return data as InviteCode;

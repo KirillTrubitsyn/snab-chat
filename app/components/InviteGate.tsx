@@ -210,8 +210,10 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       if (!codeData.hasPassword) {
         setStep("set-password");
       } else {
-        // У пользователя есть пароль — инвайт-код больше не нужен
-        setError("Введите ваш пароль, а не инвайт-код. Инвайт-код действует только при первом входе.");
+        // У пользователя есть пароль — инвайт-код больше не принимается
+        localStorage.removeItem("snabchat_invite_code");
+        setCode("");
+        setError("Этот инвайт-код уже активирован. Войдите по вашему паролю, который вы создали при первом входе.");
       }
     } catch (err) {
       console.error("[login] fetch failed:", err);
