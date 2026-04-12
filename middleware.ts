@@ -40,7 +40,7 @@ function buildCSP(nonce: string, pathname: string): string {
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    `style-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://fonts.googleapis.com`,
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: blob:",
     "media-src 'self' https://*.supabase.co",
@@ -130,7 +130,7 @@ export async function middleware(req: NextRequest) {
       const matchesHost = (val: string) => {
         try {
           const url = new URL(val);
-          return url.hostname === hostWithoutPort || url.hostname === "localhost";
+          return url.hostname === hostWithoutPort;
         } catch { return false; }
       };
       const validOrigin = origin && matchesHost(origin);
