@@ -19,6 +19,7 @@ import {
   MessageBubble,
   EmptyState,
   ChatDocumentViewer,
+  VideoOverlay,
   SpektrIcon,
   MenuIcon,
   ArrowUpIcon,
@@ -80,6 +81,25 @@ export default function Chat() {
       setIsAuthenticated(true);
     }
     setAuthLoading(false);
+  }, []);
+
+  /* ── First-visit: auto-play video presentation ── */
+  useEffect(() => {
+    if (isAuthenticated && typeof window !== "undefined") {
+      const seen = localStorage.getItem("snabchat_video_seen");
+      if (!seen) {
+        // Small delay to let the UI settle before showing video
+        const t = setTimeout(() => setShowVideoOverlay(true), 800);
+        return () => clearTimeout(t);
+      }
+    }
+  }, [isAuthenticated]);
+
+  const handleVideoClose = useCallback(() => {
+    setShowVideoOverlay(false);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("snabchat_video_seen", "1");
+    }
   }, []);
 
   const handleAuthSuccess = useCallback((data: { type: string; code: string; userName: string }) => {
@@ -182,6 +202,9 @@ export default function Chat() {
   const [supportFiles, setSupportFiles] = useState<File[]>([]);
   const [supportHistory, setSupportHistory] = useState<{ id: string; message: string; admin_reply: string | null; admin_number: number | null; status: string; created_at: string; replied_at: string | null }[]>([]);
   const [unreadSupportCount, setUnreadSupportCount] = useState(0);
+
+  // Video presentation overlay
+  const [showVideoOverlay, setShowVideoOverlay] = useState(false);
 
   const router = useRouter();
 
@@ -312,29 +335,6 @@ export default function Chat() {
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
-
-  /* ── Heartbeat: update online status every 2 min ── */
-  useEffect(() => {
-    if (!inviteCode) return;
-    const deviceId = typeof window !== "undefined" ? localStorage.getItem("snabchat_device_id") || "" : "";
-    const sendHeartbeat = () => {
-      fetch(apiUrl("/api/heartbeat"), {
-        method: "POST",
-        headers: {
-          "x-invite-code": encodeURIComponent(inviteCode),
-          "x-device-id": deviceId,
-        },
-      })
-        .then((r) => r.json())
-        .then((data) => {
-          if (data?.logout) handleLogout();
-        })
-        .catch(() => {});
-    };
-    sendHeartbeat();
-    const interval = setInterval(sendHeartbeat, 2 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [inviteCode]);
 
   /* ── Load infographics ── */
   const loadInfographics = useCallback(async () => {
@@ -2465,6 +2465,9 @@ export default function Chat() {
         </div>
       )}
 
+      {/* Video presentation overlay */}
+      <VideoOverlay open={showVideoOverlay} onClose={handleVideoClose} />
+
       {showSupportModal && (
         <div
           style={{
@@ -2536,7 +2539,7 @@ export default function Chat() {
                   </button>
                 ))}
                 <button
-                  onClick={() => window.open("https://disk.yandex.ru/i/B0aYz0_6pakpMw", "_blank")}
+                  onClick={() => { setShowSupportModal(false); setShowVideoOverlay(true); }}
                   style={{
                     display: "flex", alignItems: "center", gap: 6,
                     padding: "8px 14px", fontSize: 13, fontWeight: 500,
@@ -2566,15 +2569,14 @@ export default function Chat() {
               <>
                 {/* Presentation link */}
                 <div style={{ padding: "10px 16px 0", flexShrink: 0 }}>
-                  <a
-                    href="https://disk.yandex.ru/i/B0aYz0_6pakpMw"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    onClick={() => { setShowSupportModal(false); setShowVideoOverlay(true); }}
                     style={{
                       width: "100%", display: "flex", alignItems: "center", gap: 10,
                       background: "var(--bg-secondary, #F5F5F5)", boxSizing: "border-box",
                       border: "1px solid var(--border, #E2E8F0)", borderRadius: 10, padding: "10px 14px",
                       color: "var(--text-primary, #333)", cursor: "pointer", textDecoration: "none",
+                      fontFamily: "inherit", fontSize: "inherit",
                     }}
                   >
                     <span style={{
@@ -2583,17 +2585,17 @@ export default function Chat() {
                       color: "#2563EB",
                     }}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+                        <polygon points="5 3 19 12 5 21 5 3"/>
                       </svg>
                     </span>
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, textAlign: "left" }}>
                       <div style={{ fontSize: 13, fontWeight: 700 }}>Презентация СнабЧата</div>
                       <div style={{ fontSize: 11, color: "var(--text-muted, #94A3B8)" }}>Обзор системы · ~5 мин</div>
                     </div>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted, #94A3B8)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                      <polygon points="5 3 19 12 5 21 5 3"/>
                     </svg>
-                  </a>
+                  </button>
                 </div>
 
                 {/* Messages history */}
