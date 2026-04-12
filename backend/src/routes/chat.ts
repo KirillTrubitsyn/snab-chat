@@ -249,6 +249,12 @@ router.post("/api/chat", async (req: Request, res: Response) => {
   }
 
   const userMessage = messages[messages.length - 1];
+
+  // V23: Validate non-empty message to prevent Gemini BatchEmbed 400 error
+  if (!userMessage || !userMessage.content || !String(userMessage.content).trim()) {
+    return res.status(400).json({ error: "Сообщение не может быть пустым" });
+  }
+
   const hasNewAttachments = allAttachedDocuments.length > 0;
 
   // ── Phase 2: Merge session documents (from prior turns) with current attachments ──
