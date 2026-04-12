@@ -535,8 +535,17 @@ ${sanitizeUserInput(userMessage.content)}
   );
 
   // Contractor card search runs in parallel when intent is entity_lookup
+  // V24: wrap in 25s timeout — broad queries (e.g. "ремонт зданий") must not block the entire response
   const contractorSearchPromise = intentResult.intent === "entity_lookup"
-    ? searchContractorCards(userMessage.content, 10)
+    ? Promise.race([
+        searchContractorCards(userMessage.content, 10),
+        new Promise<SearchResult[]>((resolve) =>
+          setTimeout(() => {
+            console.log("[chat] contractorSearch timed out after 25s, continuing without contractor cards");
+            resolve([]);
+          }, 25000)
+        ),
+      ])
     : Promise.resolve([]);
 
   const [sectionResults, docResults, catalogResults, contractorResults, ...variantResults] = await Promise.all([

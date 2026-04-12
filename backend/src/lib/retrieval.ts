@@ -152,6 +152,34 @@ export function tierWeightedRerank(results: SearchResult[]): SearchResult[] {
 
 /* ── Contractor card search (pre-filtered by tag "карточка контрагента") ── */
 
+/** Helper: race a promise against a timeout (ms). Returns [] on timeout. */
+function withTimeout<T>(promise: Promise<T[]>, ms: number, label: string): Promise<T[]> {
+  return Promise.race([
+    promise,
+    new Promise<T[]>((resolve) =>
+      setTimeout(() => {
+        console.log(`searchContractorCards: ${label} timed out after ${ms}ms`);
+        resolve([]);
+      }, ms)
+    ),
+  ]);
+}
+
+/** Helper: generate fuzzy patterns for a keyword (single-char deletion variants).
+ *  E.g. "кузбасс" → ["%кзбасс%", "%кубасс%", "%кузасс%", …, "%кузбас%"]
+ *  Combined with the original "%кузбасс%" this catches most single-typo cases. */
+function fuzzyPatterns(word: string): string[] {
+  const patterns = [`%${word}%`];
+  if (word.length >= 5) {
+    // Deletion variants: remove each character one at a time
+    for (let i = 0; i < word.length; i++) {
+      const variant = word.slice(0, i) + word.slice(i + 1);
+      patterns.push(`%${variant}%`);
+    }
+  }
+  return patterns;
+}
+
 export async function searchContractorCards(
   query: string,
   matchCount: number = 10
@@ -203,27 +231,31 @@ export async function searchContractorCards(
 
   console.log("searchContractorCards: keywords =", keywords);
 
-  // Step A: ILIKE search by each keyword (most reliable for contractor cards)
-  // Each keyword is searched independently, results merged with score by match count
+  // Step A: ILIKE search by each keyword — run ALL keywords in parallel (not sequential)
+  // Each keyword searched independently, results merged with score by match count
   if (keywords.length > 0) {
     const allResults = new Map<string, { row: any; matchCount: number }>();
 
-    for (const kw of keywords) {
-      const { data } = await supabase
-        .from("chunks")
-        .select("id, content, source_filename, chunk_index, tags, image_paths")
-        .contains("tags", ["карточка контрагента"])
-        .ilike("content", `%${kw}%`)
-        .limit(matchCount * 2);
+    // V24: Run keyword ILIKE queries in parallel instead of sequential loop
+    const keywordResults = await Promise.all(
+      keywords.map((kw) =>
+        supabase
+          .from("chunks")
+          .select("id, content, source_filename, chunk_index, tags, image_paths")
+          .contains("tags", ["карточка контрагента"])
+          .ilike("content", `%${kw}%`)
+          .limit(30)  // V24: cap per-keyword results to prevent huge scans
+          .then(({ data }) => data ?? [])
+      )
+    );
 
-      if (data) {
-        for (const row of data) {
-          const existing = allResults.get(row.id);
-          if (existing) {
-            existing.matchCount++;
-          } else {
-            allResults.set(row.id, { row, matchCount: 1 });
-          }
+    for (const data of keywordResults) {
+      for (const row of data) {
+        const existing = allResults.get(row.id);
+        if (existing) {
+          existing.matchCount++;
+        } else {
+          allResults.set(row.id, { row, matchCount: 1 });
         }
       }
     }
@@ -244,6 +276,63 @@ export async function searchContractorCards(
         tags: row.tags ?? [],
         image_paths: row.image_paths ?? [],
       }));
+    }
+
+    // V24: Step A2 — Fuzzy ILIKE search (catches single-char typos like "кзбспожсрвс")
+    // Only triggers when exact ILIKE returned nothing — generates deletion-variant patterns
+    console.log("searchContractorCards: exact ILIKE empty, trying fuzzy patterns");
+    const fuzzyResults = new Map<string, { row: any; matchCount: number }>();
+
+    // Build fuzzy queries: for each keyword generate deletion variants, run in parallel
+    const fuzzyQueries: Promise<any[]>[] = [];
+    for (const kw of keywords) {
+      const patterns = fuzzyPatterns(kw);
+      // Skip the first pattern (exact match, already tried) — only deletion variants
+      for (const pat of patterns.slice(1)) {
+        fuzzyQueries.push(
+          supabase
+            .from("chunks")
+            .select("id, content, source_filename, chunk_index, tags, image_paths")
+            .contains("tags", ["карточка контрагента"])
+            .ilike("content", pat)
+            .limit(10)
+            .then(({ data }) => data ?? [])
+        );
+      }
+    }
+
+    if (fuzzyQueries.length > 0) {
+      const fuzzyBatch = await withTimeout(
+        Promise.all(fuzzyQueries).then((arrays) => arrays.flat()),
+        8000,
+        "fuzzy ILIKE"
+      );
+
+      for (const row of fuzzyBatch) {
+        const existing = fuzzyResults.get(row.id);
+        if (existing) {
+          existing.matchCount++;
+        } else {
+          fuzzyResults.set(row.id, { row, matchCount: 1 });
+        }
+      }
+
+      if (fuzzyResults.size > 0) {
+        const sorted = Array.from(fuzzyResults.values())
+          .sort((a, b) => b.matchCount - a.matchCount)
+          .slice(0, matchCount);
+
+        console.log("searchContractorCards: fuzzy ILIKE found", fuzzyResults.size, "unique results,", sorted.length, "returned");
+        return sorted.map(({ row, matchCount: mc }) => ({
+          id: row.id,
+          content: row.content,
+          source_filename: row.source_filename,
+          chunk_index: row.chunk_index,
+          similarity: Math.min(0.60 + mc * 0.08, 0.85), // lower confidence for fuzzy
+          tags: row.tags ?? [],
+          image_paths: row.image_paths ?? [],
+        }));
+      }
     }
   }
 
@@ -272,8 +361,13 @@ export async function searchContractorCards(
   }
 
   // Step C: fallback to hybrid search with tag filter
+  // V24: wrap in 15s timeout to prevent blocking the entire request
   console.log("searchContractorCards: ILIKE+FTS empty, falling back to hybrid search");
-  return hybridSearch(query, matchCount, ["карточка контрагента"]);
+  return withTimeout(
+    hybridSearch(query, matchCount, ["карточка контрагента"]),
+    15000,
+    "hybrid fallback"
+  );
 }
 
 /* ── Core hybrid search (updated: image_paths in result) ── */
