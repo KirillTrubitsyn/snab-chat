@@ -11,6 +11,7 @@ import {
   consumeInviteCodeFallback,
   checkAndRegisterDevice,
   generateAuthToken,
+  getInviteCodeFromHeader,
 } from "../lib/auth.js";
 import {
   loginSchema,
@@ -771,12 +772,46 @@ router.post("/api/auth/request-login-approval", async (req: Request, res: Respon
   }
 });
 
+// N2 fix: strict per-IP rate limit for approval polling (5 req/min)
+const approvalPollLimiter = new Map<string, number[]>();
+function checkApprovalRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const window = 60_000;
+  const maxReqs = 5;
+  const timestamps = (approvalPollLimiter.get(ip) || []).filter(t => now - t < window);
+  if (timestamps.length >= maxReqs) return false;
+  timestamps.push(now);
+  approvalPollLimiter.set(ip, timestamps);
+  return true;
+}
+// Cleanup every 5 min
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, ts] of approvalPollLimiter) {
+    const fresh = ts.filter(t => now - t < 60_000);
+    if (fresh.length === 0) approvalPollLimiter.delete(ip);
+    else approvalPollLimiter.set(ip, fresh);
+  }
+}, 300_000);
+
 // GET /api/auth/check-login-approval
 router.get("/api/auth/check-login-approval", async (req: Request, res: Response) => {
   try {
+    // N2 fix: rate limit polling to prevent enumeration
+    const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",").pop()?.trim() || req.ip || "unknown";
+    if (!checkApprovalRateLimit(clientIp)) {
+      return res.status(429).json({ error: "Слишком много запросов" });
+    }
+
     const id = req.query.id as string | undefined;
     if (!id) {
       return res.status(400).json({ error: "ID не указан" });
+    }
+
+    // N2 fix: validate UUID format to prevent probing
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(id)) {
+      return res.status(400).json({ error: "Неверный формат ID" });
     }
 
     const supabase = createServiceClient();
@@ -821,13 +856,45 @@ router.get("/api/auth/check-login-approval", async (req: Request, res: Response)
   }
 });
 
+// N3 fix: strict per-IP rate limit for password login (5 req/min)
+const passwordLoginLimiter = new Map<string, number[]>();
+function checkPasswordRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const window = 60_000;
+  const maxReqs = 5;
+  const timestamps = (passwordLoginLimiter.get(ip) || []).filter(t => now - t < window);
+  if (timestamps.length >= maxReqs) return false;
+  timestamps.push(now);
+  passwordLoginLimiter.set(ip, timestamps);
+  return true;
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, ts] of passwordLoginLimiter) {
+    const fresh = ts.filter(t => now - t < 60_000);
+    if (fresh.length === 0) passwordLoginLimiter.delete(ip);
+    else passwordLoginLimiter.set(ip, fresh);
+  }
+}, 300_000);
+
 // POST /api/auth/login-password — вход только по паролю (без инвайт-кода)
 router.post("/api/auth/login-password", async (req: Request, res: Response) => {
   try {
+    // N3 fix: strict rate limiting
+    const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",").pop()?.trim() || req.ip || "unknown";
+    if (!checkPasswordRateLimit(clientIp)) {
+      return res.status(429).json({ error: "Слишком много попыток. Подождите минуту." });
+    }
+
     const { password, device_id } = req.body;
 
     if (!password || typeof password !== "string") {
       return res.status(400).json({ error: "Введите пароль" });
+    }
+
+    // N3 fix: limit password length to prevent bcrypt DoS (72 bytes max for bcrypt anyway)
+    if (password.length > 128) {
+      return res.status(400).json({ error: "Пароль слишком длинный" });
     }
 
     const supabase = createServiceClient();
@@ -838,20 +905,24 @@ router.post("/api/auth/login-password", async (req: Request, res: Response) => {
       .eq("is_active", true);
 
     if (dbError || !users || users.length === 0) {
+      // N3 fix: constant-time delay to prevent timing side-channel
+      await new Promise(r => setTimeout(r, 200));
       return res.status(401).json({ error: "Неверный пароль" });
     }
 
     let matched: typeof users[0] | null = null;
+    // N3 fix: always compare ALL users to prevent timing leak on user position
     for (const user of users) {
       if (!user.password_hash) continue;
       const valid = await bcrypt.compare(password, user.password_hash);
-      if (valid) {
+      if (valid && !matched) {
         matched = user;
-        break;
+        // Don't break — continue comparing to prevent timing leak
       }
     }
 
     if (!matched) {
+      console.warn(`[auth] Failed password login from IP: ${clientIp}`);
       return res.status(401).json({ error: "Неверный пароль" });
     }
 
@@ -895,12 +966,14 @@ router.post("/api/auth/login-password", async (req: Request, res: Response) => {
 // PATCH /api/auth/video-seen — mark onboarding video as watched
 router.patch("/api/auth/video-seen", async (req: Request, res: Response) => {
   try {
-    const inviteCodeId = req.headers["x-invite-code-id"] as string
-      || req.body?.inviteCodeId;
-
-    if (!inviteCodeId) {
-      return res.status(400).json({ error: "inviteCodeId обязателен" });
+    // N1 fix: require authentication and verify ownership
+    const invite = await getInviteCodeFromHeader(req);
+    if (!invite) {
+      return res.status(401).json({ error: "Unauthorized" });
     }
+
+    // Use authenticated user's own ID — ignore any user-supplied inviteCodeId
+    const inviteCodeId = invite.id;
 
     const supabase = createServiceClient();
     const { error } = await supabase

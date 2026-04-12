@@ -170,7 +170,10 @@ const DEFAULT_LIMIT: [number, number] = [60, 60_000];
 function getClientIP(req: Request): string {
   const forwarded = req.headers["x-forwarded-for"];
   if (typeof forwarded === "string") {
-    return forwarded.split(",")[0]?.trim() || "unknown";
+    // N7 fix: take the LAST IP in the chain — it's the one added by our trusted reverse proxy (Railway).
+    // The first IP can be spoofed by the client via X-Forwarded-For header injection.
+    const ips = forwarded.split(",").map(s => s.trim()).filter(Boolean);
+    return ips[ips.length - 1] || "unknown";
   }
   const realIp = req.headers["x-real-ip"];
   if (typeof realIp === "string") return realIp;

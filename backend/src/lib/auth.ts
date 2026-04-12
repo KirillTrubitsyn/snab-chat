@@ -288,7 +288,12 @@ export function verifyAuthToken(
 function getHeader(req: Request, name: string): string {
   const raw = (req.headers[name] as string) ?? "";
   if (!raw) return "";
-  return decodeURIComponent(raw);
+  // N12 fix: decodeURIComponent throws on malformed percent-encoding
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }
 
 export function requireAdmin(

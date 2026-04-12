@@ -190,25 +190,11 @@ router.get("/api/sources/text", async (req: Request, res: Response) => {
 router.get("/api/sources/download", async (req: Request, res: Response) => {
   try {
     const id = req.query.id as string;
-    const token = req.query.token as string;
     if (!id) return res.status(400).json({ error: "Missing id" });
 
-    // Auth via token query param or header
-    let authorized = false;
-    if (token) {
-      const code = decodeURIComponent(token);
-      if (isAdminCode(code)) authorized = true;
-      else {
-        const supabase = createServiceClient();
-        const { data } = await supabase.from("invite_codes").select("id").eq("code", code.toUpperCase()).eq("is_active", true).single();
-        if (data) authorized = true;
-      }
-    }
-    if (!authorized) {
-      const invite = await getInviteCodeFromHeader(req);
-      if (invite) authorized = true;
-    }
-    if (!authorized) return res.status(401).json({ error: "Unauthorized" });
+    // N4 fix: auth via header only — no more ?token= in URL (prevents credential exposure in logs/Referer)
+    const invite = await getInviteCodeFromHeader(req);
+    if (!invite) return res.status(401).json({ error: "Unauthorized" });
 
     const supabase = createServiceClient();
     const { data: source } = await supabase.from("sources").select("filename, mime_type, storage_path").eq("id", id).single();
@@ -221,14 +207,23 @@ router.get("/api/sources/download", async (req: Request, res: Response) => {
     const buffer = Buffer.from(await data.arrayBuffer());
     const action = req.query.action as string;
 
-    res.setHeader("Content-Type", source.mime_type || "application/octet-stream");
-    if (action === "download") {
+    // N5 fix: whitelist MIME types safe for inline rendering; force download for everything else
+    const SAFE_INLINE_TYPES = new Set([
+      "application/pdf",
+      "image/png", "image/jpeg", "image/gif", "image/webp",
+      "text/plain",
+    ]);
+    const mimeType = source.mime_type || "application/octet-stream";
+    const safeForInline = SAFE_INLINE_TYPES.has(mimeType);
+
+    if (action === "download" || !safeForInline) {
+      res.setHeader("Content-Type", safeForInline ? mimeType : "application/octet-stream");
       res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(source.filename)}`);
     } else {
-      // Inline (iframe view): override helmet's restrictive headers to allow cross-origin embedding
+      res.setHeader("Content-Type", mimeType);
       res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(source.filename)}`);
       res.removeHeader("X-Frame-Options");
-      res.setHeader("Content-Security-Policy", "frame-ancestors 'self' https://*.snabchat.app https://*.vercel.app");
+      res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self' https://*.snabchat.app https://*.vercel.app");
     }
     return res.send(buffer);
   } catch (err) {

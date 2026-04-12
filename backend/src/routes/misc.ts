@@ -10,29 +10,43 @@ const router = Router();
  */
 router.get("/api/chunk-image", async (req: Request, res: Response) => {
   try {
-    // Support auth via header or query param (img tags can't send headers)
-    const tokenParam = (req.query.token as string) || "";
+    // N4 fix: prefer header auth; token query param allowed ONLY with valid Referer from our domain
     let authorized = false;
 
-    if (tokenParam) {
-      const code = decodeURIComponent(tokenParam);
-      if (isAdminCode(code)) {
-        authorized = true;
-      } else {
-        const supabase = createServiceClient();
-        const { data } = await supabase
-          .from("invite_codes")
-          .select("id")
-          .eq("code", code)
-          .eq("is_active", true)
-          .single();
-        if (data) authorized = true;
+    const invite = await getInviteCodeFromHeader(req);
+    if (invite) {
+      authorized = true;
+    } else {
+      const tokenParam = (req.query.token as string) || "";
+      if (tokenParam) {
+        // Only allow token param if Referer matches our domain (img tags in our app send Referer)
+        const referer = req.headers.referer || "";
+        const allowedReferers = [
+          "snabchat.app",
+          "snabchat.ru",
+          "vercel.app",
+        ];
+        const refererValid = allowedReferers.some(d => {
+          try { return new URL(referer).hostname.endsWith(d); }
+          catch { return false; }
+        });
+        if (!refererValid) {
+          return res.status(403).send("Forbidden");
+        }
+        const code = decodeURIComponent(tokenParam);
+        if (isAdminCode(code)) {
+          authorized = true;
+        } else {
+          const supabase = createServiceClient();
+          const { data } = await supabase
+            .from("invite_codes")
+            .select("id")
+            .eq("code", code)
+            .eq("is_active", true)
+            .single();
+          if (data) authorized = true;
+        }
       }
-    }
-
-    if (!authorized) {
-      const invite = await getInviteCodeFromHeader(req);
-      if (invite) authorized = true;
     }
 
     if (!authorized) {

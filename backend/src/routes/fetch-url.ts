@@ -116,8 +116,8 @@ router.post("/api/fetch-url", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Поддерживаются только HTTP/HTTPS ссылки" });
     }
 
-    // V04: Block private/internal IP ranges to prevent SSRF
-    const hostname = parsedUrl.hostname.toLowerCase();
+    // V04 + N6: Block private/internal IP ranges to prevent SSRF (including bypass techniques)
+    const hostname = parsedUrl.hostname.toLowerCase().replace(/^\[|\]$/g, "");
     const BLOCKED_HOST_PATTERNS = [
       /^localhost$/,
       /^127\./,
@@ -126,10 +126,20 @@ router.post("/api/fetch-url", async (req: Request, res: Response) => {
       /^172\.(1[6-9]|2\d|3[01])\./,
       /^192\.168\./,
       /^169\.254\./,
-      /^\[?::1\]?$/,
-      /^\[?fe80:/i,
-      /^\[?fc00:/i,
-      /^\[?fd/i,
+      // IPv6 loopback and private
+      /^::1$/,
+      /^fe80:/i,
+      /^fc00:/i,
+      /^fd/i,
+      // N6 fix: IPv4-mapped IPv6 (::ffff:127.0.0.1)
+      /^::ffff:/i,
+      // N6 fix: decimal IP notation (e.g., 2130706433 = 127.0.0.1)
+      /^\d{8,10}$/,
+      // N6 fix: octal IP notation (e.g., 0177.0.0.1)
+      /^0\d+\./,
+      // N6 fix: hex IP notation (e.g., 0x7f.0.0.1)
+      /^0x[0-9a-f]/i,
+      // Domain-based
       /\.internal$/,
       /\.local$/,
       /\.localhost$/,

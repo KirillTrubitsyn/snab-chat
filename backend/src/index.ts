@@ -30,6 +30,11 @@ const PORT = parseInt(process.env.PORT || "3001", 10);
 
 // ── Security ──
 app.use(helmet());
+// N10 fix: HSTS header for HTTPS enforcement
+app.use((_req, res, next) => {
+  res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  next();
+});
 
 // ── CORS ──
 // FRONTEND_URLS supports multiple origins separated by comma

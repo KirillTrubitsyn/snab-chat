@@ -207,6 +207,18 @@ router.post("/api/chat", async (req: Request, res: Response) => {
 
   const body = req.body;
   const { messages, conversationId } = body;
+
+  // N9 fix: validate critical request body fields
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: "messages must be a non-empty array" });
+  }
+  if (messages.length > 200) {
+    return res.status(400).json({ error: "Too many messages" });
+  }
+  if (conversationId !== undefined && typeof conversationId !== "string") {
+    return res.status(400).json({ error: "Invalid conversationId" });
+  }
+
   const sessionDocuments: Array<{ filename: string; markdown: string }> | undefined = body.sessionDocuments;
 
   // Mutable array: current attachments + possibly merged session docs
