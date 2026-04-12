@@ -73,7 +73,10 @@ export default function Chat() {
   useEffect(() => {
     const code = localStorage.getItem("snabchat_invite_code");
     const name = localStorage.getItem("snabchat_user_name");
-    if (code && name) {
+    const token = localStorage.getItem("snabchat_auth_token");
+    const isAdmin = localStorage.getItem("snabchat_is_admin");
+    // Require auth token for regular users (admins use admin code directly)
+    if (code && name && (token || isAdmin)) {
       setInviteCode(code);
       inviteCodeRef.current = code;
       setUserName(name);
