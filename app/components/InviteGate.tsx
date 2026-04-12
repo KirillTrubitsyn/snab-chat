@@ -301,6 +301,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       setSavedCode(data.code);
       localStorage.setItem("snabchat_invite_code", data.code);
       if (data.authToken) setPendingAuthToken(data.authToken);
+      if (data.videoSeen) setPendingVideoSeen(true);
       setTwoFactorMethods(data.twoFactorMethods || []);
       setPassword("");
 

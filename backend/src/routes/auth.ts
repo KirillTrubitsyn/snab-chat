@@ -210,7 +210,7 @@ router.post("/api/auth/verify-password", async (req: Request, res: Response) => 
     const supabase = createServiceClient();
     const { data: codeData } = await supabase
       .from("invite_codes")
-      .select("password_hash, telegram_chat_id, phone_number, totp_secret")
+      .select("password_hash, telegram_chat_id, phone_number, totp_secret, video_seen")
       .eq("id", invite.id)
       .single();
 
@@ -263,6 +263,7 @@ router.post("/api/auth/verify-password", async (req: Request, res: Response) => 
       code: upperCode,
       twoFactorMethods,
       authToken,
+      videoSeen: !!codeData.video_seen,
     });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });
