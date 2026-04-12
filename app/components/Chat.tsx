@@ -35,12 +35,13 @@ const formatDate = formatDateRelative;
 
 function TypingBubble() {
   return (
-    <div className="message message-ai" style={{ padding: "12px 18px" }}>
+    <div className="message message-ai" style={{ padding: "12px 18px", display: "flex", alignItems: "center", gap: 10 }}>
       <div className="typing-indicator">
         <span />
         <span />
         <span />
       </div>
+      <span style={{ color: "var(--text-secondary, #6b7280)", fontSize: 14 }}>Ищу в документах…</span>
     </div>
   );
 }
@@ -183,6 +184,7 @@ export default function Chat() {
   const [hiddenSources, setHiddenSources] = useState<Source[]>([]);
   const [expandedSourceId, setExpandedSourceId] = useState<number | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [viewingSource, setViewingSource] = useState<Source | null>(null);
   const [chatFiles, setChatFiles] = useState<ChatFile[]>([]);
   const [chatPhotos, setChatPhotos] = useState<ChatPhoto[]>([]);
@@ -1090,6 +1092,7 @@ export default function Chat() {
             ...prev,
             { id: assistantId, role: "assistant", content: "", sources, ...(chunkImages.length > 0 && { chunkImages }) },
           ]);
+          setIsStreaming(true);
 
           while (true) {
             const { done, value } = await reader.read();
@@ -1125,6 +1128,7 @@ export default function Chat() {
 
         pendingSubmitRef.current = null;
         setIsSending(false);
+        setIsStreaming(false);
         // Reload messages from server to replace temp IDs with real ones
         reloadMessagesFromServer(newId, 2); // expect user + assistant messages
         loadConversations();
@@ -1194,6 +1198,7 @@ export default function Chat() {
           ...prev,
           { id: assistantId, role: "assistant", content: "", sources, ...(chunkImages.length > 0 && { chunkImages }) },
         ]);
+        setIsStreaming(true);
 
         while (true) {
           const { done, value } = await reader.read();
@@ -1227,6 +1232,7 @@ export default function Chat() {
         console.error("Stream error:", err);
       } finally {
         setIsSending(false);
+        setIsStreaming(false);
         // Reload messages from server to replace temp IDs with real ones
         if (convIdRef.current) reloadMessagesFromServer(convIdRef.current, messages.length + 2); // +user +assistant
       }
@@ -1845,7 +1851,7 @@ export default function Chat() {
                     />
                   );
                 })}
-                {isSending && <TypingBubble />}
+                {isSending && !isStreaming && <TypingBubble />}
                 {chatError && (
                   <div className="message message-error" style={{ background: "var(--error-bg, #fef2f2)", border: "1px solid var(--error-border, #fecaca)", borderRadius: 12, padding: "12px 18px", margin: "8px 0", color: "var(--error-text, #991b1b)", fontSize: 14 }}>
                     {chatError}
