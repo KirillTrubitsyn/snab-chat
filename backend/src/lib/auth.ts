@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { createHmac, timingSafeEqual } from "crypto";
 import { createServiceClient } from "./supabase.js";
 
 // ============================================================
@@ -220,6 +221,64 @@ export async function getDeviceCount(inviteCodeId: string): Promise<number> {
 }
 
 // ============================================================
+// Auth tokens (HMAC-based stateless session tokens)
+// ============================================================
+
+const AUTH_TOKEN_SECRET =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_KEY ||
+  "snabchat-auth-fallback-key";
+const AUTH_TOKEN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+/**
+ * Generate a signed auth token after successful password/2FA verification.
+ * Format: inviteCodeId:timestamp:hmacSignature
+ */
+export function generateAuthToken(inviteCodeId: string): string {
+  const timestamp = Date.now().toString();
+  const payload = `${inviteCodeId}:${timestamp}`;
+  const signature = createHmac("sha256", AUTH_TOKEN_SECRET)
+    .update(payload)
+    .digest("hex");
+  return `${payload}:${signature}`;
+}
+
+/**
+ * Verify an auth token: check HMAC signature, expiration, and that it
+ * belongs to the expected invite code.
+ */
+export function verifyAuthToken(
+  token: string,
+  expectedInviteCodeId: string
+): boolean {
+  const parts = token.split(":");
+  if (parts.length !== 3) return false;
+
+  const [inviteCodeId, timestampStr, providedSig] = parts;
+  if (inviteCodeId !== expectedInviteCodeId) return false;
+
+  const timestamp = parseInt(timestampStr, 10);
+  if (isNaN(timestamp)) return false;
+
+  const age = Date.now() - timestamp;
+  if (age > AUTH_TOKEN_MAX_AGE_MS || age < 0) return false;
+
+  const expectedSig = createHmac("sha256", AUTH_TOKEN_SECRET)
+    .update(`${inviteCodeId}:${timestampStr}`)
+    .digest("hex");
+
+  // Constant-time comparison to prevent timing attacks
+  try {
+    return timingSafeEqual(
+      Buffer.from(providedSig, "hex"),
+      Buffer.from(expectedSig, "hex")
+    );
+  } catch {
+    return false;
+  }
+}
+
+// ============================================================
 // Helpers для защиты API-роутов (Express)
 // ============================================================
 
@@ -281,12 +340,25 @@ export async function getInviteCodeFromHeader(
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("invite_codes")
-    .select("*")
+    .select("*, password_hash")
     .eq("code", code.toUpperCase())
     .eq("is_active", true)
     .single();
 
   if (error || !data) return null;
+
+  // SECURITY: if the user has set a password, require a valid auth token.
+  // This prevents unauthorized access by anyone who only knows the invite code.
+  if (data.password_hash) {
+    const authToken = getHeader(req, "x-auth-token");
+    if (!authToken || !verifyAuthToken(authToken, data.id)) {
+      console.warn(
+        `[auth] Rejected request for code ${code.toUpperCase()}: password is set but auth token is missing or invalid`
+      );
+      return null;
+    }
+  }
+
   return data as InviteCode;
 }
 

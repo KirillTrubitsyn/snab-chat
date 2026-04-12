@@ -66,6 +66,9 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
   const [approvalId, setApprovalId] = useState("");
   const approvalPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Auth token from server (stored after password/2FA verification)
+  const [pendingAuthToken, setPendingAuthToken] = useState("");
+
   const getOrCreateDeviceId = (): string => {
     const key = "snabchat_device_id";
     let deviceId = localStorage.getItem(key);
@@ -97,10 +100,16 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     inviteCodeId: string;
     name: string;
     code: string;
+    authToken?: string;
   }) => {
     localStorage.setItem("snabchat_invite_code", data.code);
     localStorage.setItem("snabchat_invite_code_id", data.inviteCodeId);
     localStorage.setItem("snabchat_user_name", data.name);
+    // Store auth token for subsequent API requests
+    const token = data.authToken || pendingAuthToken;
+    if (token) {
+      localStorage.setItem("snabchat_auth_token", token);
+    }
     localStorage.removeItem("snabchat_is_admin");
     localStorage.removeItem("snabchat_admin_code");
     getOrAssignAvatarColor();
@@ -110,7 +119,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       userName: data.name,
       inviteCodeId: data.inviteCodeId,
     });
-  }, [onSuccess]);
+  }, [onSuccess, pendingAuthToken]);
 
   /* ── Единый ввод: пароль или инвайт-код ── */
   const handleUnifiedSubmit = async (e: React.FormEvent) => {
@@ -136,6 +145,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         setUserName(data.name);
         setSavedCode(data.code);
         localStorage.setItem("snabchat_invite_code", data.code);
+        if (data.authToken) setPendingAuthToken(data.authToken);
         setTwoFactorMethods(data.twoFactorMethods || []);
         setCode("");
 
@@ -236,6 +246,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         return;
       }
 
+      if (data.authToken) setPendingAuthToken(data.authToken);
       setPassword("");
       setPasswordConfirm("");
       setStep("recommend-2fa");
@@ -278,6 +289,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       setUserName(data.name);
       setSavedCode(data.code);
       localStorage.setItem("snabchat_invite_code", data.code);
+      if (data.authToken) setPendingAuthToken(data.authToken);
       setTwoFactorMethods(data.twoFactorMethods || []);
       setPassword("");
 
@@ -303,7 +315,8 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         const data = await res.json();
         if (data.status === "approved") {
           if (approvalPollRef.current) clearInterval(approvalPollRef.current);
-          completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code });
+          if (data.authToken) setPendingAuthToken(data.authToken);
+          completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code, authToken: data.authToken });
         } else if (data.status === "denied") {
           if (approvalPollRef.current) clearInterval(approvalPollRef.current);
           setError("Вход отклонён. Если это не вы — смените пароль.");
@@ -396,7 +409,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         return;
       }
 
-      completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code });
+      completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code, authToken: data.authToken });
     } catch {
       setError("Ошибка подключения к серверу");
     } finally {

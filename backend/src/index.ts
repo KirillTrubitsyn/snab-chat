@@ -65,7 +65,7 @@ app.use(cors({
   credentials: true,
   exposedHeaders: ["X-Sources", "X-Chunk-Images"],
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "x-invite-code", "x-admin-code", "x-device-id"],
+  allowedHeaders: ["Content-Type", "x-invite-code", "x-admin-code", "x-device-id", "x-auth-token"],
 }));
 
 // ── Origin validation for mutation requests ──

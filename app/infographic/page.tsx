@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { apiUrl } from "@/app/lib/api";
+import { apiUrl, getAuthHeaders } from "@/app/lib/api";
 
 const ACCEPTED_FILE_TYPES = ".pdf,.doc,.docx,.xlsx,.xls,.pptx,.txt,.md";
 
@@ -80,7 +80,7 @@ export default function InfographicPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-invite-code": encodeURIComponent(inviteCode),
+            ...getAuthHeaders(),
           },
           body: JSON.stringify({ filename: file.name, mimeType: file.type }),
         });
@@ -107,7 +107,7 @@ export default function InfographicPage() {
       const res = await fetch(parseUrl, {
         method: "POST",
         body: formData,
-        headers: { "x-invite-code": encodeURIComponent(inviteCode) },
+        headers: { ...getAuthHeaders() },
       });
       if (!res.ok) {
         let errMsg = `Ошибка обработки файла (${res.status})`;
@@ -156,7 +156,7 @@ export default function InfographicPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-invite-code": encodeURIComponent(inviteCode),
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({
           topic: topic.trim(),

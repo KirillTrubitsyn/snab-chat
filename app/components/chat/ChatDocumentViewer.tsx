@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { sanitizeHtml } from "@/app/lib/sanitize";
-import { apiUrl } from "@/app/lib/api";
+import { apiUrl, getAuthHeaders } from "@/app/lib/api";
 import ExcelViewer from "./ExcelViewer";
 import type { Source, ExcelSheet } from "./types";
 
@@ -107,8 +107,8 @@ export default function ChatDocumentViewer({
     source.filename?.endsWith(".ppt");
   const hasOriginal = !!source.storage_path;
   const authHeaders: HeadersInit = inviteCode
-    ? { "x-invite-code": encodeURIComponent(inviteCode) }
-    : {};
+    ? { "x-invite-code": encodeURIComponent(inviteCode), ...getAuthHeaders() }
+    : getAuthHeaders();
 
   useEffect(() => {
     if (isPdf && hasOriginal) {

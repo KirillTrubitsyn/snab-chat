@@ -10,6 +10,7 @@ import {
   validateInviteCode,
   consumeInviteCodeFallback,
   checkAndRegisterDevice,
+  generateAuthToken,
 } from "../lib/auth.js";
 import {
   loginSchema,
@@ -182,7 +183,10 @@ router.post("/api/auth/set-password", async (req: Request, res: Response) => {
       return res.status(500).json({ error: "Ошибка сохранения" });
     }
 
-    return res.json({ success: true });
+    // Generate auth token immediately after password creation
+    const authToken = generateAuthToken(invite.id);
+
+    return res.json({ success: true, authToken });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });
   }
@@ -247,12 +251,15 @@ router.post("/api/auth/verify-password", async (req: Request, res: Response) => 
     if (codeData.phone_number) twoFactorMethods.push("sms");
     if (codeData.totp_secret) twoFactorMethods.push("totp");
 
+    const authToken = generateAuthToken(invite.id);
+
     return res.json({
       success: true,
       inviteCodeId: invite.id,
       name: invite.name,
       code: upperCode,
       twoFactorMethods,
+      authToken,
     });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });
@@ -364,11 +371,14 @@ router.post("/api/auth/verify-otp", async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Неверный код" });
     }
 
+    const authToken = generateAuthToken(invite.id);
+
     return res.json({
       success: true,
       inviteCodeId: invite.id,
       name: invite.name,
       code: upperCode,
+      authToken,
     });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });
@@ -790,11 +800,14 @@ router.get("/api/auth/check-login-approval", async (req: Request, res: Response)
         .eq("id", approval.invite_code_id)
         .single();
 
+      const authToken = invite ? generateAuthToken(invite.id) : undefined;
+
       return res.json({
         status: "approved",
         inviteCodeId: invite?.id,
         name: invite?.name,
         code: invite?.code,
+        authToken,
       });
     }
 
@@ -859,12 +872,15 @@ router.post("/api/auth/login-password", async (req: Request, res: Response) => {
     if (matched.phone_number) twoFactorMethods.push("sms");
     if (matched.totp_secret) twoFactorMethods.push("totp");
 
+    const authToken = generateAuthToken(matched.id);
+
     return res.json({
       success: true,
       inviteCodeId: matched.id,
       name: matched.name,
       code: matched.code,
       twoFactorMethods,
+      authToken,
     });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });

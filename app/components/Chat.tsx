@@ -10,7 +10,7 @@ import { containsMarkdownTable } from "@/app/lib/markdown-tables";
 import KBSearchBar from "@/app/components/KBSearchBar";
 import { formatDateRelative } from "@/app/lib/date-utils";
 import { sanitizeHtml } from "@/app/lib/sanitize";
-import { apiUrl } from "@/app/lib/api";
+import { apiUrl, getAuthHeaders } from "@/app/lib/api";
 import { getAvatarColor, setAvatarColor as saveAvatarColor, AVATAR_COLORS } from "@/app/lib/avatarColors";
 import {
   VoiceButton,
@@ -117,6 +117,7 @@ export default function Chat() {
     localStorage.removeItem("snabchat_is_admin");
     localStorage.removeItem("snabchat_admin_code");
     localStorage.removeItem("snabchat_is_doc_admin");
+    localStorage.removeItem("snabchat_auth_token");
     setIsAuthenticated(false);
     setInviteCode("");
     setUserName("");
@@ -323,7 +324,7 @@ export default function Chat() {
     if (!inviteCode) return;
     try {
       const res = await fetch(apiUrl("/api/conversations"), {
-        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+        headers: { ...getAuthHeaders() },
       });
       const data = await res.json();
       if (Array.isArray(data)) setConversations(data);
@@ -341,7 +342,7 @@ export default function Chat() {
     if (!inviteCode) return;
     try {
       const res = await fetch(apiUrl("/api/infographics"), {
-        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+        headers: { ...getAuthHeaders() },
       });
       const data = await res.json();
       if (data.infographics) setInfographics(data.infographics);
@@ -381,7 +382,7 @@ export default function Chat() {
     if (!inviteCode) return;
     try {
       const res = await fetch(apiUrl("/api/support"), {
-        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+        headers: { ...getAuthHeaders() },
       });
       const data = await res.json();
       if (data.messages) {
@@ -419,7 +420,7 @@ export default function Chat() {
       supportFiles.forEach((f) => formData.append("files", f));
       const res = await fetch(apiUrl("/api/support"), {
         method: "POST",
-        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+        headers: { ...getAuthHeaders() },
         body: formData,
       });
       if (!res.ok) {
@@ -464,7 +465,7 @@ export default function Chat() {
     (async () => {
       try {
         const res = await fetch(apiUrl(`/api/conversations/messages?id=${activeConvId}`), {
-          headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+          headers: { ...getAuthHeaders() },
         });
         const data = await res.json();
         if (cancelled) return;
@@ -497,7 +498,7 @@ export default function Chat() {
       try {
         await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
         const res = await fetch(apiUrl(`/api/conversations/messages?id=${convId}`), {
-          headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+          headers: { ...getAuthHeaders() },
         });
         const data = await res.json();
         if (data.messages && data.messages.length >= expectedCount) {
@@ -530,7 +531,7 @@ export default function Chat() {
       if (pendingSubmitRef.current || isSending) return;
       try {
         const res = await fetch(apiUrl(`/api/conversations/messages?id=${activeConvId}`), {
-          headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+          headers: { ...getAuthHeaders() },
         });
         const data = await res.json();
         if (!data.messages) return;
@@ -579,7 +580,7 @@ export default function Chat() {
         try {
           const res = await fetch(apiUrl("/api/conversations"), {
             method: "POST",
-            headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
             body: JSON.stringify({ title: title || "Новый диалог" }),
           });
           if (!res.ok) {
@@ -621,7 +622,7 @@ export default function Chat() {
       e?.stopPropagation();
       await fetch(apiUrl(`/api/conversations?id=${convId}`), {
         method: "DELETE",
-        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+        headers: { ...getAuthHeaders() },
       });
       setConversations((prev) => prev.filter((c) => c.id !== convId));
       if (activeConvId === convId) {
@@ -641,7 +642,7 @@ export default function Chat() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-invite-code": encodeURIComponent(inviteCodeRef.current),
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({ id }),
       });
@@ -656,7 +657,7 @@ export default function Chat() {
     e?.stopPropagation();
     await fetch(apiUrl(`/api/infographics?id=${id}`), {
       method: "DELETE",
-      headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+      headers: { ...getAuthHeaders() },
     });
     setInfographics((prev) => prev.filter((i) => i.id !== id));
   }, []);
@@ -667,7 +668,7 @@ export default function Chat() {
     await Promise.all(ids.map((id) =>
       fetch(apiUrl(`/api/infographics?id=${id}`), {
         method: "DELETE",
-        headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+        headers: { ...getAuthHeaders() },
       })
     ));
     setInfographics((prev) => prev.filter((i) => !selectedInfographicIds.has(i.id)));
@@ -689,7 +690,7 @@ export default function Chat() {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
-        "x-invite-code": encodeURIComponent(inviteCodeRef.current),
+        ...getAuthHeaders(),
       },
       body: JSON.stringify({ id: renamingId, title: trimmed }),
     });
@@ -704,7 +705,7 @@ export default function Chat() {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
-        "x-invite-code": encodeURIComponent(inviteCodeRef.current),
+        ...getAuthHeaders(),
       },
       body: JSON.stringify({ id: renamingId, topic: trimmed }),
     });
@@ -731,7 +732,7 @@ export default function Chat() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-invite-code": encodeURIComponent(inviteCodeRef.current),
+            ...getAuthHeaders(),
           },
           body: JSON.stringify({ filename: file.name, mimeType: file.type }),
         });
@@ -757,7 +758,7 @@ export default function Chat() {
         formData.append("file", file);
       }
 
-      const res = await fetch(apiUrl("/api/parse"), { method: "POST", body: formData, headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) } });
+      const res = await fetch(apiUrl("/api/parse"), { method: "POST", body: formData, headers: { ...getAuthHeaders() } });
       if (!res.ok) {
         let serverError = "Parse failed";
         try { const errData = await res.json(); serverError = errData.error || serverError; } catch { /* ignore */ }
@@ -905,7 +906,7 @@ export default function Chat() {
     const ids = Array.from(selectedConvIds);
     await fetch(apiUrl("/api/conversations"), {
       method: "DELETE",
-      headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+      headers: { "Content-Type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify({ ids }),
     });
     setConversations((prev) => prev.filter((c) => !selectedConvIds.has(c.id)));
@@ -921,7 +922,7 @@ export default function Chat() {
   }, [selectedConvIds, activeConvId]);
 
   const deleteAllConversations = useCallback(async () => {
-    await fetch(apiUrl("/api/conversations?all=true&confirm=true"), { method: "DELETE", headers: { "x-invite-code": encodeURIComponent(inviteCodeRef.current) } });
+    await fetch(apiUrl("/api/conversations?all=true&confirm=true"), { method: "DELETE", headers: { ...getAuthHeaders() } });
     setConversations([]);
     setActiveConvId(null);
     convIdRef.current = null;
@@ -970,7 +971,7 @@ export default function Chat() {
           detectedUrls.slice(0, 5).map(async (url) => {
             const res = await fetch(apiUrl("/api/fetch-url"), {
               method: "POST",
-              headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+              headers: { "Content-Type": "application/json", ...getAuthHeaders() },
               body: JSON.stringify({ url }),
             });
             if (!res.ok) return null;
@@ -1027,7 +1028,7 @@ export default function Chat() {
 
           const res = await fetch(apiUrl("/api/chat"), {
             method: "POST",
-            headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
             body: JSON.stringify({
               messages: [{ role: "user", content: messageText }],
               conversationId: newId,
@@ -1128,7 +1129,7 @@ export default function Chat() {
 
         const res = await fetch(apiUrl("/api/chat"), {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-invite-code": encodeURIComponent(inviteCodeRef.current) },
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
           body: JSON.stringify({
             messages: currentMessages.map((m) => ({
               role: m.role,

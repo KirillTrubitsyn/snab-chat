@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiUrl } from "@/app/lib/api";
+import { apiUrl, getAuthHeaders } from "@/app/lib/api";
 import AdminPanel from "@/app/components/AdminPanel";
 
 export default function AdminPage() {
@@ -60,7 +60,7 @@ export default function AdminPage() {
       fetch(apiUrl("/api/heartbeat"), {
         method: "POST",
         headers: {
-          "x-invite-code": encodeURIComponent(inviteCode),
+          ...getAuthHeaders(),
           "x-device-id": deviceId,
         },
       }).catch(() => {});
@@ -76,6 +76,7 @@ export default function AdminPage() {
     localStorage.removeItem("snabchat_is_admin");
     localStorage.removeItem("snabchat_invite_code");
     localStorage.removeItem("snabchat_is_doc_admin");
+    localStorage.removeItem("snabchat_auth_token");
     router.push("/");
   };
 

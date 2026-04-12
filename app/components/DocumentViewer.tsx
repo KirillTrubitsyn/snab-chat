@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { sanitizeHtml } from "@/app/lib/sanitize";
-import { apiUrl } from "@/app/lib/api";
+import { apiUrl, getAuthHeaders } from "@/app/lib/api";
 
 export interface DocumentSource {
   id: number;
@@ -191,8 +191,8 @@ export default function DocumentViewer({
   const isDenormalized = source.mime_type === "application/x-denormalized";
   const tokenParam = authCode ? `&token=${encodeURIComponent(authCode)}` : "";
   const authHeaders: HeadersInit = authCode
-    ? { "x-invite-code": encodeURIComponent(authCode) }
-    : {};
+    ? { "x-invite-code": encodeURIComponent(authCode), ...getAuthHeaders() }
+    : getAuthHeaders();
 
   // Step 1: resolve denormalized source to original
   useEffect(() => {
