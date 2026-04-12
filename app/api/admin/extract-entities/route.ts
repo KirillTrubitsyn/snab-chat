@@ -235,7 +235,7 @@ export async function POST(request: NextRequest) {
       const batchEntityMap = new Map<string, string>(); // name → entity_id
 
       for (const ent of extraction.entities) {
-        if (!ENTITY_TYPES.includes(ent.type)) continue;
+        if (!ent.name || !ent.type || !ENTITY_TYPES.includes(ent.type)) continue;
 
         const canonical = normalize(ent.name);
         const cacheKey = `${canonical}::${ent.type}`;
@@ -289,7 +289,7 @@ export async function POST(request: NextRequest) {
 
       // 6. Вставка связей
       for (const rel of extraction.relations) {
-        if (!RELATION_TYPES.includes(rel.type)) continue;
+        if (!rel.source || !rel.target || !rel.type || !RELATION_TYPES.includes(rel.type)) continue;
 
         const sourceId = batchEntityMap.get(rel.source)
           || entityCache.get(`${normalize(rel.source)}::${findTypeByName(extraction.entities, rel.source)}`)?.id;
