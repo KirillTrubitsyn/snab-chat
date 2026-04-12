@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 
 const VIDEO_URL =
-  "https://hjjfugvnhjnvbchfjsbm.supabase.co/storage/v1/object/public/videos/snabchat-presentation-720p.mp4";
+  "https://hjjfugvnhjnvbchfjsbm.supabase.co/storage/v1/object/public/videos/snabchat-presentation-720p.mp4?v=2";
 
 interface VideoOverlayProps {
   open: boolean;
@@ -19,6 +19,7 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [ready, setReady] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   /* ── Auto-hide controls ── */
@@ -30,35 +31,26 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
     }, 3000);
   }, [playing]);
 
-  /* ── Play when opened ── */
+  /* ── Auto-play when ready + open ── */
   useEffect(() => {
-    if (!open || !videoRef.current) return;
-    const v = videoRef.current;
-    setError(null);
-    setLoading(true);
-    v.load();
+    if (!open || !ready || !videoRef.current) return;
+    videoRef.current.play()
+      .then(() => { setPlaying(true); scheduleHide(); })
+      .catch(() => {});
+  }, [open, ready, scheduleHide]);
 
-    const onReady = () => {
-      v.play()
-        .then(() => { setPlaying(true); scheduleHide(); })
-        .catch(() => setError("Браузер заблокировал автозапуск. Нажмите ▶ для воспроизведения."));
-    };
-
-    if (v.readyState >= 2) onReady();
-    else v.addEventListener("canplay", onReady, { once: true });
-
-    return () => {
-      v.removeEventListener("canplay", onReady);
-      if (hideTimer.current) clearTimeout(hideTimer.current);
-    };
-  }, [open, scheduleHide]);
-
+  /* ── Pause when closed ── */
   useEffect(() => {
     if (!open && videoRef.current) {
       videoRef.current.pause();
       setPlaying(false);
     }
   }, [open]);
+
+  /* ── Cleanup hide timer ── */
+  useEffect(() => {
+    return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
+  }, []);
 
   const toggle = () => {
     if (!videoRef.current) return;
@@ -119,18 +111,18 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
       >
         <video
           ref={videoRef}
-          src={VIDEO_URL}
           playsInline
           preload="auto"
           style={{
             maxWidth: "100%", maxHeight: "100%",
             borderRadius: 0, outline: "none",
           }}
-          onLoadedMetadata={(e) => { setDuration(e.currentTarget.duration); setLoading(false); }}
+          onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+          onCanPlay={() => { setLoading(false); setReady(true); }}
           onTimeUpdate={(e) => setProgress(e.currentTarget.currentTime)}
           onEnded={() => { setPlaying(false); setControlsVisible(true); }}
           onWaiting={() => setLoading(true)}
-          onCanPlay={() => setLoading(false)}
+          onPlaying={() => setLoading(false)}
           onError={(e) => {
             const v = e.currentTarget;
             const code = v.error?.code;
@@ -141,7 +133,9 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
             setError(msg);
             setLoading(false);
           }}
-        />
+        >
+          <source src={VIDEO_URL} type="video/mp4" />
+        </video>
 
         {/* Loading spinner */}
         {loading && !error && (
@@ -174,7 +168,8 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
                 e.stopPropagation();
                 setError(null);
                 setLoading(true);
-                if (videoRef.current) { videoRef.current.load(); }
+                setReady(false);
+                if (videoRef.current) videoRef.current.load();
               }}
               style={{ background: "rgba(255,255,255,0.15)", padding: "10px 24px", borderRadius: 10, fontSize: 14 }}
             >
