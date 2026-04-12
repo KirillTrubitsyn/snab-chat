@@ -51,6 +51,25 @@ export default function AdminPage() {
       .finally(() => setLoading(false));
   }, [router]);
 
+  /* ── Heartbeat: keep admin visible as online while on /admin ── */
+  useEffect(() => {
+    const inviteCode = localStorage.getItem("snabchat_invite_code") || localStorage.getItem("snabchat_admin_code");
+    if (!inviteCode) return;
+    const deviceId = localStorage.getItem("snabchat_device_id") || "";
+    const sendHeartbeat = () => {
+      fetch(apiUrl("/api/heartbeat"), {
+        method: "POST",
+        headers: {
+          "x-invite-code": encodeURIComponent(inviteCode),
+          "x-device-id": deviceId,
+        },
+      }).catch(() => {});
+    };
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleLogout = () => {
     localStorage.removeItem("snabchat_admin_code");
     localStorage.removeItem("snabchat_user_name");
