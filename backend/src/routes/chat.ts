@@ -614,6 +614,17 @@ ${userMessage.content}
       }
     }
 
+    // 3b. Contractor card fallback: if intent is NOT entity_lookup but query mentions
+    //      work/service types, run contractor card search as supplementary
+    //      (catches cases like "услуги такси компании" misclassified as procedure)
+    if (intentResult.intent !== "entity_lookup") {
+      const WORK_SERVICE_PATTERNS = /услуги\s+\S+|работы\s+\S+|монтаж|демонтаж|ремонт|обслуживани|поставк[аиу]|такси|клининг|охран[аыу]|уборк|перевозк|транспорт|строительств/i;
+      if (WORK_SERVICE_PATTERNS.test(userMessage.content)) {
+        console.log("[chat] Work/service pattern detected in non-entity_lookup query, adding contractor card search");
+        supplementSearches.push(searchContractorCards(userMessage.content, 5));
+      }
+    }
+
     // 4. Source diversity check: if all results come from ≤2 sources, broaden search
     const uniqueSources = new Set(combinedResults.map((r) => r.source_filename));
     if (uniqueSources.size <= 2 && combinedResults.length >= 5 && intentResult.search_tags.length > 0) {
