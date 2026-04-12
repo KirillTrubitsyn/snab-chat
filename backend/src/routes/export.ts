@@ -19,6 +19,7 @@ import {
 } from "docx";
 import ExcelJS from "exceljs";
 import { parseMarkdownTables } from "../lib/markdown-tables.js";
+import { requireAuth } from "../lib/auth.js";
 
 const router = Router();
 
@@ -765,6 +766,8 @@ function parseNumericValue(val: string): number | null {
 
 router.post("/api/export", async (req: Request, res: Response) => {
   try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
     const { question, answer } = req.body;
 
     if (!question || !answer) {
@@ -795,6 +798,8 @@ router.post("/api/export", async (req: Request, res: Response) => {
 
 router.post("/api/export-excel", async (req: Request, res: Response) => {
   try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
     const { question, answer } = req.body;
 
     if (!answer) {

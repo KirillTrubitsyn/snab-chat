@@ -34,7 +34,11 @@ app.use(helmet());
 // ── CORS ──
 // FRONTEND_URLS supports multiple origins separated by comma
 // e.g. "https://www.snabchat.app,https://snab-chat.vercel.app"
-const FRONTEND_URL = (process.env.FRONTEND_URL || "http://localhost:3000").replace(/\/+$/, "");
+const FRONTEND_URL_RAW = process.env.FRONTEND_URL || "";
+if (!FRONTEND_URL_RAW && process.env.NODE_ENV === "production") {
+  console.error("[FATAL] FRONTEND_URL is not set in production — CORS will reject all browser requests");
+}
+const FRONTEND_URL = (FRONTEND_URL_RAW || "http://localhost:3000").replace(/\/+$/, "");
 const allowedOrigins: string[] = [];
 
 for (const raw of FRONTEND_URL.split(",")) {
@@ -49,8 +53,14 @@ for (const raw of FRONTEND_URL.split(",")) {
   }
 }
 
-// Deduplicate
-const uniqueOrigins = [...new Set(allowedOrigins)];
+// Deduplicate and strip localhost in production
+const uniqueOrigins = [...new Set(allowedOrigins)].filter((o) => {
+  if (process.env.NODE_ENV === "production" && /localhost|127\.0\.0\.1/.test(o)) {
+    console.warn(`[CORS] Stripping localhost origin in production: ${o}`);
+    return false;
+  }
+  return true;
+});
 console.log(`[backend] Allowed CORS origins: ${JSON.stringify(uniqueOrigins)}`);
 
 app.use(cors({

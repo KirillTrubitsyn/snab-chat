@@ -133,7 +133,18 @@ router.post("/api/chat", async (req: Request, res: Response) => {
   const sessionDocuments: Array<{ filename: string; markdown: string }> | undefined = body.sessionDocuments;
 
   // Mutable array: current attachments + possibly merged session docs
-  const allAttachedDocuments: Array<{ filename: string; markdown: string }> = Array.isArray(body.attachedDocuments) ? [...body.attachedDocuments] : [];
+  // V13 fix: validate shape of each attached document to prevent arbitrary payloads
+  const rawAttached = Array.isArray(body.attachedDocuments) ? body.attachedDocuments : [];
+  const allAttachedDocuments: Array<{ filename: string; markdown: string }> = rawAttached
+    .filter((d: unknown): d is { filename: string; markdown: string } =>
+      typeof d === "object" && d !== null &&
+      typeof (d as Record<string, unknown>).filename === "string" &&
+      typeof (d as Record<string, unknown>).markdown === "string"
+    )
+    .map((d: { filename: string; markdown: string }) => ({
+      filename: d.filename.slice(0, 500),
+      markdown: d.markdown,
+    }));
 
   if (conversationId && !isAdminCode(invite.code)) {
     const supabase = createServiceClient();
@@ -889,14 +900,17 @@ ${userMessage.content}
   if (effectiveHasAttachments) {
     const docs = allAttachedDocuments.map(
       (d: { filename: string; markdown: string }, i: number) => {
-        const wasTruncated = d.markdown.length > MAX_UPLOADED_DOC_CHARS;
+        // V17 fix: sanitize BEFORE truncation to prevent truncation from splitting
+        // a malicious payload mid-pattern, bypassing sanitization regex.
+        const sanitized = sanitizeDocContent(d.markdown);
+        const wasTruncated = sanitized.length > MAX_UPLOADED_DOC_CHARS;
         if (wasTruncated) {
           truncatedDocs.push(d.filename);
         }
         const content = wasTruncated
-          ? d.markdown.slice(0, MAX_UPLOADED_DOC_CHARS) + `\n\n[... документ обрезан: показано ${MAX_UPLOADED_DOC_CHARS} из ${d.markdown.length} символов. Для работы с оставшейся частью попросите пользователя уточнить конкретный раздел ...]`
-          : d.markdown;
-        return `<uploaded_document id="${i + 1}" filename="${escapeXmlAttr(d.filename)}" total_chars="${d.markdown.length}" truncated="${wasTruncated}">\n${sanitizeDocContent(content)}\n</uploaded_document>`;
+          ? sanitized.slice(0, MAX_UPLOADED_DOC_CHARS) + `\n\n[... документ обрезан: показано ${MAX_UPLOADED_DOC_CHARS} из ${d.markdown.length} символов. Для работы с оставшейся частью попросите пользователя уточнить конкретный раздел ...]`
+          : sanitized;
+        return `<uploaded_document id="${i + 1}" filename="${escapeXmlAttr(d.filename)}" total_chars="${d.markdown.length}" truncated="${wasTruncated}">\n${content}\n</uploaded_document>`;
       }
     );
     uploadedDocsContext = `<uploaded_documents>\n${docs.join("\n")}\n</uploaded_documents>`;
@@ -1107,12 +1121,12 @@ ${uploadedDocsContext}`;
 
   const modelMessages: ModelMessage[] = [];
 
-  // Add context messages
+  // Add context messages (V14: sanitize to prevent stored prompt injection)
   const ctxMsgs = contextMessages.filter((m) => m.role !== "system");
   if (ctxMsgs.length > 0) {
     for (const m of ctxMsgs) {
       if (m.role === "user") {
-        modelMessages.push({ role: "user" as const, content: m.content as string });
+        modelMessages.push({ role: "user" as const, content: sanitizeDocContent(m.content as string) });
       } else if (m.role === "assistant") {
         modelMessages.push({ role: "assistant" as const, content: m.content as string });
       }
@@ -1122,7 +1136,7 @@ ${uploadedDocsContext}`;
     for (let k = 0; k < messages.length - 1; k++) {
       const msg = messages[k];
       if (msg.role === "user") {
-        modelMessages.push({ role: "user" as const, content: msg.content as string });
+        modelMessages.push({ role: "user" as const, content: sanitizeDocContent(msg.content as string) });
       } else if (msg.role === "assistant") {
         modelMessages.push({ role: "assistant" as const, content: msg.content as string });
       }

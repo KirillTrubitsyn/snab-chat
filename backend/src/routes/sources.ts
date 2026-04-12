@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { createServiceClient } from "../lib/supabase.js";
-import { getInviteCodeFromHeader, isAdminCode, requireAdmin, requireDocumentAdmin } from "../lib/auth.js";
+import { getInviteCodeFromHeader, isAdminCode, requireAdmin, requireDocumentAdmin, requireAuth } from "../lib/auth.js";
 import multer from "multer";
 
 const router = Router();
@@ -10,6 +10,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 router.get("/api/sources", async (req: Request, res: Response) => {
   try {
     const invite = await getInviteCodeFromHeader(req);
+    if (!invite) return res.status(401).json({ error: "Unauthorized" });
     const view = req.query.view as string;
 
     const supabase = createServiceClient();
@@ -89,6 +90,9 @@ router.patch("/api/sources", async (req: Request, res: Response) => {
 // DELETE /api/sources — delete source(s)
 router.delete("/api/sources", async (req: Request, res: Response) => {
   try {
+    const docAdmin = requireDocumentAdmin(req, res);
+    if (!docAdmin) return;
+
     const id = req.query.id as string;
     const supabase = createServiceClient();
 
@@ -105,9 +109,6 @@ router.delete("/api/sources", async (req: Request, res: Response) => {
     // Bulk delete from body
     const { ids } = req.body || {};
     if (Array.isArray(ids) && ids.length > 0) {
-      const docAdmin = requireDocumentAdmin(req, res);
-      if (!docAdmin) return;
-
       const { data: sources } = await supabase.from("sources").select("id, filename").in("id", ids);
       if (sources) {
         const filenames = sources.map((s: { filename: string }) => s.filename);
@@ -129,6 +130,8 @@ router.delete("/api/sources", async (req: Request, res: Response) => {
 // GET /api/sources/content — get source content (markdown)
 router.get("/api/sources/content", async (req: Request, res: Response) => {
   try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
     const id = req.query.id as string;
     if (!id) return res.status(400).json({ error: "Missing id" });
 
@@ -160,6 +163,8 @@ router.get("/api/sources/content", async (req: Request, res: Response) => {
 // GET /api/sources/text — plain text
 router.get("/api/sources/text", async (req: Request, res: Response) => {
   try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
     const id = req.query.id as string;
     if (!id) return res.status(400).json({ error: "Missing id" });
 
@@ -223,7 +228,7 @@ router.get("/api/sources/download", async (req: Request, res: Response) => {
       // Inline (iframe view): override helmet's restrictive headers to allow cross-origin embedding
       res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(source.filename)}`);
       res.removeHeader("X-Frame-Options");
-      res.setHeader("Content-Security-Policy", "frame-ancestors *");
+      res.setHeader("Content-Security-Policy", "frame-ancestors 'self' https://*.snabchat.app https://*.vercel.app");
     }
     return res.send(buffer);
   } catch (err) {
@@ -235,6 +240,8 @@ router.get("/api/sources/download", async (req: Request, res: Response) => {
 // GET /api/sources/signed-url
 router.get("/api/sources/signed-url", async (req: Request, res: Response) => {
   try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
     const id = req.query.id as string;
     if (!id) return res.status(400).json({ error: "Missing id" });
 
@@ -260,6 +267,8 @@ router.get("/api/sources/download-docx", async (_req: Request, res: Response) =>
 
 router.get("/api/sources/excel-data", async (req: Request, res: Response) => {
   try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
     const id = req.query.id as string;
     if (!id) return res.status(400).json({ error: "Missing id" });
 
@@ -362,6 +371,8 @@ router.get("/api/sources/excel-data", async (req: Request, res: Response) => {
 
 router.get("/api/sources/pptx-slides", async (req: Request, res: Response) => {
   try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
     const id = req.query.id as string;
     if (!id) return res.status(400).json({ error: "Missing id" });
 
@@ -469,6 +480,8 @@ router.get("/api/sources/pptx-slides", async (req: Request, res: Response) => {
 
 router.get("/api/sources/docx-html", async (req: Request, res: Response) => {
   try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
     const id = req.query.id as string;
     if (!id) return res.status(400).json({ error: "Missing id" });
 
@@ -520,6 +533,8 @@ router.get("/api/sources/docx-html", async (req: Request, res: Response) => {
 
 router.get("/api/sources/resolve", async (req: Request, res: Response) => {
   try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
     const id = req.query.id as string;
     if (!id) return res.status(400).json({ error: "Missing id" });
 

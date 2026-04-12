@@ -77,8 +77,11 @@ router.get("/api/chunk-image", async (req: Request, res: Response) => {
 /**
  * POST /api/migrate — run database migrations.
  */
-router.post("/api/migrate", async (_req: Request, res: Response) => {
+router.post("/api/migrate", async (req: Request, res: Response) => {
   try {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+
     const supabase = createServiceClient();
 
     // Add storage_path and folder_path columns if they don't exist

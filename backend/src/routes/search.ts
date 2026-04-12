@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { createServiceClient } from "../lib/supabase.js";
 import { hybridSearch } from "../lib/retrieval.js";
 import { embedQuery } from "../lib/embeddings.js";
-import { getInviteCodeFromHeader, requireAdmin } from "../lib/auth.js";
+import { getInviteCodeFromHeader, requireAdmin, requireAuth } from "../lib/auth.js";
 import { searchSchema, parseBody } from "../lib/validation.js";
 import { unauthorizedResponse } from "../lib/api-helpers.js";
 
@@ -62,6 +62,8 @@ const MAX_SIBLINGS = 30;
 
 router.post("/api/kb-search", async (req: Request, res: Response) => {
   try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
     const body = req.body;
     const query: string = (body.query ?? "").trim();
     const limit: number = Math.min(body.limit ?? DEFAULT_LIMIT, MAX_LIMIT);

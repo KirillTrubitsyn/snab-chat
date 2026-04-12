@@ -4,6 +4,19 @@ import { requireDocumentAdmin, requireAuth } from "../lib/auth.js";
 
 const router = Router();
 
+// Allowed file extensions for document upload
+const ALLOWED_EXTENSIONS = new Set([
+  "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+  "txt", "csv", "rtf", "odt", "ods", "odp",
+  "png", "jpg", "jpeg", "gif", "webp", "svg",
+  "mp3", "wav", "ogg", "m4a", "webm",
+]);
+
+function isAllowedFileType(filename: string): boolean {
+  const ext = filename.split(".").pop()?.toLowerCase() || "";
+  return ALLOWED_EXTENSIONS.has(ext);
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // POST /api/upload-url
 //
@@ -23,6 +36,10 @@ router.post("/api/upload-url", async (req: Request, res: Response) => {
 
     if (!filename) {
       return res.status(400).json({ error: "Missing filename" });
+    }
+
+    if (!isAllowedFileType(filename)) {
+      return res.status(400).json({ error: "File type not allowed. Supported: PDF, DOCX, XLSX, PPTX, images, audio." });
     }
 
     const supabase = createServiceClient();
@@ -78,6 +95,10 @@ router.post("/api/chat-upload-url", async (req: Request, res: Response) => {
 
     if (!filename) {
       return res.status(400).json({ error: "Missing filename" });
+    }
+
+    if (!isAllowedFileType(filename)) {
+      return res.status(400).json({ error: "File type not allowed. Supported: PDF, DOCX, XLSX, PPTX, images, audio." });
     }
 
     const supabase = createServiceClient();
