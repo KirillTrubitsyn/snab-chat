@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { apiUrl } from "@/app/lib/api";
+import { apiUrl, getAuthHeaders } from "@/app/lib/api";
 import DocumentViewer, { DocumentSource } from "../DocumentViewer";
 import KBSearchBar from "../KBSearchBar";
 import {
@@ -49,17 +49,18 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
   const [showDocFormatModal, setShowDocFormatModal] = useState(false);
   const [docFormatFileName, setDocFormatFileName] = useState("");
 
-  const headers = { "x-admin-code": encodeURIComponent(adminCode) };
+  const authHeaders = { ...getAuthHeaders(), "x-admin-code": encodeURIComponent(adminCode), "x-invite-code": encodeURIComponent(adminCode) };
+  const headers = authHeaders;
 
   const loadSources = useCallback(async () => {
     setSourcesLoading(true);
     try {
-      const res = await fetch(apiUrl("/api/sources"));
+      const res = await fetch(apiUrl("/api/sources"), { headers: { ...getAuthHeaders(), "x-invite-code": encodeURIComponent(adminCode) } });
       const data = await res.json();
       if (data.sources) setSources(data.sources);
     } catch { /* ignore */ }
     setSourcesLoading(false);
-  }, []);
+  }, [adminCode]);
 
   useEffect(() => { loadSources(); }, [loadSources]);
 
