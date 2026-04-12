@@ -120,7 +120,6 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
         <video
           ref={videoRef}
           src={VIDEO_URL}
-          crossOrigin="anonymous"
           playsInline
           preload="auto"
           style={{
