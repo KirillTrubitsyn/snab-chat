@@ -5,3 +5,7 @@ node_modules
 *.tsbuildinfo
 backend/node_modules/
 backend/dist/
+
+# Claude Code project instructions (may contain secrets)
+CLAUDE.md
+.claude/
