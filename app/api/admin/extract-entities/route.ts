@@ -218,7 +218,11 @@ export async function POST(request: NextRequest) {
           });
 
           const text = response.text || '';
-          extraction = JSON.parse(text);
+          const parsed = JSON.parse(text);
+          extraction = {
+            entities: Array.isArray(parsed.entities) ? parsed.entities : [],
+            relations: Array.isArray(parsed.relations) ? parsed.relations : [],
+          };
           break;
         } catch (err: unknown) {
           const error = err as { status?: number; message?: string };
