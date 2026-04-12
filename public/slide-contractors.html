@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Сценарий №5 — Поиск контрагентов</title>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --brand-snab: #003A7A;
+  --brand-chat: #0099CC;
+  --accent: #2563EB;
+  --bg-light: #FAFAFA;
+  --bg-white: #FFFFFF;
+  --text-dark: #1A1A1A;
+  --text-muted: #6B7280;
+  --card-shadow: 0 4px 20px rgba(0,0,0,0.08);
+  --card-radius: 10px;
+  --font-heading: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+html, body {
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  background: var(--bg-light);
+  font-family: var(--font-body);
+  color: var(--text-dark);
+  -webkit-font-smoothing: antialiased;
+}
+
+.slide {
+  width: 1920px;
+  height: 1080px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 80px 80px;
+  background: var(--bg-light);
+}
+
+.slide-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 1600px;
+}
+
+.slide-title {
+  font-family: var(--font-heading);
+  font-size: 52px;
+  font-weight: 700;
+  color: var(--text-dark);
+  text-align: center;
+  margin-bottom: 48px;
+  line-height: 1.2;
+}
+
+.cards {
+  display: grid;
+  gap: 28px;
+  width: 100%;
+  max-width: 1400px;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.card {
+  background: var(--bg-white);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  padding: 32px 28px;
+  text-align: center;
+}
+
+.card-icon {
+  font-size: 44px;
+  margin-bottom: 18px;
+  display: block;
+}
+
+.card-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 22px;
+  margin-bottom: 10px;
+  color: var(--text-dark);
+}
+
+.card-text {
+  font-size: 18px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.note {
+  font-size: 20px;
+  color: var(--text-muted);
+  text-align: center;
+  max-width: 1000px;
+  margin-top: 16px;
+  line-height: 1.5;
+}
+.note strong { color: var(--text-dark); }
+
+.feature-list {
+  list-style: none;
+  max-width: 1200px;
+  width: 100%;
+  text-align: left;
+}
+.feature-list li {
+  font-size: 22px;
+  padding: 12px 0;
+  border-bottom: 1px solid #E5E7EB;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  line-height: 1.5;
+}
+.feature-list li:last-child { border-bottom: none; }
+.feature-list .icon { font-size: 26px; flex-shrink: 0; }
+
+.slide-number {
+  position: absolute;
+  bottom: 24px;
+  right: 40px;
+  font-family: var(--font-heading);
+  font-size: 16px;
+  color: var(--text-muted);
+}
+</style>
+</head>
+<body>
+<div class="slide">
+  <div class="slide-inner">
+    <h2 class="slide-title">Поиск контрагентов и участников закупки</h2>
+    <div class="cards">
+      <div class="card">
+        <span class="card-icon">🏢</span>
+        <div class="card-title">Карточки контрагентов</div>
+        <div class="card-text">В базе знаний — сведения о подрядчиках, поставщиках и исполнителях: ИНН, контакты, специализация</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">🔎</span>
+        <div class="card-title">Умный подбор</div>
+        <div class="card-text">Назовите категорию ТРУ — система найдёт подходящих поставщиков по опыту и специализации</div>
+      </div>
+      <div class="card">
+        <span class="card-icon">⚖️</span>
+        <div class="card-title">Сравнение поставщиков</div>
+        <div class="card-text">Попросите сравнить контрагентов — получите таблицу с ключевыми параметрами</div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:32px"><strong>Примеры запросов:</strong></p>
+    <ul class="feature-list" style="margin-top:12px">
+      <li><span class="icon">💬</span> «Какие поставщики занимаются теплоизоляционными материалами?»</li>
+      <li><span class="icon">💬</span> «Подбери подрядчиков для строительно-монтажных работ»</li>
+      <li><span class="icon">💬</span> «Что известно о компании ООО "Пример"?»</li>
+    </ul>
+  </div>
+  <span class="slide-number">СнабЧат — Дирекция по закупкам</span>
+</div>
+</body>
+</html>
