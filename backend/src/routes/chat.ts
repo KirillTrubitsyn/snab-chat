@@ -529,16 +529,21 @@ ${sanitizeUserInput(userMessage.content)}
     }
   }
 
-  // Run all search tasks in parallel (now enriched with intent variants)
-  const searchPromises = Array.from(searchVariants).map((q) =>
-    hybridSearch(q, 20, searchHints)
-  );
+  // V24: For entity_lookup intent, contractor cards ARE the primary data source.
+  // Skip expensive hybrid search variants — they scan 23K+ chunks with embeddings
+  // and cause 120s+ timeouts on broad queries like "ремонт зданий и сооружений".
+  // Only run a single lightweight hybrid search as fallback (if contractor search returns nothing).
+  const isContractorQuery = intentResult.intent === "entity_lookup";
+
+  const searchPromises = isContractorQuery
+    ? [hybridSearch(searchQuery, 10, searchHints)] // single search, reduced count
+    : Array.from(searchVariants).map((q) => hybridSearch(q, 20, searchHints));
 
   // Contractor card search runs in parallel when intent is entity_lookup
-  // V24: wrap in 25s timeout — broad queries (e.g. "ремонт зданий") must not block the entire response
-  const contractorSearchPromise = intentResult.intent === "entity_lookup"
+  // V24: wrap in 25s timeout — broad queries must not block the entire response
+  const contractorSearchPromise = isContractorQuery
     ? Promise.race([
-        searchContractorCards(userMessage.content, 10),
+        searchContractorCards(userMessage.content, 15),
         new Promise<SearchResult[]>((resolve) =>
           setTimeout(() => {
             console.log("[chat] contractorSearch timed out after 25s, continuing without contractor cards");
