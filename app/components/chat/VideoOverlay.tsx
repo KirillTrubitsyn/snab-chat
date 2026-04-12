@@ -21,6 +21,10 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
   const [controlsVisible, setControlsVisible] = useState(true);
   const [ready, setReady] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const controlsVisibleRef = useRef(true);
+
+  /* keep ref in sync so callbacks always read fresh value */
+  useEffect(() => { controlsVisibleRef.current = controlsVisible; }, [controlsVisible]);
 
   /* ── Auto-hide controls ── */
   const scheduleHide = useCallback(() => {
@@ -30,6 +34,33 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
       if (playing) setControlsVisible(false);
     }, 3000);
   }, [playing]);
+
+  /* ── Toggle play/pause ── */
+  const toggle = useCallback(() => {
+    if (!videoRef.current) return;
+    setError(null);
+    if (playing) {
+      videoRef.current.pause();
+      setPlaying(false);
+    } else {
+      videoRef.current.play()
+        .then(() => setPlaying(true))
+        .catch((e) => setError(e.message));
+    }
+    scheduleHide();
+  }, [playing, scheduleHide]);
+
+  /* ── Tap on video area ──
+     First tap when controls hidden → show controls (don't toggle).
+     Tap when controls visible → toggle play/pause. */
+  const handleTap = useCallback(() => {
+    if (!controlsVisibleRef.current) {
+      scheduleHide();
+      return;
+    }
+    toggle();
+    scheduleHide();
+  }, [scheduleHide, toggle]);
 
   /* ── Auto-play when ready + open ── */
   useEffect(() => {
@@ -51,14 +82,6 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
   useEffect(() => {
     return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
   }, []);
-
-  const toggle = () => {
-    if (!videoRef.current) return;
-    setError(null);
-    if (playing) { videoRef.current.pause(); setPlaying(false); }
-    else { videoRef.current.play().then(() => setPlaying(true)).catch((e) => setError(e.message)); }
-    scheduleHide();
-  };
 
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!videoRef.current || !duration) return;
@@ -91,14 +114,16 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
       }}
       onClick={handleClose}
       onMouseMove={scheduleHide}
+      onTouchStart={scheduleHide}
     >
       <style>{`
         @keyframes videoFadeIn { from { opacity: 0 } to { opacity: 1 } }
         .vo-controls { transition: opacity 0.3s ease; }
         .vo-progress-bar { cursor: pointer; }
         .vo-progress-bar:hover .vo-progress-fill { height: 6px; }
-        .vo-btn { background: none; border: none; color: #fff; cursor: pointer; padding: 8px; display: flex; align-items: center; justify-content: center; border-radius: 8px; }
+        .vo-btn { background: none; border: none; color: #fff; cursor: pointer; padding: 8px; display: flex; align-items: center; justify-content: center; border-radius: 8px; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
         .vo-btn:hover { background: rgba(255,255,255,0.12); }
+        .vo-btn:active { background: rgba(255,255,255,0.2); }
       `}</style>
 
       {/* Video container */}
@@ -107,7 +132,7 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
           position: "relative", width: "100%", height: "100%",
           display: "flex", alignItems: "center", justifyContent: "center",
         }}
-        onClick={(e) => { e.stopPropagation(); toggle(); scheduleHide(); }}
+        onClick={(e) => { e.stopPropagation(); handleTap(); }}
       >
         <video
           ref={videoRef}
@@ -142,6 +167,7 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
           <div style={{
             position: "absolute", inset: 0,
             display: "flex", alignItems: "center", justifyContent: "center",
+            pointerEvents: "none",
           }}>
             <div style={{
               width: 48, height: 48, border: "3px solid rgba(255,255,255,0.2)",
@@ -197,16 +223,17 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
           </div>
         )}
 
-        {/* Close button (top-right) */}
+        {/* Close button (top-right) — always clickable via pointer-events */}
         <button
           className="vo-btn"
           onClick={(e) => { e.stopPropagation(); handleClose(); }}
           style={{
             position: "absolute", top: 16, right: 16,
             background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)",
-            width: 40, height: 40, borderRadius: 12,
-            opacity: controlsVisible ? 1 : 0,
+            width: 44, height: 44, borderRadius: 12,
+            opacity: controlsVisible ? 1 : 0.4,
             transition: "opacity 0.3s",
+            pointerEvents: "auto",
           }}
           title="Закрыть"
         >
@@ -226,11 +253,12 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
             pointerEvents: controlsVisible ? "auto" : "none",
           }}
           onClick={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
         >
           {/* Progress bar */}
           <div
             className="vo-progress-bar"
-            style={{ height: 20, display: "flex", alignItems: "center", marginBottom: 8 }}
+            style={{ height: 28, display: "flex", alignItems: "center", marginBottom: 8 }}
             onClick={seek}
           >
             <div style={{
@@ -250,19 +278,19 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
 
           {/* Buttons row */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button className="vo-btn" onClick={toggle}>
+            <button className="vo-btn" onClick={(e) => { e.stopPropagation(); toggle(); }} style={{ padding: 12 }}>
               {playing ? (
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
               ) : (
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><polygon points="6 3 20 12 6 21" /></svg>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><polygon points="6 3 20 12 6 21" /></svg>
               )}
             </button>
 
-            <button className="vo-btn" onClick={() => { setMuted(!muted); if (videoRef.current) videoRef.current.muted = !muted; }}>
+            <button className="vo-btn" onClick={(e) => { e.stopPropagation(); setMuted(!muted); if (videoRef.current) videoRef.current.muted = !muted; }} style={{ padding: 12 }}>
               {muted ? (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" /></svg>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" /></svg>
               ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /></svg>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /></svg>
               )}
             </button>
 
