@@ -27,7 +27,7 @@ router.get("/api/sources", async (req: Request, res: Response) => {
           .order("created_at", { ascending: false })
           .range(from, from + PAGE - 1);
 
-        if (error) return res.status(500).json({ error: error.message });
+        if (error) { console.error("[sources] DB error:", error.message); return res.status(500).json({ error: "Internal error" }); }
         allSources = allSources.concat(data || []);
         if (!data || data.length < PAGE) break;
         from += PAGE;
@@ -41,7 +41,7 @@ router.get("/api/sources", async (req: Request, res: Response) => {
           .order("created_at", { ascending: false })
           .range(from, from + PAGE - 1);
 
-        if (error) return res.status(500).json({ error: error.message });
+        if (error) { console.error("[sources] DB error:", error.message); return res.status(500).json({ error: "Internal error" }); }
         allSources = allSources.concat(data || []);
         if (!data || data.length < PAGE) break;
         from += PAGE;
@@ -79,7 +79,7 @@ router.patch("/api/sources", async (req: Request, res: Response) => {
     }
 
     const { error } = await supabase.from("sources").update(updates).eq("id", id);
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) { console.error("[sources] DB error:", error.message); return res.status(500).json({ error: "Internal error" }); }
     return res.json({ ok: true });
   } catch (err) {
     console.error("[sources] PATCH error:", err);
@@ -102,7 +102,7 @@ router.delete("/api/sources", async (req: Request, res: Response) => {
         (await supabase.from("sources").select("filename").eq("id", id).single()).data?.filename
       );
       const { error } = await supabase.from("sources").delete().eq("id", id);
-      if (error) return res.status(500).json({ error: error.message });
+      if (error) { console.error("[sources] DB error:", error.message); return res.status(500).json({ error: "Internal error" }); }
       return res.json({ ok: true });
     }
 
@@ -251,7 +251,7 @@ router.get("/api/sources/signed-url", async (req: Request, res: Response) => {
 
     const storagePath = source.storage_path || `documents/${source.filename}`;
     const { data, error } = await supabase.storage.from("documents").createSignedUrl(storagePath, 3600);
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) { console.error("[sources] DB error:", error.message); return res.status(500).json({ error: "Internal error" }); }
     return res.json({ signedUrl: data.signedUrl });
   } catch (err) {
     console.error("[sources/signed-url] Error:", err);

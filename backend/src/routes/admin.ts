@@ -164,7 +164,8 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
         .limit(500);
 
       if (error) {
-        return res.status(500).json({ error: error.message });
+        console.error("[admin] DB error:", error.message);
+        return res.status(500).json({ error: "Внутренняя ошибка сервера" });
       }
 
       if (!userMsgs || userMsgs.length === 0) {
