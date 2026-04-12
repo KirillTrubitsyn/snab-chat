@@ -405,7 +405,7 @@ ${userMessage.content}
       // Fallback: run a simple hybrid search
       const fallbackResults = await hybridSearch(searchQuery, 20, searchHints);
       const reranked = intentAwareRerank(fallbackResults, intentResult);
-      const rerankResult = await rerank(userMessage.content, reranked);
+      const rerankResult = await rerank(userMessage.content, reranked, intentResult);
       const filtered = filterByRelevance(rerankResult);
       relevantChunks = filtered.results;
       lowConfidence = filtered.lowConfidence;
@@ -700,7 +700,7 @@ ${userMessage.content}
 
   // Rerank and filter
   const rerankedResults = intentAwareRerank(combinedResults, intentResult);
-  const rerankResult = await rerank(userMessage.content, rerankedResults);
+  const rerankResult = await rerank(userMessage.content, rerankedResults, intentResult);
   const filtered = filterByRelevance(rerankResult);
   relevantChunks = filtered.results;
   lowConfidence = filtered.lowConfidence;

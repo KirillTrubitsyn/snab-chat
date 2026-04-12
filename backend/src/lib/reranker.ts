@@ -3,24 +3,63 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import type { SearchResult } from "./retrieval.js";
 import { voyageRerank } from "./voyage-reranker.js";
+import type { IntentResult, QueryIntent } from "./intent-classifier.js";
+
+/* ── Intent-based reranker routing ── */
+
+type RerankerChoice = "gemini" | "voyage";
+
+/** Intent → preferred reranker. Missing intents default to gemini. */
+const INTENT_RERANKER_MAP: Partial<Record<QueryIntent, RerankerChoice>> = {
+  entity_lookup: "voyage",   // поиск контрагентов — чистое семантическое сходство
+  pricing:       "voyage",   // числовые/табличные данные — больше контекста на чанк
+  general:       "voyage",   // общие вопросы — домен не критичен, экономим Google семафор
+};
+
+/**
+ * Intents where a clear FZ regime (223 / non-223) overrides Voyage → Gemini,
+ * because the Gemini prompt understands regime distinctions.
+ */
+const REGIME_FORCE_GEMINI: Set<QueryIntent> = new Set([
+  "entity_lookup", "general",
+]);
+
+function chooseReranker(intent?: IntentResult): RerankerChoice {
+  if (!intent) return "gemini";
+
+  const isStrictRegime = intent.fz_type === "223" || intent.fz_type === "non-223";
+  if (isStrictRegime && REGIME_FORCE_GEMINI.has(intent.intent)) {
+    return "gemini";
+  }
+
+  return INTENT_RERANKER_MAP[intent.intent] ?? "gemini";
+}
 
 /**
  * Unified rerank dispatcher.
- * Set RERANKER_MODEL env var to switch:
- *   "voyage"  → Voyage AI rerank-2.5 (cross-encoder, requires VOYAGE_API_KEY)
- *   "gemini"  → Gemini Flash LLM reranker (default, current behavior)
+ *
+ * Priority:
+ *   1. RERANKER_MODEL env var — absolute override (backward compat)
+ *   2. Intent-based routing via chooseReranker()
  */
 export async function rerank(
   query: string,
-  results: SearchResult[]
+  results: SearchResult[],
+  intent?: IntentResult
 ): Promise<SearchResult[]> {
-  const model = (process.env.RERANKER_MODEL ?? "gemini").toLowerCase();
+  const envOverride = (process.env.RERANKER_MODEL ?? "").toLowerCase();
 
-  if (model === "voyage") {
-    return voyageRerank(query, results);
+  // ENV var — absolute priority (backward compatibility)
+  if (envOverride === "voyage" || envOverride === "gemini") {
+    console.log(`[reranker] ${envOverride} (env override)`);
+    return envOverride === "voyage" ? voyageRerank(query, results) : llmRerank(query, results);
   }
 
-  return llmRerank(query, results);
+  // Intent-based routing
+  const model = chooseReranker(intent);
+  console.log(`[reranker] ${model} (intent=${intent?.intent ?? "none"}, fz=${intent?.fz_type ?? "none"})`);
+
+  return model === "voyage" ? voyageRerank(query, results) : llmRerank(query, results);
 }
 
 const RERANK_MODEL = "gemini-3.1-flash-lite-preview";
