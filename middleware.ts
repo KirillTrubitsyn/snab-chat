@@ -43,6 +43,7 @@ function buildCSP(nonce: string, pathname: string): string {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: blob:",
+    "media-src 'self' https://*.supabase.co",
     `connect-src ${connectSrcParts.join(" ")}`,
     `frame-src ${frameSrcParts.join(" ")}`,
     `frame-ancestors ${frameAncestors}`,
