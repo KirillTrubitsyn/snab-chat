@@ -1396,9 +1396,10 @@ ${uploadedDocsContext}`;
     }
   } catch (err) {
     console.error("[chat] Generation stream error:", err);
-    const errStr = err instanceof Error ? err.message : String(err);
+    // R2 fix: never expose internal error details to client via streaming
+    console.error("[chat] Stream error detail:", err instanceof Error ? err.message : String(err));
     if (!res.headersSent) {
-      res.write(`3:${JSON.stringify(errStr)}\n`);
+      res.write(`3:${JSON.stringify("Произошла ошибка при генерации ответа")}\n`);
     }
     res.end();
   }

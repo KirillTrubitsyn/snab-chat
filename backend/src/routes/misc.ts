@@ -138,20 +138,20 @@ router.post("/api/migrate", async (req: Request, res: Response) => {
       { public: false }
     );
 
+    // R3 fix: log details server-side, return generic response
+    if (bucketError) console.warn("[migrate] Bucket error:", bucketError.message);
     return res.json({
       success: true,
       message: "Migration completed",
       bucketCreated: !bucketError,
-      bucketNote: bucketError?.message || "Created successfully",
       columnNote: alterError
-        ? "Could not auto-add columns. Please run in Supabase SQL Editor: ALTER TABLE sources ADD COLUMN IF NOT EXISTS storage_path text; ALTER TABLE sources ADD COLUMN IF NOT EXISTS folder_path text;"
+        ? "Could not auto-add columns. Run migration manually in Supabase SQL Editor."
         : "Columns added successfully",
     });
   } catch (err) {
     console.error("Migration error:", err);
     return res.status(500).json({
       error: "Migration failed",
-      details: String(err),
     });
   }
 });

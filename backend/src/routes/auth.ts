@@ -146,9 +146,34 @@ router.post("/api/auth/register", async (_req: Request, res: Response) => {
   }
 });
 
+// R5 fix: shared rate limiter for password operations (10 req/min per IP)
+const passwordOpsLimiter = new Map<string, number[]>();
+function checkPasswordOpsRate(ip: string): boolean {
+  const now = Date.now();
+  const window = 60_000;
+  const maxReqs = 10;
+  const timestamps = (passwordOpsLimiter.get(ip) || []).filter(t => now - t < window);
+  if (timestamps.length >= maxReqs) return false;
+  timestamps.push(now);
+  passwordOpsLimiter.set(ip, timestamps);
+  return true;
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, ts] of passwordOpsLimiter) {
+    const fresh = ts.filter(t => now - t < 60_000);
+    if (fresh.length === 0) passwordOpsLimiter.delete(ip);
+    else passwordOpsLimiter.set(ip, fresh);
+  }
+}, 300_000);
+
 // POST /api/auth/set-password
 router.post("/api/auth/set-password", async (req: Request, res: Response) => {
   try {
+    const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",").pop()?.trim() || req.ip || "unknown";
+    if (!checkPasswordOpsRate(clientIp)) {
+      return res.status(429).json({ error: "Слишком много запросов" });
+    }
     const parsed = parseBody(req.body, setPasswordSchema, res);
     if (parsed.error) return;
 
@@ -198,6 +223,10 @@ router.post("/api/auth/set-password", async (req: Request, res: Response) => {
 // POST /api/auth/verify-password
 router.post("/api/auth/verify-password", async (req: Request, res: Response) => {
   try {
+    const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",").pop()?.trim() || req.ip || "unknown";
+    if (!checkPasswordOpsRate(clientIp)) {
+      return res.status(429).json({ error: "Слишком много запросов" });
+    }
     const parsed = parseBody(req.body, verifyPasswordSchema, res);
     if (parsed.error) return;
 
@@ -620,6 +649,10 @@ router.get("/api/auth/2fa-status", async (req: Request, res: Response) => {
 // POST /api/auth/change-password
 router.post("/api/auth/change-password", async (req: Request, res: Response) => {
   try {
+    const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",").pop()?.trim() || req.ip || "unknown";
+    if (!checkPasswordOpsRate(clientIp)) {
+      return res.status(429).json({ error: "Слишком много запросов" });
+    }
     const parsed = parseBody(req.body, changePasswordSchema, res);
     if (parsed.error) return;
 
