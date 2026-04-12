@@ -13,7 +13,8 @@ export type AuditAction =
   | "off_topic.delete"
   | "messages.delete"
   | "conversations.delete"
-  | "telegram.setup_webhook";
+  | "telegram.setup_webhook"
+  | "user.disconnect";
 
 /**
  * Log an admin action for audit trail.
