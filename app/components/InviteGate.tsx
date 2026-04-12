@@ -68,7 +68,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
 
   // Auth token from server (stored after password/2FA verification)
   const [pendingAuthToken, setPendingAuthToken] = useState("");
-  const [pendingVideoSeen, setPendingVideoSeen] = useState(false);
+  const [isFirstSetup, setIsFirstSetup] = useState(false);
 
   const getOrCreateDeviceId = (): string => {
     const key = "snabchat_device_id";
@@ -102,7 +102,6 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     name: string;
     code: string;
     authToken?: string;
-    videoSeen?: boolean;
   }) => {
     localStorage.setItem("snabchat_invite_code", data.code);
     localStorage.setItem("snabchat_invite_code_id", data.inviteCodeId);
@@ -112,11 +111,9 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     if (token) {
       localStorage.setItem("snabchat_auth_token", token);
     }
-    // Video onboarding: if user hasn't seen the video yet, signal Chat.tsx
-    // to auto-play it. sessionStorage ensures it only triggers in this tab session.
-    if (data.videoSeen) {
-      localStorage.setItem("snabchat_video_seen", "1");
-    } else {
+    // Video onboarding: show only when user just created their password (first setup).
+    // isFirstSetup is set in handleSetPassword — the only path for new users.
+    if (isFirstSetup) {
       sessionStorage.setItem("snabchat_show_video", "1");
     }
     localStorage.removeItem("snabchat_is_admin");
@@ -128,7 +125,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       userName: data.name,
       inviteCodeId: data.inviteCodeId,
     });
-  }, [onSuccess, pendingAuthToken]);
+  }, [onSuccess, pendingAuthToken, isFirstSetup]);
 
   /* ── Единый ввод: пароль или инвайт-код ── */
   const handleUnifiedSubmit = async (e: React.FormEvent) => {
@@ -155,7 +152,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         setSavedCode(data.code);
         localStorage.setItem("snabchat_invite_code", data.code);
         if (data.authToken) setPendingAuthToken(data.authToken);
-        if (data.videoSeen) setPendingVideoSeen(true);
+
         setTwoFactorMethods(data.twoFactorMethods || []);
         setCode("");
 
@@ -208,7 +205,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       setUserName(codeData.name);
       setSavedCode(codeData.code);
       localStorage.setItem("snabchat_invite_code", codeData.code);
-      if (codeData.videoSeen) setPendingVideoSeen(true);
+
 
       if (!codeData.hasPassword) {
         setStep("set-password");
@@ -258,6 +255,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       }
 
       if (data.authToken) setPendingAuthToken(data.authToken);
+      setIsFirstSetup(true);
       setPassword("");
       setPasswordConfirm("");
       setStep("recommend-2fa");
@@ -301,7 +299,6 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       setSavedCode(data.code);
       localStorage.setItem("snabchat_invite_code", data.code);
       if (data.authToken) setPendingAuthToken(data.authToken);
-      if (data.videoSeen) setPendingVideoSeen(true);
       setTwoFactorMethods(data.twoFactorMethods || []);
       setPassword("");
 
@@ -328,7 +325,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         if (data.status === "approved") {
           if (approvalPollRef.current) clearInterval(approvalPollRef.current);
           if (data.authToken) setPendingAuthToken(data.authToken);
-          completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code, authToken: data.authToken, videoSeen: !!data.videoSeen });
+          completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code, authToken: data.authToken });
         } else if (data.status === "denied") {
           if (approvalPollRef.current) clearInterval(approvalPollRef.current);
           setError("Вход отклонён. Если это не вы — смените пароль.");
@@ -421,7 +418,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         return;
       }
 
-      completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code, authToken: data.authToken, videoSeen: !!data.videoSeen });
+      completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code, authToken: data.authToken });
     } catch {
       setError("Ошибка подключения к серверу");
     } finally {
@@ -706,7 +703,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
             </button>
             <button
               className="invite-gate-back"
-              onClick={() => completeLogin({ inviteCodeId, name: userName, code: savedCode, videoSeen: pendingVideoSeen })}
+              onClick={() => completeLogin({ inviteCodeId, name: userName, code: savedCode })}
             >
               Пропустить
             </button>
@@ -851,7 +848,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
                 {error && <p className="invite-gate-error">{error}</p>}
                 <button
                   className="invite-gate-back"
-                  onClick={() => completeLogin({ inviteCodeId, name: userName, code: savedCode, videoSeen: pendingVideoSeen })}
+                  onClick={() => completeLogin({ inviteCodeId, name: userName, code: savedCode })}
                   style={{ marginTop: 12 }}
                 >
                   {twoFAStatus.telegram || twoFAStatus.sms || twoFAStatus.totp ? "Готово" : "Пропустить"}
