@@ -317,7 +317,7 @@ export async function finalizeAgenticResults(
   // Apply intent-aware reranking (FZ-type boost/penalty + intent tag boost + tier weights)
   // before cross-encoder reranking — same pipeline as deterministic path
   const intentReranked = intent ? intentAwareRerank(allChunks, intent) : allChunks;
-  const reranked = await rerank(query, intentReranked, intent);
+  const reranked = await rerank(query, intentReranked);
 
   // ── Entity-balanced selection for multi-entity queries ──
   // Without balancing, one entity can dominate the top-N results,
