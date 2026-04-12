@@ -21,11 +21,6 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
   const [controlsVisible, setControlsVisible] = useState(true);
   const [ready, setReady] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const controlsVisibleRef = useRef(true);
-
-  /* keep ref in sync so callbacks always read fresh value */
-  useEffect(() => { controlsVisibleRef.current = controlsVisible; }, [controlsVisible]);
-
   /* ── Auto-hide controls ── */
   const scheduleHide = useCallback(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
@@ -50,17 +45,12 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
     scheduleHide();
   }, [playing, scheduleHide]);
 
-  /* ── Tap on video area ──
-     First tap when controls hidden → show controls (don't toggle).
-     Tap when controls visible → toggle play/pause. */
-  const handleTap = useCallback(() => {
-    if (!controlsVisibleRef.current) {
-      scheduleHide();
-      return;
-    }
+  /* ── Click/tap on video area — always toggle playback.
+     Controls appear separately via onMouseMove (desktop) and onTouchStart (mobile). */
+  const handleVideoClick = useCallback(() => {
     toggle();
     scheduleHide();
-  }, [scheduleHide, toggle]);
+  }, [toggle, scheduleHide]);
 
   /* ── Auto-play when ready + open ── */
   useEffect(() => {
@@ -132,7 +122,7 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
           position: "relative", width: "100%", height: "100%",
           display: "flex", alignItems: "center", justifyContent: "center",
         }}
-        onClick={(e) => { e.stopPropagation(); handleTap(); }}
+        onClick={(e) => { e.stopPropagation(); handleVideoClick(); }}
       >
         <video
           ref={videoRef}
