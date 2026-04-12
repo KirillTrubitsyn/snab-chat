@@ -112,10 +112,12 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     if (token) {
       localStorage.setItem("snabchat_auth_token", token);
     }
-    // Persist server-side video_seen flag locally (only set, never remove —
-    // local state may be ahead of server if the PATCH hasn't landed yet)
+    // Video onboarding: if user hasn't seen the video yet, signal Chat.tsx
+    // to auto-play it. sessionStorage ensures it only triggers in this tab session.
     if (data.videoSeen) {
       localStorage.setItem("snabchat_video_seen", "1");
+    } else {
+      sessionStorage.setItem("snabchat_show_video", "1");
     }
     localStorage.removeItem("snabchat_is_admin");
     localStorage.removeItem("snabchat_admin_code");

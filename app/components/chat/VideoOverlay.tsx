@@ -21,6 +21,8 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
   const [controlsVisible, setControlsVisible] = useState(true);
   const [ready, setReady] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const autoPlayFired = useRef(false);
+
   /* ── Auto-hide controls ── */
   const scheduleHide = useCallback(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
@@ -32,39 +34,41 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
 
   /* ── Toggle play/pause ── */
   const toggle = useCallback(() => {
-    if (!videoRef.current) return;
+    const v = videoRef.current;
+    if (!v) return;
     setError(null);
-    if (playing) {
-      videoRef.current.pause();
-      setPlaying(false);
-    } else {
-      videoRef.current.play()
+    if (v.paused) {
+      v.play()
         .then(() => setPlaying(true))
         .catch((e) => setError(e.message));
+    } else {
+      v.pause();
+      setPlaying(false);
     }
     scheduleHide();
-  }, [playing, scheduleHide]);
+  }, [scheduleHide]);
 
-  /* ── Click/tap on video area — always toggle playback.
-     Controls appear separately via onMouseMove (desktop) and onTouchStart (mobile). */
-  const handleVideoClick = useCallback(() => {
-    toggle();
-    scheduleHide();
-  }, [toggle, scheduleHide]);
-
-  /* ── Auto-play when ready + open ── */
+  /* ── Auto-play: fires exactly once when overlay opens and video is ready ── */
   useEffect(() => {
-    if (!open || !ready || !videoRef.current) return;
+    if (!open || !ready || !videoRef.current || autoPlayFired.current) return;
+    autoPlayFired.current = true;
     videoRef.current.play()
       .then(() => { setPlaying(true); scheduleHide(); })
       .catch(() => {});
-  }, [open, ready, scheduleHide]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, ready]);
 
-  /* ── Pause when closed ── */
+  /* ── Reset autoplay flag when overlay closes ── */
   useEffect(() => {
-    if (!open && videoRef.current) {
-      videoRef.current.pause();
+    if (!open) {
+      autoPlayFired.current = false;
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.currentTime = 0;
+      }
       setPlaying(false);
+      setReady(false);
+      setLoading(true);
     }
   }, [open]);
 
@@ -116,13 +120,13 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
         .vo-btn:active { background: rgba(255,255,255,0.2); }
       `}</style>
 
-      {/* Video container */}
+      {/* Video container — click toggles play/pause */}
       <div
         style={{
           position: "relative", width: "100%", height: "100%",
           display: "flex", alignItems: "center", justifyContent: "center",
         }}
-        onClick={(e) => { e.stopPropagation(); handleVideoClick(); }}
+        onClick={(e) => { e.stopPropagation(); toggle(); scheduleHide(); }}
       >
         <video
           ref={videoRef}
@@ -131,6 +135,7 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
           style={{
             maxWidth: "100%", maxHeight: "100%",
             borderRadius: 0, outline: "none",
+            pointerEvents: "none",
           }}
           onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
           onCanPlay={() => { setLoading(false); setReady(true); }}
@@ -185,6 +190,7 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
                 setError(null);
                 setLoading(true);
                 setReady(false);
+                autoPlayFired.current = false;
                 if (videoRef.current) videoRef.current.load();
               }}
               style={{ background: "rgba(255,255,255,0.15)", padding: "10px 24px", borderRadius: 10, fontSize: 14 }}
@@ -213,7 +219,7 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
           </div>
         )}
 
-        {/* Close button (top-right) — always clickable via pointer-events */}
+        {/* Close button — always clickable */}
         <button
           className="vo-btn"
           onClick={(e) => { e.stopPropagation(); handleClose(); }}

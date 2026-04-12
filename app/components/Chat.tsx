@@ -83,12 +83,14 @@ export default function Chat() {
     setAuthLoading(false);
   }, []);
 
-  /* ── First-visit: auto-play video presentation ── */
+  /* ── First-visit: auto-play video presentation ──
+     Only shows when InviteGate explicitly sets the "snabchat_show_video" flag
+     in sessionStorage (new user who just created a password). */
   useEffect(() => {
     if (isAuthenticated && typeof window !== "undefined") {
-      const seen = localStorage.getItem("snabchat_video_seen");
-      if (!seen) {
-        // Small delay to let the UI settle before showing video
+      const shouldShow = sessionStorage.getItem("snabchat_show_video");
+      if (shouldShow) {
+        sessionStorage.removeItem("snabchat_show_video");
         const t = setTimeout(() => setShowVideoOverlay(true), 800);
         return () => clearTimeout(t);
       }
