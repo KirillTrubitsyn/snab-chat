@@ -84,11 +84,12 @@ router.post("/api/auth/login", async (req: Request, res: Response) => {
     const supabase = createServiceClient();
     const { data: codeData } = await supabase
       .from("invite_codes")
-      .select("password_hash, telegram_chat_id, phone_number, totp_secret")
+      .select("password_hash, telegram_chat_id, phone_number, totp_secret, video_seen")
       .eq("id", invite.id)
       .single();
 
     const hasPassword = !!codeData?.password_hash;
+    const videoSeen = !!codeData?.video_seen;
     const twoFactorMethods: string[] = [];
     if (codeData?.telegram_chat_id) twoFactorMethods.push("telegram");
     if (codeData?.phone_number) twoFactorMethods.push("sms");
@@ -125,6 +126,7 @@ router.post("/api/auth/login", async (req: Request, res: Response) => {
       code: upperCode,
       hasPassword,
       twoFactorMethods,
+      videoSeen,
     });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });
@@ -379,6 +381,7 @@ router.post("/api/auth/verify-otp", async (req: Request, res: Response) => {
       name: invite.name,
       code: upperCode,
       authToken,
+      videoSeen: !!(invite as Record<string, unknown>).video_seen,
     });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });
@@ -796,7 +799,7 @@ router.get("/api/auth/check-login-approval", async (req: Request, res: Response)
       // Вернуть данные пользователя для завершения входа
       const { data: invite } = await supabase
         .from("invite_codes")
-        .select("id, code, name")
+        .select("id, code, name, video_seen")
         .eq("id", approval.invite_code_id)
         .single();
 
@@ -808,6 +811,7 @@ router.get("/api/auth/check-login-approval", async (req: Request, res: Response)
         name: invite?.name,
         code: invite?.code,
         authToken,
+        videoSeen: !!invite?.video_seen,
       });
     }
 
@@ -829,7 +833,7 @@ router.post("/api/auth/login-password", async (req: Request, res: Response) => {
     const supabase = createServiceClient();
     const { data: users, error: dbError } = await supabase
       .from("invite_codes")
-      .select("id, code, name, organization, password_hash, device_limit, telegram_chat_id, phone_number, totp_secret")
+      .select("id, code, name, organization, password_hash, device_limit, telegram_chat_id, phone_number, totp_secret, video_seen")
       .not("password_hash", "is", null)
       .eq("is_active", true);
 
@@ -881,7 +885,35 @@ router.post("/api/auth/login-password", async (req: Request, res: Response) => {
       code: matched.code,
       twoFactorMethods,
       authToken,
+      videoSeen: !!matched.video_seen,
     });
+  } catch {
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// PATCH /api/auth/video-seen — mark onboarding video as watched
+router.patch("/api/auth/video-seen", async (req: Request, res: Response) => {
+  try {
+    const inviteCodeId = req.headers["x-invite-code-id"] as string
+      || req.body?.inviteCodeId;
+
+    if (!inviteCodeId) {
+      return res.status(400).json({ error: "inviteCodeId обязателен" });
+    }
+
+    const supabase = createServiceClient();
+    const { error } = await supabase
+      .from("invite_codes")
+      .update({ video_seen: true })
+      .eq("id", inviteCodeId);
+
+    if (error) {
+      console.error("[video-seen] DB error:", error.message);
+      return res.status(500).json({ error: "Ошибка сохранения" });
+    }
+
+    return res.json({ success: true });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });
   }

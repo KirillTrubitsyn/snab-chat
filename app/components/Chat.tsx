@@ -99,6 +99,15 @@ export default function Chat() {
     setShowVideoOverlay(false);
     if (typeof window !== "undefined") {
       localStorage.setItem("snabchat_video_seen", "1");
+      // Mark video as seen on the server (fire-and-forget)
+      const id = localStorage.getItem("snabchat_invite_code_id");
+      if (id) {
+        fetch(apiUrl("/api/auth/video-seen"), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+          body: JSON.stringify({ inviteCodeId: id }),
+        }).catch(() => {});
+      }
     }
   }, []);
 
@@ -118,6 +127,7 @@ export default function Chat() {
     localStorage.removeItem("snabchat_admin_code");
     localStorage.removeItem("snabchat_is_doc_admin");
     localStorage.removeItem("snabchat_auth_token");
+    localStorage.removeItem("snabchat_video_seen");
     setIsAuthenticated(false);
     setInviteCode("");
     setUserName("");

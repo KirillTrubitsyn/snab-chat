@@ -68,6 +68,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
 
   // Auth token from server (stored after password/2FA verification)
   const [pendingAuthToken, setPendingAuthToken] = useState("");
+  const [pendingVideoSeen, setPendingVideoSeen] = useState(false);
 
   const getOrCreateDeviceId = (): string => {
     const key = "snabchat_device_id";
@@ -101,6 +102,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     name: string;
     code: string;
     authToken?: string;
+    videoSeen?: boolean;
   }) => {
     localStorage.setItem("snabchat_invite_code", data.code);
     localStorage.setItem("snabchat_invite_code_id", data.inviteCodeId);
@@ -109,6 +111,12 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     const token = data.authToken || pendingAuthToken;
     if (token) {
       localStorage.setItem("snabchat_auth_token", token);
+    }
+    // Persist server-side video_seen flag locally
+    if (data.videoSeen) {
+      localStorage.setItem("snabchat_video_seen", "1");
+    } else {
+      localStorage.removeItem("snabchat_video_seen");
     }
     localStorage.removeItem("snabchat_is_admin");
     localStorage.removeItem("snabchat_admin_code");
@@ -146,6 +154,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         setSavedCode(data.code);
         localStorage.setItem("snabchat_invite_code", data.code);
         if (data.authToken) setPendingAuthToken(data.authToken);
+        if (data.videoSeen) setPendingVideoSeen(true);
         setTwoFactorMethods(data.twoFactorMethods || []);
         setCode("");
 
@@ -198,6 +207,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       setUserName(codeData.name);
       setSavedCode(codeData.code);
       localStorage.setItem("snabchat_invite_code", codeData.code);
+      if (codeData.videoSeen) setPendingVideoSeen(true);
 
       if (!codeData.hasPassword) {
         setStep("set-password");
@@ -316,7 +326,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         if (data.status === "approved") {
           if (approvalPollRef.current) clearInterval(approvalPollRef.current);
           if (data.authToken) setPendingAuthToken(data.authToken);
-          completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code, authToken: data.authToken });
+          completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code, authToken: data.authToken, videoSeen: !!data.videoSeen });
         } else if (data.status === "denied") {
           if (approvalPollRef.current) clearInterval(approvalPollRef.current);
           setError("Вход отклонён. Если это не вы — смените пароль.");
@@ -409,7 +419,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         return;
       }
 
-      completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code, authToken: data.authToken });
+      completeLogin({ inviteCodeId: data.inviteCodeId, name: data.name, code: data.code, authToken: data.authToken, videoSeen: !!data.videoSeen });
     } catch {
       setError("Ошибка подключения к серверу");
     } finally {
@@ -694,7 +704,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
             </button>
             <button
               className="invite-gate-back"
-              onClick={() => completeLogin({ inviteCodeId, name: userName, code: savedCode })}
+              onClick={() => completeLogin({ inviteCodeId, name: userName, code: savedCode, videoSeen: pendingVideoSeen })}
             >
               Пропустить
             </button>
@@ -839,7 +849,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
                 {error && <p className="invite-gate-error">{error}</p>}
                 <button
                   className="invite-gate-back"
-                  onClick={() => completeLogin({ inviteCodeId, name: userName, code: savedCode })}
+                  onClick={() => completeLogin({ inviteCodeId, name: userName, code: savedCode, videoSeen: pendingVideoSeen })}
                   style={{ marginTop: 12 }}
                 >
                   {twoFAStatus.telegram || twoFAStatus.sms || twoFAStatus.totp ? "Готово" : "Пропустить"}
