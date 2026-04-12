@@ -293,13 +293,15 @@ export async function searchContractorCards(
       // Skip the first pattern (exact match, already tried) — only deletion variants
       for (const pat of patterns.slice(1)) {
         fuzzyQueries.push(
-          supabase
-            .from("chunks")
-            .select("id, content, source_filename, chunk_index, tags, image_paths")
-            .contains("tags", ["карточка контрагента"])
-            .ilike("content", pat)
-            .limit(10)
-            .then(({ data }) => data ?? [])
+          Promise.resolve(
+            supabase
+              .from("chunks")
+              .select("id, content, source_filename, chunk_index, tags, image_paths")
+              .contains("tags", ["карточка контрагента"])
+              .ilike("content", pat)
+              .limit(10)
+              .then(({ data }: { data: any }) => data ?? [])
+          )
         );
       }
     }
