@@ -9,10 +9,15 @@ import type { IntentResult, QueryIntent } from "./intent-classifier.js";
 
 type RerankerChoice = "gemini" | "voyage";
 
-/** Intent → preferred reranker. Missing intents default to gemini. */
+/**
+ * Intent → preferred reranker. Missing intents default to gemini.
+ *
+ * entity_lookup оставлен на Gemini: короткие запросы ("контрагенты по электромонтажу")
+ * требуют доменного понимания, чтобы ранжировать карточки СПУ выше нормативных документов.
+ * Voyage чисто семантический и не справляется с такой задачей.
+ */
 const INTENT_RERANKER_MAP: Partial<Record<QueryIntent, RerankerChoice>> = {
-  entity_lookup: "voyage",   // поиск контрагентов — чистое семантическое сходство
-  pricing:       "voyage",   // числовые/табличные данные — больше контекста на чанк
+  pricing:       "voyage",   // числовые/табличные данные — больше контекста на чанк (4000 vs 1500)
   general:       "voyage",   // общие вопросы — домен не критичен, экономим Google семафор
 };
 
@@ -21,7 +26,7 @@ const INTENT_RERANKER_MAP: Partial<Record<QueryIntent, RerankerChoice>> = {
  * because the Gemini prompt understands regime distinctions.
  */
 const REGIME_FORCE_GEMINI: Set<QueryIntent> = new Set([
-  "entity_lookup", "general",
+  "general",
 ]);
 
 function chooseReranker(intent?: IntentResult): RerankerChoice {
