@@ -26,6 +26,13 @@ export async function rerank(
 const RERANK_MODEL = "gemini-3.1-flash-lite-preview";
 const MAX_CHUNKS_TO_RERANK = 20;
 const MAX_CHUNK_PREVIEW = 1500; // chars per chunk in reranker prompt
+const HARD_REJECT_SCORE = 2.5;
+const STRONG_KEEP_SCORE = 7.5;
+
+function tokenize(text: string): string[] {
+  return (text.toLowerCase().match(/[a-zа-яё0-9]{3,}/gi) ?? [])
+    .filter((t, i, arr) => arr.indexOf(t) === i);
+}
 
 /**
  * LLM-based reranker: sends query + candidate chunks to Gemini Flash
@@ -67,7 +74,10 @@ export async function llmRerank(
             })
           ),
         }),
-        prompt: `Ты — строгая система оценки релевантности документов для RAG-поиска. Оцени каждый фрагмент по шкале от 0 до 10 — насколько он НАПРЯМУЮ полезен для ответа на вопрос пользователя.
+        prompt: `Ты — система СТРОГОЙ оценки релевантности документов.
+Оцени каждый фрагмент по шкале от 0 до 10 — насколько он полезен для ответа на вопрос пользователя.
+Если фрагмент только тематически похож, но НЕ помогает ответить на конкретный вопрос — ставь 0-3.
+Если фрагмент относится к другому объекту/организации/режиму закупок — ставь 0-2.
 
 ШКАЛА ОЦЕНКИ (будь строгим — большинство фрагментов должны получить 0-3):
 10 = напрямую и полностью отвечает на вопрос, содержит конкретные данные/процедуры/цифры
@@ -90,7 +100,7 @@ ${query}
 ФРАГМЕНТЫ ДОКУМЕНТОВ:
 ${chunksXml}
 
-Верни оценку для КАЖДОГО фрагмента. Помни: лучше недооценить сомнительный фрагмент, чем пропустить мусор в контекст модели.`,
+Верни оценку для КАЖДОГО фрагмента. Будь максимально строгим: мусор и общие совпадения должны получать низкий балл.`,
         temperature: 0,
       })
     );
@@ -103,17 +113,34 @@ ${chunksXml}
       }
     }
 
-    // Blend: 50% original hybrid score (normalized) + 50% LLM rerank score (normalized to 0-1)
-    // LLM cross-encoder sees query+doc together — give it equal weight for better filtering
+    // Blend with strong LLM priority:
+    // original retrieval is recall-heavy and can contain semantic noise.
+    // LLM cross-encoder score should dominate the final rank.
     const maxOriginal = Math.max(...candidates.map((r) => r.similarity), 0.01);
+    const queryTokens = new Set(tokenize(query));
 
     const reranked = candidates.map((r, i) => {
       const llmScore = scoreMap.get(i) ?? 2; // default to low if missing — don't assume relevance
       const normalizedOriginal = r.similarity / maxOriginal;
       const normalizedLlm = llmScore / 10;
-      const blended = normalizedOriginal * 0.5 + normalizedLlm * 0.5;
+      const blended = normalizedOriginal * 0.35 + normalizedLlm * 0.65;
+
+      const chunkTokens = tokenize(r.content);
+      const overlap = chunkTokens.length === 0
+        ? 0
+        : chunkTokens.filter((t) => queryTokens.has(t)).length / chunkTokens.length;
+
+      let finalScore = blended;
+      // Hard suppress obvious garbage: low LLM score + almost no lexical overlap.
+      if (llmScore < HARD_REJECT_SCORE && overlap < 0.08) {
+        finalScore *= 0.25;
+      }
+      // Small bonus for highly relevant chunks to increase separation from the tail.
+      if (llmScore >= STRONG_KEEP_SCORE) {
+        finalScore *= 1.05;
+      }
       // Scale back to original score range for compatibility with filterByRelevance thresholds
-      return { ...r, similarity: blended * maxOriginal };
+      return { ...r, similarity: finalScore * maxOriginal };
     });
 
     reranked.sort((a, b) => b.similarity - a.similarity);
