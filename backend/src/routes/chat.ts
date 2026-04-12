@@ -1,9 +1,9 @@
 import { Router, Request, Response } from "express";
 import { type ModelMessage } from "ai";
 import { GoogleGenAI } from "@google/genai";
-import { hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, type SearchResult } from "../lib/retrieval.js";
+import { hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, searchContractorCards, type SearchResult } from "../lib/retrieval.js";
 import { rerank } from "../lib/reranker.js";
-import { classifyIntent } from "../lib/intent-classifier.js";
+import { classifyIntent, type SpuSubIntent } from "../lib/intent-classifier.js";
 import { loadConversationContext, saveMessage } from "../lib/memory.js";
 import { getInviteCodeFromHeader, isAdminCode } from "../lib/auth.js";
 import { createServiceClient } from "../lib/supabase.js";
@@ -50,6 +50,59 @@ function escapeXmlAttr(str: string): string {
     .replace(/'/g, "&apos;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+/* ── SPU contractor search: adaptive prompts by sub-intent ── */
+
+const SPU_BASE = `
+КОНТЕКСТ: В базе знаний загружены карточки контрагентов из Системы предквалификации и учёта (СПУ).
+Каждая карточка содержит: ИНН, контактные данные, виды работ, объекты, бизнес-единицы СГК, годы участия, статусы допуска, детали закупок.
+Карточек более 2000. Используй найденные карточки для ответа. Не додумывай данные, которых нет в карточках.
+`;
+
+const SPU_SUB_PROMPTS: Record<SpuSubIntent, string> = {
+  find_by_work: `${SPU_BASE}
+ЗАДАЧА: Пользователь ищет контрагентов для определённого вида работ или услуг.
+ФОРМАТ ОТВЕТА:
+1. Перечисли найденных контрагентов таблицей: Наименование | ИНН | Виды работ | Объекты | Статус
+2. Если контрагентов много, выдели наиболее релевантных (по видам работ и статусу)
+3. Укажи, сколько всего совпадений найдено в базе
+4. Предложи уточнить поиск, если результатов слишком много или мало`,
+
+  company_info: `${SPU_BASE}
+ЗАДАЧА: Пользователь спрашивает о конкретном контрагенте.
+ФОРМАТ ОТВЕТА:
+1. Выведи ВСЮ информацию из карточки: ИНН, контакты, виды работ, объекты, бизнес-единицы
+2. Перечисли все закупки с деталями (год, объект, сумма, статус)
+3. Укажи текущий статус допуска в системе СПУ
+4. Если карточка не найдена — скажи прямо`,
+
+  check_participant: `${SPU_BASE}
+ЗАДАЧА: Пользователь проверяет, есть ли контрагент в базе СПУ.
+ФОРМАТ ОТВЕТА:
+1. Ответь чётко: ДА (найден) или НЕТ (не найден в базе)
+2. Если найден — покажи ключевые данные: ИНН, виды работ, статус допуска, последняя активность
+3. Если не найден — сообщи об этом и предложи проверить ИНН или написание`,
+
+  contacts: `${SPU_BASE}
+ЗАДАЧА: Пользователь ищет контактные данные контрагента.
+ФОРМАТ ОТВЕТА:
+1. Выведи все доступные контакты: телефон, email, адрес, контактное лицо
+2. Если контактов в карточке нет — скажи об этом прямо
+3. Покажи также ИНН и наименование для идентификации`,
+
+  compare: `${SPU_BASE}
+ЗАДАЧА: Пользователь сравнивает контрагентов.
+ФОРМАТ ОТВЕТА:
+1. Построй сравнительную таблицу: Параметр | Контрагент 1 | Контрагент 2
+2. Включи: ИНН, виды работ, объекты, статус допуска, количество закупок
+3. Выдели ключевые отличия
+4. Не давай рекомендацию «кого выбрать» — только факты`,
+};
+
+function generateSpuPrompt(subIntent?: SpuSubIntent): string {
+  if (!subIntent) return SPU_SUB_PROMPTS.find_by_work;
+  return SPU_SUB_PROMPTS[subIntent] ?? SPU_SUB_PROMPTS.find_by_work;
 }
 
 /** Санитизация содержимого документов для защиты от промпт-инъекций */
@@ -375,10 +428,16 @@ ${userMessage.content}
     hybridSearch(q, 20, searchHints)
   );
 
-  const [sectionResults, docResults, catalogResults, ...variantResults] = await Promise.all([
+  // Contractor card search runs in parallel when intent is entity_lookup
+  const contractorSearchPromise = intentResult.intent === "entity_lookup"
+    ? searchContractorCards(userMessage.content, 10)
+    : Promise.resolve([]);
+
+  const [sectionResults, docResults, catalogResults, contractorResults, ...variantResults] = await Promise.all([
     sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
     docRef ? fetchChunksByDocument(docRef, docRef.filenameHints.length > 2 ? 15 : 8, userMessage.content) : Promise.resolve([]),
     catalogQuery ? fetchCatalogResults(catalogQuery) : Promise.resolve([]),
+    contractorSearchPromise,
     ...searchPromises,
   ]);
 
@@ -398,6 +457,16 @@ ${userMessage.content}
   // Merge section-lookup and document-lookup results with search results (dedup by id)
   let combinedResults = searchResults;
   const existingIds = new Set(searchResults.map((r) => r.id));
+
+  // Merge contractor card results (boosted similarity)
+  if (contractorResults.length > 0) {
+    const boostedContractor = contractorResults
+      .filter((r) => !existingIds.has(r.id))
+      .map((r) => ({ ...r, similarity: Math.max(r.similarity, 0.85) }));
+    for (const r of boostedContractor) existingIds.add(r.id);
+    combinedResults = [...boostedContractor, ...combinedResults];
+    console.log(`[chat] Contractor card search added ${boostedContractor.length} new chunks`);
+  }
 
   if (sectionResults.length > 0) {
     const newSectionResults = sectionResults.filter((r) => !existingIds.has(r.id));
@@ -844,6 +913,11 @@ ${userMessage.content}
   const matchedDirectives = getMatchingDirectives(userMessage.content, intentResult.intent);
   const directivesBlock = generateDirectivesPromptBlock(matchedDirectives);
 
+  // ── SPU contractor search prompt (adaptive by sub-intent) ──
+  const spuPromptBlock = intentResult.intent === "entity_lookup"
+    ? `\n\n=== ПОИСК КОНТРАГЕНТОВ (СПУ) ===\n${generateSpuPrompt(intentResult.spu_sub_intent)}`
+    : "";
+
   // ── Phase 1: Adaptive system prompt based on document intent ──
   let uploadedDocsInstructions = "";
   if (effectiveHasAttachments) {
@@ -962,7 +1036,7 @@ ${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФО
 
 ПРИМЕР ОТКАЗА (когда информации нет):
 Вопрос: Какова средняя зарплата в отделе закупок?
-Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${directivesBlock}
+Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${directivesBlock}${spuPromptBlock}
 
 === СТАВКА НДС ===
 

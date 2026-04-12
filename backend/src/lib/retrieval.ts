@@ -150,6 +150,66 @@ export function tierWeightedRerank(results: SearchResult[]): SearchResult[] {
     .sort((a, b) => b.similarity - a.similarity);
 }
 
+/* ── Contractor card search (pre-filtered by tag "карточка контрагента") ── */
+
+export async function searchContractorCards(
+  query: string,
+  matchCount: number = 10
+): Promise<SearchResult[]> {
+  const supabase = createServiceClient();
+
+  // Step 0: INN detection — direct ILIKE bypass (numbers are invisible to FTS/embeddings)
+  const innMatch = query.match(/\d{9,12}/);
+  if (innMatch) {
+    const inn = innMatch[0];
+    console.log("searchContractorCards: detected INN =", inn);
+    const { data: innData } = await supabase
+      .from("chunks")
+      .select("id, content, source_filename, chunk_index, tags, image_paths")
+      .contains("tags", ["карточка контрагента"])
+      .ilike("content", `%${inn}%`)
+      .limit(matchCount);
+
+    if (innData && innData.length > 0) {
+      console.log("searchContractorCards: INN lookup found", innData.length, "results");
+      return innData.map((r) => ({
+        id: r.id,
+        content: r.content,
+        source_filename: r.source_filename,
+        chunk_index: r.chunk_index,
+        similarity: 0.95,
+        tags: r.tags ?? [],
+        image_paths: r.image_paths ?? [],
+      }));
+    }
+  }
+
+  // Step A: FTS on contractor cards
+  const { data: ftsData } = await supabase
+    .from("chunks")
+    .select("id, content, source_filename, chunk_index, tags, image_paths")
+    .contains("tags", ["карточка контрагента"])
+    .textSearch("fts", query.split(/\s+/).filter(w => w.length > 2).join(" & "), { type: "plain" })
+    .limit(matchCount);
+
+  if (ftsData && ftsData.length > 0) {
+    console.log("searchContractorCards: FTS found", ftsData.length, "results");
+    return ftsData.map((r) => ({
+      id: r.id,
+      content: r.content,
+      source_filename: r.source_filename,
+      chunk_index: r.chunk_index,
+      similarity: 0.80,
+      tags: r.tags ?? [],
+      image_paths: r.image_paths ?? [],
+    }));
+  }
+
+  // Step B: fallback to hybrid search with tag filter
+  console.log("searchContractorCards: FTS empty, falling back to hybrid search");
+  return hybridSearch(query, matchCount, ["карточка контрагента"]);
+}
+
 /* ── Core hybrid search (updated: image_paths in result) ── */
 
 export async function hybridSearch(
