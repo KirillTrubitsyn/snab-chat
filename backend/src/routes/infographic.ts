@@ -2,7 +2,8 @@ import { Router, Request, Response } from "express";
 import { GoogleGenAI } from "@google/genai";
 import { withGoogleApiLimit } from "../lib/google-ai.js";
 import { createServiceClient } from "../lib/supabase.js";
-import { getInviteCodeFromHeader, requireAuth } from "../lib/auth.js";
+import { getInviteCodeFromHeader, getAdminName, requireAuth } from "../lib/auth.js";
+import { logAuditEvent } from "../lib/audit-log.js";
 
 const router = Router();
 
@@ -63,6 +64,15 @@ function fixCyrillicLookalikes(text: string): string {
 router.post("/api/infographic", async (req: Request, res: Response) => {
   const authCheck = await requireAuth(req, res);
   if (!authCheck) return;
+
+  // Extract client IP for audit trail
+  const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",").pop()?.trim() || req.ip || "unknown";
+
+  // Resolve admin name if admin request
+  const rawCode = (req.headers["x-invite-code"] as string) || (req.headers["x-admin-code"] as string) || "";
+  let decodedCode = rawCode;
+  try { decodedCode = decodeURIComponent(rawCode); } catch { /* keep raw */ }
+  const adminName = authCheck.isAdmin ? (getAdminName(decodedCode) ?? "Админ") : null;
 
   // Enforce infographic_limit for non-admin users
   const invite = await getInviteCodeFromHeader(req);
@@ -176,6 +186,8 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
               aspect_ratio: aspectRatio || "16:9",
               description: descText,
               image_base64: imageBase64,
+              admin_name: adminName || null,
+              ip_address: clientIp,
             })
             .select("id")
             .single();
@@ -183,6 +195,21 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
             console.error("Infographic DB save error:", saveError.message);
           }
           savedId = saved?.id || null;
+
+          // Audit log for traceability
+          const userName = adminName || invite?.name || "unknown";
+          logAuditEvent({
+            action: "infographic.generate",
+            adminName: userName,
+            targetId: savedId,
+            details: {
+              topic: topicText,
+              style: style || "business_infographic",
+              ip: clientIp,
+              isAdmin: authCheck.isAdmin,
+              inviteCodeId: isRealInviteCode ? invite!.id : null,
+            },
+          });
 
           // Decrement infographic_limit for non-admin users
           if (isRealInviteCode && invite!.infographic_limit !== null) {

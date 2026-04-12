@@ -239,7 +239,7 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
         .limit(500),
       supabase
         .from("infographics")
-        .select("id, invite_code_id, conversation_id, topic, created_at")
+        .select("id, invite_code_id, conversation_id, topic, admin_name, ip_address, created_at")
         .order("created_at", { ascending: false })
         .limit(200),
     ]);
@@ -310,6 +310,10 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
         const code = codesMap[ig.invite_code_id];
         user_name = code.name || "Неизвестный";
         organization = code.organization || "";
+      } else if (ig.admin_name) {
+        // Admin-created infographic (invite_code_id is null for admins)
+        user_name = ig.admin_name;
+        organization = "Админ";
       }
       return {
         id: ig.id,

@@ -296,6 +296,8 @@ create table if not exists infographics (
   aspect_ratio text not null default '16:9',
   description text default '',
   image_base64 text not null,
+  admin_name text default null,
+  ip_address text default null,
   created_at timestamptz default now()
 );
 
