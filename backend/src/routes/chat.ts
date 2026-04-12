@@ -459,13 +459,16 @@ ${userMessage.content}
   const existingIds = new Set(searchResults.map((r) => r.id));
 
   // Merge contractor card results (boosted similarity)
+  // When intent is entity_lookup, contractor cards are the primary data source
+  // and must outrank generic procurement documents
   if (contractorResults.length > 0) {
+    const boostScore = intentResult.intent === "entity_lookup" ? 0.92 : 0.85;
     const boostedContractor = contractorResults
       .filter((r) => !existingIds.has(r.id))
-      .map((r) => ({ ...r, similarity: Math.max(r.similarity, 0.85) }));
+      .map((r) => ({ ...r, similarity: Math.max(r.similarity, boostScore) }));
     for (const r of boostedContractor) existingIds.add(r.id);
     combinedResults = [...boostedContractor, ...combinedResults];
-    console.log(`[chat] Contractor card search added ${boostedContractor.length} new chunks`);
+    console.log(`[chat] Contractor card search added ${boostedContractor.length} new chunks (boost=${boostScore})`);
   }
 
   if (sectionResults.length > 0) {

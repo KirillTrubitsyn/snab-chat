@@ -184,29 +184,91 @@ export async function searchContractorCards(
     }
   }
 
-  // Step A: FTS on contractor cards
-  const { data: ftsData } = await supabase
-    .from("chunks")
-    .select("id, content, source_filename, chunk_index, tags, image_paths")
-    .contains("tags", ["карточка контрагента"])
-    .textSearch("fts", query.split(/\s+/).filter(w => w.length > 2).join(" & "), { type: "plain" })
-    .limit(matchCount);
+  // Extract meaningful keywords (drop stopwords and generic terms)
+  const STOP_WORDS = new Set([
+    "услуги", "работы", "компании", "компания", "организации", "организация",
+    "фирмы", "фирма", "найди", "найти", "подбери", "покажи", "какие",
+    "есть", "кто", "оказывает", "выполняет", "делает", "предоставляет",
+    "нужны", "нужен", "для", "при", "все", "наши", "базе", "реестре",
+  ]);
+  const keywords = query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => w.replace(/[.,!?;:()«»""]/g, ""))
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
 
-  if (ftsData && ftsData.length > 0) {
-    console.log("searchContractorCards: FTS found", ftsData.length, "results");
-    return ftsData.map((r) => ({
-      id: r.id,
-      content: r.content,
-      source_filename: r.source_filename,
-      chunk_index: r.chunk_index,
-      similarity: 0.80,
-      tags: r.tags ?? [],
-      image_paths: r.image_paths ?? [],
-    }));
+  console.log("searchContractorCards: keywords =", keywords);
+
+  // Step A: ILIKE search by each keyword (most reliable for contractor cards)
+  // Each keyword is searched independently, results merged with score by match count
+  if (keywords.length > 0) {
+    const allResults = new Map<string, { row: any; matchCount: number }>();
+
+    for (const kw of keywords) {
+      const { data } = await supabase
+        .from("chunks")
+        .select("id, content, source_filename, chunk_index, tags, image_paths")
+        .contains("tags", ["карточка контрагента"])
+        .ilike("content", `%${kw}%`)
+        .limit(matchCount * 2);
+
+      if (data) {
+        for (const row of data) {
+          const existing = allResults.get(row.id);
+          if (existing) {
+            existing.matchCount++;
+          } else {
+            allResults.set(row.id, { row, matchCount: 1 });
+          }
+        }
+      }
+    }
+
+    if (allResults.size > 0) {
+      // Sort by number of keyword matches (desc), take top N
+      const sorted = Array.from(allResults.values())
+        .sort((a, b) => b.matchCount - a.matchCount)
+        .slice(0, matchCount);
+
+      console.log("searchContractorCards: ILIKE found", allResults.size, "unique results,", sorted.length, "returned");
+      return sorted.map(({ row, matchCount: mc }) => ({
+        id: row.id,
+        content: row.content,
+        source_filename: row.source_filename,
+        chunk_index: row.chunk_index,
+        similarity: Math.min(0.70 + mc * 0.10, 0.95), // more keyword matches = higher score
+        tags: row.tags ?? [],
+        image_paths: row.image_paths ?? [],
+      }));
+    }
   }
 
-  // Step B: fallback to hybrid search with tag filter
-  console.log("searchContractorCards: FTS empty, falling back to hybrid search");
+  // Step B: FTS with OR logic (broader than AND)
+  if (keywords.length > 0) {
+    const ftsQuery = keywords.join(" | ");
+    const { data: ftsData } = await supabase
+      .from("chunks")
+      .select("id, content, source_filename, chunk_index, tags, image_paths")
+      .contains("tags", ["карточка контрагента"])
+      .textSearch("fts", ftsQuery, { type: "plain" })
+      .limit(matchCount);
+
+    if (ftsData && ftsData.length > 0) {
+      console.log("searchContractorCards: FTS(OR) found", ftsData.length, "results");
+      return ftsData.map((r) => ({
+        id: r.id,
+        content: r.content,
+        source_filename: r.source_filename,
+        chunk_index: r.chunk_index,
+        similarity: 0.75,
+        tags: r.tags ?? [],
+        image_paths: r.image_paths ?? [],
+      }));
+    }
+  }
+
+  // Step C: fallback to hybrid search with tag filter
+  console.log("searchContractorCards: ILIKE+FTS empty, falling back to hybrid search");
   return hybridSearch(query, matchCount, ["карточка контрагента"]);
 }
 
