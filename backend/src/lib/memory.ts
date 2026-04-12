@@ -2,12 +2,13 @@ import { createServiceClient } from "./supabase.js";
 import { google, withGoogleApiLimit } from "./google-ai.js";
 import { generateText } from "ai";
 
-const HISTORY_TOKEN_BUDGET = 30000;
 const SUMMARIZE_THRESHOLD = 25000;
 const RECENT_MESSAGES_KEEP = 10;
 
 export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 3);
+  // Cyrillic characters encode as ~1.5–2 tokens each in most tokenizers,
+  // so text.length/2 is a more accurate estimate than /3 for Russian text.
+  return Math.ceil(text.length / 2);
 }
 
 interface Message {

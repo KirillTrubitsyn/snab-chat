@@ -1,9 +1,9 @@
 import { Router, Request, Response } from "express";
 import { type ModelMessage } from "ai";
 import { GoogleGenAI } from "@google/genai";
-import { multiQuerySearch, hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, searchContractorCards, type SearchResult } from "../lib/retrieval.js";
+import { hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, type SearchResult } from "../lib/retrieval.js";
 import { rerank } from "../lib/reranker.js";
-import { classifyIntent, COMPANY_PATTERNS } from "../lib/intent-classifier.js";
+import { classifyIntent } from "../lib/intent-classifier.js";
 import { loadConversationContext, saveMessage } from "../lib/memory.js";
 import { getInviteCodeFromHeader, isAdminCode } from "../lib/auth.js";
 import { createServiceClient } from "../lib/supabase.js";
@@ -13,7 +13,6 @@ import { logError } from "../lib/error-logger.js";
 import { extractSearchHints, detectSectionReference, detectDocumentReference, detectCatalogQuery } from "../lib/query-analyzer.js";
 import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgenticResults } from "../lib/agentic-rag.js";
 import { expandByRelationships } from "../lib/relationships.js";
-import { generateRegistryPromptBlock, findEntity } from "../lib/sgk-registry.js";
 import { getMatchingDirectives, generateDirectivesPromptBlock } from "../lib/directives-registry.js";
 import { classifyDocumentIntent, getDocumentIntentPrompt } from "../lib/document-intent.js";
 
@@ -24,6 +23,24 @@ const router = Router();
 const MAX_UPLOADED_DOC_CHARS = 50000;
 const MAX_CHUNK_IMAGES = 3; // Max images to include per chunk in prompt
 const MAX_TOTAL_IMAGES = 12; // Max total images in entire prompt
+
+/**
+ * Detects whether a user query mentions SGK group organizations,
+ * requiring the "Перечень компаний Общества" registry document.
+ * Triggers on: entity names (ТЭЦ, ГРЭС, теплосеть), legal forms (АО, ООО),
+ * group structure keywords, regime questions, etc.
+ */
+const ORG_MENTION_PATTERNS = [
+  /тэц|грэс|гтэс|теплосет|теплоэнерг|теплотранзит/i,
+  /(?:ао|зао|пао)\s*[«"]/i,
+  /ооо\s*[«"]сгк[»"]/i,
+  /енисейск|кузбасс|кемеров|абакан|барнаул|новосибирск|минусинск|канск|бийск|рубцовск|приморск|рефтинск|барабинск|томь-усинск|беловск|ново-кемеровск|кузнецк/i,
+  /тгк.?13|етгк|сибэко|сибэм|кемген|юстк|мтск|ртк.генерац|нтск/i,
+  /сгк.?алтай|сгк.?новосибирск/i,
+  /группа?\s*(сгк|компаний)|организаци.*(группы|сгк)|структур.*(сгк|группы)|филиал|дочерн/i,
+  /223.?фз.*(кто|как|организац|компан|юрлиц|общество)|режим.*(закупк|организац|компан)|по какому.*(закон|режим|фз)/i,
+  /перечень.*(компаний|организаций|обществ)/i,
+];
 
 /** Экранирует строку для безопасного использования в XML-атрибутах */
 function escapeXmlAttr(str: string): string {
@@ -228,7 +245,13 @@ router.post("/api/chat", async (req: Request, res: Response) => {
         let preAdded = 0;
         for (const r of preResults) {
           if (!agenticCtx.chunks.has(r.id)) {
-            agenticCtx.chunks.set(r.id, { ...r, similarity: Math.max(r.similarity, 0.92) });
+            // Only boost if the chunk has reasonable base similarity — prevents
+            // irrelevant chunks from surviving all filters just because they're
+            // from the right document.
+            const boostedSim = r.similarity >= 0.25
+              ? Math.max(r.similarity, 0.75)
+              : r.similarity;
+            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim });
             preAdded++;
           }
         }
@@ -246,13 +269,43 @@ router.post("/api/chat", async (req: Request, res: Response) => {
         let catAdded = 0;
         for (const r of catResults) {
           if (!agenticCtx.chunks.has(r.id)) {
-            agenticCtx.chunks.set(r.id, { ...r, similarity: Math.max(r.similarity, 0.90) });
+            const boostedSim = r.similarity >= 0.25
+              ? Math.max(r.similarity, 0.75)
+              : r.similarity;
+            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim });
             catAdded++;
           }
         }
         console.log(`[chat] Pre-seeded ${catAdded} catalog chunks from ${new Set(catResults.map(r => r.source_filename)).size} sources`);
       } catch (catError) {
         console.error("[chat] Catalog pre-seed failed (non-fatal):", catError);
+      }
+    }
+
+    // ── Pre-seed: organization registry when query mentions SGK entities ──
+    const mentionsOrgAgentic = ORG_MENTION_PATTERNS.some((p) => p.test(userMessage.content));
+    if (mentionsOrgAgentic) {
+      try {
+        const regResults = await fetchChunksByDocument(
+          { filenameHints: ["Перечень_компаний", "Перечень компаний"] },
+          4,
+          userMessage.content
+        );
+        let regAdded = 0;
+        for (const r of regResults) {
+          if (!agenticCtx.chunks.has(r.id)) {
+            const boostedSim = r.similarity >= 0.25
+              ? Math.max(r.similarity, 0.75)
+              : r.similarity;
+            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim });
+            regAdded++;
+          }
+        }
+        if (regAdded > 0) {
+          console.log(`[chat] Pre-seeded ${regAdded} org registry chunks (Перечень компаний Общества)`);
+        }
+      } catch (regError) {
+        console.error("[chat] Org registry pre-seed failed (non-fatal):", regError);
       }
     }
 
@@ -291,7 +344,7 @@ ${userMessage.content}
 
       console.log(`[chat] Agentic search complete: ${agenticCtx.searchCount} searches, ${agenticCtx.chunks.size} chunks collected`);
 
-      const filtered = await finalizeAgenticResults(agenticCtx, userMessage.content, preSeededEntities.length >= 2 ? preSeededEntities : undefined);
+      const filtered = await finalizeAgenticResults(agenticCtx, userMessage.content, preSeededEntities.length >= 2 ? preSeededEntities : undefined, intentResult);
       relevantChunks = filtered.results;
       lowConfidence = filtered.lowConfidence;
     } catch (agenticError) {
@@ -321,16 +374,11 @@ ${userMessage.content}
   const searchPromises = Array.from(searchVariants).map((q) =>
     hybridSearch(q, 20, searchHints)
   );
-  // For spu_search intent: also run dedicated contractor card search
-  const contractorSearchPromise = intentResult.intent === "spu_search"
-    ? searchContractorCards(searchQuery, 20)
-    : Promise.resolve([]);
 
-  const [sectionResults, docResults, catalogResults, contractorResults, ...variantResults] = await Promise.all([
+  const [sectionResults, docResults, catalogResults, ...variantResults] = await Promise.all([
     sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
     docRef ? fetchChunksByDocument(docRef, docRef.filenameHints.length > 2 ? 15 : 8, userMessage.content) : Promise.resolve([]),
     catalogQuery ? fetchCatalogResults(catalogQuery) : Promise.resolve([]),
-    contractorSearchPromise,
     ...searchPromises,
   ]);
 
@@ -362,55 +410,33 @@ ${userMessage.content}
     // Boost targeted document results so they survive reranking/filtering.
     // These are specifically matched by document type + organization name,
     // so they should outrank generic hybrid search results.
+    // Only boost chunks with reasonable base similarity to avoid promoting junk.
     const boostedDocResults = docResults
       .filter((r) => !existingIds.has(r.id))
-      .map((r) => ({ ...r, similarity: Math.max(r.similarity, 0.92) }));
+      .map((r) => ({
+        ...r,
+        similarity: r.similarity >= 0.25 ? Math.max(r.similarity, 0.80) : r.similarity,
+      }));
     for (const r of boostedDocResults) existingIds.add(r.id);
     // Prepend (not append) so they appear before generic search results
     combinedResults = [...boostedDocResults, ...combinedResults];
-    console.log(`[chat] Document lookup added ${boostedDocResults.length} new chunks (boosted to 0.92)`);
+    console.log(`[chat] Document lookup added ${boostedDocResults.length} new chunks (boosted to 0.80)`);
   }
 
   if (catalogResults.length > 0) {
     const newCatalogResults = catalogResults
       .filter((r) => !existingIds.has(r.id))
-      .map((r) => ({ ...r, similarity: Math.max(r.similarity, 0.90) }));
+      .map((r) => ({
+        ...r,
+        similarity: r.similarity >= 0.25 ? Math.max(r.similarity, 0.80) : r.similarity,
+      }));
     for (const r of newCatalogResults) existingIds.add(r.id);
     combinedResults = [...newCatalogResults, ...combinedResults];
     console.log(`[chat] Catalog lookup added ${newCatalogResults.length} new chunks from ${new Set(newCatalogResults.map((r) => r.source_filename)).size} sources`);
   }
 
-  // Flag: when true, we have a direct contractor card match — skip supplementary
-  // searches and reranker so the LLM reranker cannot demote the exact card we found.
-  let directContractorMatch = false;
-
-  if (contractorResults.length > 0) {
-    const queryLower = searchQuery.toLowerCase().replace(/[«»"'.,;:!?()\[\]]/g, "");
-    const isSpecificCompanyQuery = COMPANY_PATTERNS.some((p) => p.test(queryLower));
-    const directMatches = contractorResults.filter((r) => {
-      const fn = r.source_filename.toLowerCase().replace(/[«»"'.,;:!?()\[\]_]/g, " ");
-      const qWords = queryLower.split(/\s+/).filter((w: string) => w.length >= 3);
-      return qWords.some((w: string) => fn.includes(w) && !["расскаж", "компани", "организаци", "информаци", "сведени"].some((s: string) => w.startsWith(s)));
-    });
-
-    if (directMatches.length > 0 && isSpecificCompanyQuery) {
-      directContractorMatch = true;
-      const boostedDirect = directMatches.map((r) => ({ ...r, similarity: 0.98 }));
-      combinedResults = [...boostedDirect];
-      console.log(`[chat] Contractor card DIRECT MATCH: ${directMatches.map((r) => r.source_filename).join(", ")} — bypassing supplementary search and reranker`);
-    } else {
-      const newContractorResults = contractorResults
-        .filter((r) => !existingIds.has(r.id))
-        .map((r) => ({ ...r, similarity: Math.max(r.similarity, 0.85) }));
-      for (const r of newContractorResults) existingIds.add(r.id);
-      combinedResults = [...newContractorResults, ...combinedResults];
-      console.log(`[chat] Contractor card search added ${newContractorResults.length} new chunks (no direct match)`);
-    }
-  }
-
   // ── Intent-aware supplementary search ──
-  // Skip entirely when we have a direct contractor card match.
-  if (!directContractorMatch) {
+  {
     const supplementSearches: Promise<SearchResult[]>[] = [];
 
     // Determine if the user's query has a clear regime preference
@@ -525,6 +551,38 @@ ${userMessage.content}
       supplementSearches.push(hybridSearch(searchQuery, 10, intentResult.search_tags));
     }
 
+    // 5. Organization registry: fetch "Перечень компаний Общества" when query mentions SGK entities
+    //    Handled separately (not in supplementSearches) so we can boost results like doc/catalog lookups.
+    const mentionsOrg = ORG_MENTION_PATTERNS.some((p) => p.test(userMessage.content));
+    if (mentionsOrg) {
+      const hasRegistryAlready = combinedResults.some((r) =>
+        r.source_filename.toLowerCase().includes("перечень_компаний") ||
+        r.source_filename.toLowerCase().includes("перечень компаний")
+      );
+      if (!hasRegistryAlready) {
+        try {
+          const orgRegResults = await fetchChunksByDocument(
+            { filenameHints: ["Перечень_компаний", "Перечень компаний"] },
+            4,
+            userMessage.content
+          );
+          const boostedOrgResults = orgRegResults
+            .filter((r) => !existingIds.has(r.id))
+            .map((r) => ({
+              ...r,
+              similarity: r.similarity >= 0.25 ? Math.max(r.similarity, 0.80) : r.similarity,
+            }));
+          for (const r of boostedOrgResults) existingIds.add(r.id);
+          combinedResults = [...boostedOrgResults, ...combinedResults];
+          if (boostedOrgResults.length > 0) {
+            console.log(`[chat] Org registry added ${boostedOrgResults.length} boosted chunks (Перечень компаний Общества)`);
+          }
+        } catch (orgErr) {
+          console.error("[chat] Org registry fetch failed (non-fatal):", orgErr);
+        }
+      }
+    }
+
     if (supplementSearches.length > 0) {
       const allSupplementary = await Promise.all(supplementSearches);
       let addedCount = 0;
@@ -555,21 +613,14 @@ ${userMessage.content}
         console.log(`[chat] Regime post-filter: removed ${removed} opposite-regime chunks (strict ${intentResult.fz_type})`);
       }
     }
-  } // end if (!directContractorMatch)
-
-  if (directContractorMatch) {
-    // Direct contractor card match: skip reranker entirely.
-    relevantChunks = combinedResults;
-    lowConfidence = false;
-    console.log(`[chat] Direct contractor match: bypassing reranker, returning ${relevantChunks.length} card chunks`);
-  } else {
-    // Standard path: rerank and filter
-    const rerankedResults = intentAwareRerank(combinedResults, intentResult);
-    const rerankResult = await rerank(userMessage.content, rerankedResults);
-    const filtered = filterByRelevance(rerankResult);
-    relevantChunks = filtered.results;
-    lowConfidence = filtered.lowConfidence;
   }
+
+  // Rerank and filter
+  const rerankedResults = intentAwareRerank(combinedResults, intentResult);
+  const rerankResult = await rerank(userMessage.content, rerankedResults);
+  const filtered = filterByRelevance(rerankResult);
+  relevantChunks = filtered.results;
+  lowConfidence = filtered.lowConfidence;
 
   } // end deterministic path
 
@@ -787,11 +838,7 @@ ${userMessage.content}
         ? `\n\nПРИМЕЧАНИЕ: Среди найденных документов есть только материалы вне 223-ФЗ. Если вопрос может относиться к обоим режимам, укажи, что информация по 223-ФЗ в текущих документах не найдена.`
         : "";
 
-  // Auto-detect entity regime from the query using hardcoded registry
-  const detectedEntity = findEntity(userMessage.content);
-  const entityRegimeHint = detectedEntity
-    ? `\n\n🏢 ОПРЕДЕЛЕНА ОРГАНИЗАЦИЯ: ${detectedEntity.name} — режим: ${detectedEntity.regime === "223-fz" ? "ПО 223-ФЗ" : "ВНЕ 223-ФЗ"}${detectedEntity.parentEntity ? ` (${detectedEntity.type} ${detectedEntity.parentEntity})` : ""}${detectedEntity.region ? `, регион: ${detectedEntity.region}` : ""}${detectedEntity.thresholdKRub ? `, порог закупки: ${detectedEntity.thresholdKRub} тыс. руб. без НДС` : ""}. Отвечай ТОЛЬКО по документам этого режима.`
-    : "";
+  // Auto-detect entity regime: handled via RAG from "Перечень компаний Общества" document
 
   // ── Operational directives: conditionally inject based on query keywords/intent ──
   const matchedDirectives = getMatchingDirectives(userMessage.content, intentResult.intent);
@@ -915,51 +962,7 @@ ${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФО
 
 ПРИМЕР ОТКАЗА (когда информации нет):
 Вопрос: Какова средняя зарплата в отделе закупок?
-Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${entityRegimeHint}${directivesBlock}
-${intentResult.intent === "spu_search" ? `
-=== РЕЕСТР СПУ (Список Потенциальных Участников) ===
-
-В базе знаний загружен файл «Реестр СПУ контрагенты виды работ объекты». Это реестр потенциальных участников закупочных процедур СГК, содержащий 874 уникальных контрагента по 68 видам работ на 32 объектах трёх бизнес-единиц (Енисейская ТГК, Кузбассэнерго, СГК-Алтай).
-
-КОГДА ИСПОЛЬЗОВАТЬ:
-Обращайся к реестру СПУ, если пользователь спрашивает о подрядчиках, поставщиках, исполнителях, контрагентах, участниках закупки, организациях, которые выполняют определённые виды работ, или кто может выполнить работу на конкретном объекте.
-
-КАК РАБОТАТЬ С ДАННЫМИ:
-1. Определи из запроса: вид работ/услуг, объект (ГРЭС/ТЭЦ/теплосеть), бизнес-единицу.
-2. Найди в реестре записи, соответствующие этим параметрам.
-3. Фильтрация по статусу:
-   РЕЖИМ ПО УМОЛЧАНИЮ: Если пользователь просто ищет подрядчиков/контрагентов — показывай ТОЛЬКО записи со статусами «ТКП», «ТКП MIN», «ТКП Инициатора».
-   РАСШИРЕННЫЙ РЕЖИМ: Если пользователь явно просит показать компании без статуса, отказавшихся, не ответивших, или использует формулировки вроде «все компании», «кто отказался», «без ТКП», «не подтвердившие», «с отказом», «не обладающие статусом» — покажи ВСЕ записи из реестра, разделив на два блока:
-     Блок 1 (основной): контрагенты со статусами ТКП / ТКП MIN / ТКП Инициатора.
-     Блок 2 (дополнительный, с предупреждением): контрагенты со статусами ОТКАЗ, Нет ответа, Недозвон, Отмена запроса. Перед этим блоком выведи пояснение: «Следующие компании числятся в реестре, но не подтвердили готовность к участию в закупке:».
-4. Ранжируй результаты: внутри каждого блока — сначала ТКП, затем ТКП MIN, затем ТКП Инициатора; во втором блоке — по алфавиту.
-5. Для каждого контрагента указывай: наименование, ИНН, вид работ, объект, статус.
-
-ФОРМАТ ОТВЕТА:
-Если найдено 1–5 контрагентов, перечисли всех с полными данными.
-Если найдено 6–15, сгруппируй по статусу (ТКП / ТКП MIN / ТКП Инициатора) и укажи количество.
-Если найдено >15, укажи общее количество, покажи топ-5 и предложи уточнить запрос.
-В расширенном режиме: сначала покажи основной блок (ТКП) по обычным правилам, затем отдельной секцией — компании без подтверждённого статуса с указанием причины (ОТКАЗ / Нет ответа / Недозвон / Отмена запроса).
-Если ничего не найдено, сообщи об этом и предложи расширить поиск: другой вид работ, другой объект, другая БЕ.
-
-НЕЧЁТКОЕ СООТВЕТСТВИЕ ВИДОВ РАБОТ:
-Пользователи используют свободные формулировки. Сопоставляй их с категориями справочника:
-«ремонт бульдозеров» / «бульдозерная техника» → Ремонт бульдозеров
-«насосы» / «насосное оборудование» → Монтаж / ремонт насосного оборудования
-«электрика» / «электромонтаж» → Электромонтажные работы
-«проект» / «ПИР» → Проектирование
-«обслуживание» / «ТО» / «сервис» → Техническое обслуживание
-«строительство» / «СМР» → Общестроительные работы
-«КИП» / «КИПиА» / «автоматика» → Монтаж / ремонт КИПиА
-«котлы» / «котельное» → Монтаж / ремонт котлов
-«турбины» / «турбинное» → Монтаж / ремонт турбинного оборудования
-
-ДОПОЛНИТЕЛЬНЫЙ КОНТЕКСТ:
-Если пользователь указывает сумму закупки и объект, определи режим закупки (223-ФЗ или не 223-ФЗ) по листу «структура СГК» из того же файла и дополни ответ этой информацией.
-
-ВАЖНО: Контактные данные (телефон, email) выводи только по прямому запросу пользователя. В обычном списке достаточно наименования, ИНН и статуса.
-` : ""}
-${generateRegistryPromptBlock()}
+Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${directivesBlock}
 
 === СТАВКА НДС ===
 
@@ -969,29 +972,18 @@ ${generateRegistryPromptBlock()}
 
 В базе знаний есть документы двух режимов закупок:
 1) Закупки по 223-ФЗ — для АО (акционерных обществ) группы СГК, зарегистрированных в реестре ЕИС.
-2) Закупки не по 223-ФЗ — ТОЛЬКО для ООО «СГК» (головной офис) и его филиалов (Красноярский, Кузбасский, Алтайский, Новосибирский), ОСП «СибЭМ» и других ООО.
+2) Закупки не по 223-ФЗ — ТОЛЬКО для ООО «СГК» (головной офис) и его филиалов, ОСП «СибЭМ» и других ООО.
 
-КАК ОПРЕДЕЛИТЬ РЕЖИМ ДОКУМЕНТА:
-- Смотри на теги документа в атрибутах XML (tags в <document>). Если есть тег «223-фз» — это документ по 223-ФЗ. Если «вне 223-фз» — это документ вне 223-ФЗ.
-- «Положения о закупках» (АО «СГК-Алтай», АО «СГК-Новосибирск», АО «Енисейская ТГК», АО «Кузбассэнерго» и другие АО) — это документы ПО 223-ФЗ, принятые в соответствии с законом.
-- «Стандарт закупок ТРУ вне 223-ФЗ» (С-ГК-В5-03) — это документ для ООО «СГК», вне 223-ФЗ.
-- Не путай: «Положение о закупках» ≠ «Стандарт закупок». Положения — по 223-ФЗ, Стандарт ООО СГК — вне.
+КАК ОПРЕДЕЛИТЬ РЕЖИМ ЗАКУПКИ ОРГАНИЗАЦИИ:
+- В <documents> может быть документ «Перечень компаний Общества» — это АКТУАЛЬНЫЙ реестр всех организаций группы СГК с указанием режима (223-ФЗ или вне 223-ФЗ). Если он есть в контексте — используй его как первоисточник для определения режима.
+- Смотри на теги документа в атрибутах XML. Если есть тег «223-фз» — это документ по 223-ФЗ. Если «вне 223-фз» — это документ вне 223-ФЗ.
+- «Положения о закупках» (АО) — это документы ПО 223-ФЗ. «Стандарт закупок ТРУ вне 223-ФЗ» (С-ГК-В5-03) — для ООО «СГК», вне 223-ФЗ.
 
-КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА РАЗГРАНИЧЕНИЯ:
-1. Если пользователь указывает конкретный объект или юрлицо — СНАЧАЛА определи режим закупки по РЕЕСТРУ ОРГАНИЗАЦИЙ ГРУППЫ СГК (выше), и отвечай ТОЛЬКО по этому режиму. НЕ делай предположений о режиме; если организации нет в реестре — скажи, что не можешь определить режим.
-2. Если пользователь НЕ указывает конкретный объект и из вопроса НЕ ясно, о каком режиме идёт речь — ты ОБЯЗАН ответить ПО ОБОИМ РЕЖИМАМ. Структурируй ответ двумя блоками:
-
-## По 223-ФЗ
-[ответ на основе Положений о закупках АО и федерального закона]
-
-## Вне 223-ФЗ (ООО «СГК»)
-[ответ на основе Стандарта закупок ТРУ ООО СГК]
-
-3. Если в предоставленных документах есть информация только по одному режиму — ответь по нему и ЯВНО укажи: «По второму режиму (223-ФЗ / вне 223-ФЗ) информация в загруженных документах не найдена».
-4. НИКОГДА не смешивай правила двух режимов в одном абзаце без указания, к какому режиму относится каждое утверждение.
-
-Раздел 03 базы знаний (Закупки по ФЗ) содержит документы для 223-ФЗ.
-Раздел 04 базы знаний (Закупки не по ФЗ) содержит документы для режима вне 223-ФЗ.
+ПРАВИЛА РАЗГРАНИЧЕНИЯ:
+1. Если пользователь указывает конкретный объект или юрлицо — определи режим закупки по «Перечню компаний Общества» из <documents> и отвечай ТОЛЬКО по этому режиму.
+2. Если пользователь НЕ указывает конкретный объект и режим НЕ ясен — ты ОБЯЗАН ответить ПО ОБОИМ РЕЖИМАМ двумя блоками: «## По 223-ФЗ» и «## Вне 223-ФЗ (ООО «СГК»)».
+3. Если в документах информация только по одному режиму — ответь по нему и ЯВНО укажи, что по второму режиму информация не найдена.
+4. НИКОГДА не смешивай правила двух режимов без указания, к какому режиму относится утверждение.
 
 === ПРИОРИТЕТ ИСТОЧНИКОВ ===
 
@@ -999,7 +991,7 @@ ${generateRegistryPromptBlock()}
 Уровень 1 (высший): Законодательство (раздел 01: 223-ФЗ, подзаконные акты).
 Уровень 2: Стандарты СГК (раздел 02), Положения о закупках (разделы 03, 04, 05).
 Уровень 3: Инструкции и методики (раздел 06).
-Уровень 4: Справочные материалы (разделы 07–12, включая реестр СПУ).
+Уровень 4: Справочные материалы (разделы 07–12).
 
 Если информация из разных уровней противоречит друг другу, приоритет у более высокого уровня.
 При ответе указывай источник: «Согласно Положению о закупках…», «В соответствии с Инструкцией…».

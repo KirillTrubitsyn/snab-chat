@@ -254,11 +254,6 @@ export function extractSearchHints(query: string): string[] | null {
   if (/\bсмр\b|строительн/i.test(lower)) hints.push("смр");
   if (/\bпир\b|проектн/i.test(lower)) hints.push("пир");
 
-  // Contractor/supplier search hints
-  if (/подрядчик|контрагент|поставщик|исполнител|подбери.*(компани|организаци|фирм)|найти.*(компани|организаци|фирм)|кто (делает|выполня|оказыва|постав)/i.test(lower)) {
-    hints.push("карточка контрагента");
-  }
-
   // Organization hints (lowercase)
   if (/сибэм\b/i.test(lower)) hints.push("сибэм");
   if (/нак\s*азот|нмгрэс|новомосковск/i.test(lower)) hints.push("нак азот");

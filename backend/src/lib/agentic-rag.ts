@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, FunctionCallingConfigMode, type Content, type FunctionDeclaration } from "@google/genai";
-import { hybridSearch, filterByRelevance, type SearchResult } from "./retrieval.js";
+import { hybridSearch, filterByRelevance, intentAwareRerank, type SearchResult } from "./retrieval.js";
 import { fetchChunksBySection, fetchChunksByDocument } from "./retrieval.js";
 import { rerank } from "./reranker.js";
 import { withGoogleApiLimit } from "./google-ai.js";
@@ -305,7 +305,8 @@ export function isComplexQuery(
 export async function finalizeAgenticResults(
   ctx: AgenticContext,
   query: string,
-  entityHints?: string[]
+  entityHints?: string[],
+  intent?: IntentResult
 ): Promise<{ results: SearchResult[]; lowConfidence: boolean }> {
   const allChunks = Array.from(ctx.chunks.values());
 
@@ -313,7 +314,10 @@ export async function finalizeAgenticResults(
     return { results: [], lowConfidence: true };
   }
 
-  const reranked = await rerank(query, allChunks);
+  // Apply intent-aware reranking (FZ-type boost/penalty + intent tag boost + tier weights)
+  // before cross-encoder reranking — same pipeline as deterministic path
+  const intentReranked = intent ? intentAwareRerank(allChunks, intent) : allChunks;
+  const reranked = await rerank(query, intentReranked);
 
   // ── Entity-balanced selection for multi-entity queries ──
   // Without balancing, one entity can dominate the top-N results,

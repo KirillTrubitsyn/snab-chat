@@ -20,8 +20,9 @@ export interface SearchResult {
 
 /* ── Relevance filtering constants ── */
 const SIMILARITY_THRESHOLD = 0.35;
-const CLIFF_RATIO = 0.6;
-const CLIFF_RATIO_RELAXED = 0.5;
+const CLIFF_RATIO = 0.6;          // Drop > 40% from previous = cut
+const CLIFF_RATIO_RELAXED = 0.5;  // Drop > 50% from best = cut (relaxed mode)
+const MAX_FROM_BEST_RATIO = 0.4;  // Must be >= 40% of best result's score
 const MAX_CHUNKS = 15;
 const MIN_CHUNKS_BEFORE_RELAX = 3;
 
@@ -41,11 +42,17 @@ export function filterByRelevance(results: SearchResult[]): FilteredSearchResult
     return { results: [sorted[0]], lowConfidence: true };
   }
 
+  const bestScore = sorted[0].similarity;
+  const minFromBest = bestScore * MAX_FROM_BEST_RATIO;
   const filtered: SearchResult[] = [sorted[0]];
 
   for (let i = 1; i < sorted.length; i++) {
     if (sorted[i].similarity < SIMILARITY_THRESHOLD) break;
     if (sorted[i].similarity < sorted[i - 1].similarity * CLIFF_RATIO) break;
+    // Additional guard: chunk must be at least 40% of the best result.
+    // Prevents long tails of marginally-relevant chunks from leaking through
+    // when scores decrease gradually (0.80, 0.78, 0.55, 0.40, 0.35...).
+    if (sorted[i].similarity < minFromBest) break;
     if (filtered.length >= MAX_CHUNKS) break;
     filtered.push(sorted[i]);
   }
@@ -109,7 +116,7 @@ export function intentAwareRerank(
     authority: ["матрица полномочий"],
     regulation: ["законодательство"],
     contract: ["договоры"],
-    spu_search: ["реестр", "контрагенты", "карточка контрагента"],
+    entity_lookup: [],
     procedure: ["обучение"],
   };
   const boostTags = INTENT_BOOST_TAGS[intent.intent];
@@ -141,48 +148,6 @@ export function tierWeightedRerank(results: SearchResult[]): SearchResult[] {
       return { ...r, similarity: r.similarity * bestWeight };
     })
     .sort((a, b) => b.similarity - a.similarity);
-}
-
-/* ── Query variant generation ── */
-
-function generateQueryVariants(query: string): string[] {
-  const variants: string[] = [query];
-  const lower = query.toLowerCase();
-
-  const hasAmount = /\d+[\s,.]*(млн|миллион|тыс|тысяч|руб)/i.test(query);
-  const hasProcurement = /закупк|согласов|утвержд|полномоч|одобр|решени|подпис/i.test(lower);
-
-  if (hasAmount && hasProcurement) {
-    variants.push(
-      "матрица полномочий уполномоченный руководитель лимит закупка согласование ЗКО коллегиальный орган"
-    );
-  }
-
-  if (/кто (согласов|утвержда|одобря|подписыва|принимает решени|должен)/i.test(lower)) {
-    variants.push(
-      "матрица полномочий закупочный коллегиальный орган уполномоченный руководитель полномочия"
-    );
-  }
-
-  if (/лимит|порог|сумм[аы]|стоимост|предел|свыше|больше|более|до \d/i.test(lower) && hasProcurement) {
-    variants.push(
-      "лимит млн руб МТР централизованные децентрализованные услуги работы ПИР единственный источник"
-    );
-  }
-
-  if (/комисси|коллегиальн|зко|цзк/i.test(lower)) {
-    variants.push(
-      "закупочная комиссия коллегиальный орган ЗКО ЦЗК полномочия состав"
-    );
-  }
-
-  if (/коэффициент.*смет|смет.*коэффициент|превышен.*смет/i.test(lower)) {
-    variants.push(
-      "коэффициент к смете более 1 ЦЗК центральная закупочная комиссия рассмотрение работы услуги"
-    );
-  }
-
-  return variants;
 }
 
 /* ── Core hybrid search (updated: image_paths in result) ── */
@@ -227,308 +192,6 @@ export async function hybridSearch(
 
   console.log("hybrid_search: results =", results.length);
   return results;
-}
-
-/* ── Contractor card search (bypasses pgvector index filtering issue) ── */
-
-/**
- * Dedicated search for contractor cards.
- * The pgvector HNSW index scans ALL chunks for nearest neighbors,
- * then applies the tag filter — so filtered results are often empty.
- * This function uses a dedicated RPC (with CTE-based pre-filtering)
- * or falls back to FTS + cosine similarity computed in the app.
- */
-export async function searchContractorCards(
-  query: string,
-  matchCount: number = 20
-): Promise<SearchResult[]> {
-  const supabase = createServiceClient();
-  const queryEmbedding = await embedQuery(query);
-  const embeddingStr = `[${queryEmbedding.join(",")}]`;
-
-  console.log("searchContractorCards: query =", query.slice(0, 100));
-
-  // Try dedicated RPC first (requires migration)
-  const { data: rpcData, error: rpcError } = await supabase.rpc(
-    "search_contractor_cards",
-    {
-      query_text: query,
-      query_embedding: embeddingStr,
-      match_count: matchCount,
-    }
-  );
-
-  if (!rpcError && rpcData && rpcData.length > 0) {
-    console.log("searchContractorCards: RPC returned", rpcData.length, "results");
-    return (rpcData as SearchResult[]).map((r) => ({
-      ...r,
-      image_paths: r.image_paths ?? [],
-    }));
-  }
-
-  if (rpcError) {
-    console.log("searchContractorCards: RPC unavailable, using FTS+vector fallback");
-  }
-
-  // Fallback: FTS + multi-word ILIKE search within contractor cards,
-  // then compute cosine similarity in the app.
-
-  // Filter out generic procurement stopwords that won't appear in card content.
-  const CONTRACTOR_STOPWORDS = new Set([
-    "подрядчик", "подрядчика", "подрядчики", "подрядчиков",
-    "контрагент", "контрагента", "контрагенты", "контрагентов",
-    "поставщик", "поставщика", "поставщики", "поставщиков",
-    "исполнитель", "исполнителя", "исполнители",
-    "компания", "компании", "компанию", "организация", "организации",
-    "фирма", "фирмы", "фирму",
-    "подбери", "подбор", "найди", "найти", "поиск",
-    "выполняет", "выполняют", "делает", "делают", "оказывает",
-    "занимается", "занимаются", "знаешь", "известно", "какие",
-    "какой", "какая", "работы", "работ", "услуги", "услуг",
-    "что", "кто", "чем", "про", "для", "как", "все",
-  ]);
-
-  const cleanQuery = query.replace(/[?!.,;:()«»"']/g, "");
-  const allWords = cleanQuery.split(/\s+/).filter((w) => w.length >= 3);
-  const searchWords = allWords.filter(
-    (w) => !CONTRACTOR_STOPWORDS.has(w.toLowerCase())
-  );
-
-  // If all words were stopwords, use the original words sorted by length desc
-  const wordsForSearch = searchWords.length > 0
-    ? searchWords
-    : allWords.sort((a, b) => b.length - a.length).slice(0, 3);
-
-  console.log("searchContractorCards: search words =", wordsForSearch.join(", "));
-
-  // Step A: FTS search using ONLY the meaningful words (not full query)
-  // Full query FTS uses AND semantics, so "подрядчик AND теплоизоляция"
-  // would fail because "подрядчик" is not in card content.
-  const ftsQuery = wordsForSearch.join(" ");
-  const ftsPromises = wordsForSearch.slice(0, 3).map((word) =>
-    supabase
-      .from("chunks")
-      .select("id, content, source_filename, chunk_index, tags, image_paths, embedding")
-      .contains("tags", ["карточка контрагента"])
-      .textSearch("fts", word, { type: "plain", config: "russian" })
-      .limit(matchCount * 2)
-  );
-
-  // Step B: ILIKE search using stem-truncated words
-  // Russian morphology: cut last 2-3 chars to approximate stem
-  // "теплоизоляцию" → "теплоизоляц" matches "теплоизоляционные"
-  function approximateStem(word: string): string {
-    if (word.length <= 4) return word;
-    // For words ending in common Russian suffixes, trim more aggressively
-    if (/[аеёиоуыэюя]$/i.test(word)) return word.slice(0, -1);
-    return word;
-  }
-
-  const ilikePromises = wordsForSearch.slice(0, 4).map((word) => {
-    const stem = approximateStem(word);
-    return supabase
-      .from("chunks")
-      .select("id, content, source_filename, chunk_index, tags, image_paths, embedding")
-      .contains("tags", ["карточка контрагента"])
-      .ilike("content", `%${stem}%`)
-      .limit(matchCount * 2);
-  });
-
-  // Step C: filename search — card filenames contain the company name
-  // e.g. "ТК АВТОПЛЮС, ООО.xlsx" → search by each meaningful word in filename
-  const filenamePromises = wordsForSearch.slice(0, 4).map((word) => {
-    const stem = approximateStem(word);
-    return supabase
-      .from("chunks")
-      .select("id, content, source_filename, chunk_index, tags, image_paths, embedding")
-      .contains("tags", ["карточка контрагента"])
-      .ilike("source_filename", `%${stem}%`)
-      .limit(matchCount * 2);
-  });
-
-  const [ftsResults, ilikeResults, filenameResults] = await Promise.all([
-    Promise.all(ftsPromises),
-    Promise.all(ilikePromises),
-    Promise.all(filenamePromises),
-  ]);
-
-  // Merge FTS + all ILIKE results (dedup by id)
-  type ChunkRow = { id: string; content: string; source_filename: string; chunk_index: number; tags: string[]; image_paths: string[] | null; embedding: string | number[] | null };
-  const allChunks = new Map<string, ChunkRow>();
-  for (const { data } of ftsResults) {
-    for (const row of (data ?? [])) {
-      if (!allChunks.has(row.id)) {
-        allChunks.set(row.id, row as ChunkRow);
-      }
-    }
-  }
-  for (const { data } of ilikeResults) {
-    for (const row of (data ?? [])) {
-      if (!allChunks.has(row.id)) {
-        allChunks.set(row.id, row as ChunkRow);
-      }
-    }
-  }
-  for (const { data } of filenameResults) {
-    for (const row of (data ?? [])) {
-      if (!allChunks.has(row.id)) {
-        allChunks.set(row.id, row as ChunkRow);
-      }
-    }
-  }
-
-  if (allChunks.size === 0) {
-    console.log("searchContractorCards: no results from FTS/ILIKE fallback");
-    return [];
-  }
-
-  // Compute cosine similarity in the app
-  function cosineSimilarity(a: number[], b: number[]): number {
-    let dot = 0, normA = 0, normB = 0;
-    for (let i = 0; i < a.length; i++) {
-      dot += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-    return dot / (Math.sqrt(normA) * Math.sqrt(normB) + 1e-10);
-  }
-
-  const results: SearchResult[] = [];
-  for (const [, row] of allChunks) {
-    let similarity = 0.5; // default if no embedding
-    if (row.embedding) {
-      const chunkEmb: number[] = typeof row.embedding === "string"
-        ? JSON.parse(row.embedding)
-        : row.embedding;
-      similarity = cosineSimilarity(queryEmbedding, chunkEmb);
-    }
-    results.push({
-      id: row.id,
-      content: row.content,
-      source_filename: row.source_filename,
-      chunk_index: row.chunk_index,
-      similarity,
-      tags: row.tags ?? [],
-      image_paths: row.image_paths ?? [],
-    });
-  }
-
-  results.sort((a, b) => b.similarity - a.similarity);
-  console.log(
-    "searchContractorCards: fallback returned",
-    results.length,
-    "results, top sim =",
-    results[0]?.similarity?.toFixed(4) ?? "N/A"
-  );
-
-  return results.slice(0, matchCount);
-}
-
-/* ── Multi-query search ── */
-
-export async function multiQuerySearch(
-  query: string,
-  matchCount: number = 20,
-  filterTags: string[] | null = null
-): Promise<SearchResult[]> {
-  const variants = generateQueryVariants(query);
-
-  if (variants.length === 1) {
-    return hybridSearch(query, matchCount, filterTags);
-  }
-
-  const allResults = await Promise.all(
-    variants.map((v) => hybridSearch(v, matchCount, filterTags))
-  );
-
-  const merged = new Map<string, SearchResult>();
-  for (const results of allResults) {
-    for (const r of results) {
-      const existing = merged.get(r.id);
-      if (!existing || r.similarity > existing.similarity) {
-        merged.set(r.id, r);
-      }
-    }
-  }
-
-  return Array.from(merged.values()).sort((a, b) => b.similarity - a.similarity);
-}
-
-/* ── Intent-aware search ── */
-
-export async function intentAwareSearch(
-  query: string,
-  intent: IntentResult,
-  matchCount: number = 20
-): Promise<SearchResult[]> {
-  const tagSet = new Set<string>(intent.search_tags);
-
-  if (intent.fz_type === "223") tagSet.add("223-фз");
-  if (intent.fz_type === "non-223") tagSet.add("вне 223-фз");
-
-  const INTENT_TAG_MAP: Partial<Record<QueryIntent, string[]>> = {
-    pricing: ["ценообразование"],
-    authority: ["матрица полномочий"],
-    regulation: ["законодательство"],
-    contract: ["договоры"],
-    system: ["инструкции"],
-    spu_search: ["реестр", "контрагенты", "карточка контрагента"],
-  };
-  const extraTags = INTENT_TAG_MAP[intent.intent];
-  if (extraTags) extraTags.forEach((t) => tagSet.add(t));
-
-  const filterTags =
-    tagSet.size > 0 && intent.fz_type !== "both"
-      ? Array.from(tagSet)
-      : null;
-
-  const variantSet = new Set<string>([query]);
-  intent.query_variants.forEach((v) => variantSet.add(v));
-  generateQueryVariants(query).forEach((v) => variantSet.add(v));
-  const variants = Array.from(variantSet);
-
-  console.log("intentAwareSearch:", {
-    intent: intent.intent,
-    fz_type: intent.fz_type,
-    filterTags,
-    variantCount: variants.length,
-  });
-
-  const allResults = await Promise.all(
-    variants.map((v) => hybridSearch(v, matchCount, filterTags))
-  );
-
-  const totalResults = allResults.reduce((sum, r) => sum + r.length, 0);
-  if (totalResults < 3 && filterTags && filterTags.length > 0) {
-    console.log(
-      "intentAwareSearch: too few results with tags, retrying unfiltered"
-    );
-    const unfilteredResults = await Promise.all(
-      variants.map((v) => hybridSearch(v, matchCount, null))
-    );
-    allResults.push(...unfilteredResults);
-  }
-
-  const merged = new Map<string, SearchResult>();
-  for (const results of allResults) {
-    for (const r of results) {
-      const existing = merged.get(r.id);
-      if (!existing || r.similarity > existing.similarity) {
-        merged.set(r.id, r);
-      }
-    }
-  }
-
-  const reranked = tierWeightedRerank(Array.from(merged.values()));
-
-  console.log(
-    "intentAwareSearch: merged =",
-    merged.size,
-    "→ top score =",
-    reranked[0]?.similarity?.toFixed(4) ?? "N/A"
-  );
-
-  return reranked;
 }
 
 /* ── Section-aware direct chunk lookup ── */
