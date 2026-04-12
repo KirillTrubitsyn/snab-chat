@@ -1,5 +1,6 @@
 import { createServiceClient } from "./supabase";
 import { embedQuery } from "./embeddings";
+import { graphEnhancedSearch } from "./kg-search";
 import type { IntentResult, QueryIntent } from "./intent-classifier";
 import type { SectionReference, DocumentReference, CatalogQuery } from "./query-analyzer";
 
@@ -930,4 +931,89 @@ export async function fetchCatalogResults(
   );
 
   return results;
+}
+
+/* ── Graph-Aware Search ── */
+
+/**
+ * Комбинирует результаты графа знаний с обычным гибридным поиском.
+ * 1. Параллельно запускает graphEnhancedSearch и hybridSearch.
+ * 2. Если граф нашёл релевантные chunk_id, делает scoped поиск
+ *    через RPC hybrid_search_scoped.
+ * 3. Чанки из графа получают бонус +0.15 к similarity.
+ * 4. Дедуплицирует, сортирует, возвращает.
+ * Graceful fallback: если граф пуст или RPC недоступен, вернёт обычные результаты.
+ */
+export async function graphAwareSearch(
+  query: string,
+  matchCount: number = 20,
+  filterTags: string[] | null = null
+): Promise<SearchResult[]> {
+  const supabase = createServiceClient();
+
+  const [graphResult, standardResults] = await Promise.all([
+    graphEnhancedSearch(query, matchCount).catch(() => ({
+      chunkIds: [] as string[],
+      graphContext: "",
+      hasGraphResults: false,
+    })),
+    hybridSearch(query, matchCount, filterTags),
+  ]);
+
+  if (!graphResult.hasGraphResults || graphResult.chunkIds.length === 0) {
+    return standardResults;
+  }
+
+  // Scoped search по чанкам из графа
+  let graphChunkResults: SearchResult[] = [];
+  try {
+    const queryEmbedding = await embedQuery(query);
+    const embeddingStr = `[${queryEmbedding.join(",")}]`;
+    const chunkIdsAsNumbers = graphResult.chunkIds.map(Number).filter(n => !isNaN(n));
+
+    if (chunkIdsAsNumbers.length > 0) {
+      const { data, error } = await supabase.rpc("hybrid_search_scoped", {
+        query_text: query,
+        query_embedding: embeddingStr,
+        p_chunk_ids: chunkIdsAsNumbers,
+        match_count: Math.min(matchCount, 15),
+      });
+
+      if (!error && data) {
+        graphChunkResults = (data as SearchResult[]).map((r) => ({
+          ...r,
+          image_paths: r.image_paths ?? [],
+        }));
+      }
+    }
+  } catch (err) {
+    console.error("graphAwareSearch scoped search error:", err);
+  }
+
+  // Объединить: чанки из графа с бонусом + стандартные
+  const GRAPH_BONUS = 0.15;
+  const seen = new Set<string>();
+  const merged: SearchResult[] = [];
+
+  for (const r of graphChunkResults) {
+    if (!seen.has(r.id)) {
+      seen.add(r.id);
+      merged.push({ ...r, similarity: Math.min(r.similarity + GRAPH_BONUS, 1.0) });
+    }
+  }
+
+  for (const r of standardResults) {
+    if (!seen.has(r.id)) {
+      seen.add(r.id);
+      merged.push(r);
+    }
+  }
+
+  merged.sort((a, b) => b.similarity - a.similarity);
+
+  console.log(
+    `graphAwareSearch: graph=${graphChunkResults.length}, standard=${standardResults.length}, merged=${merged.length}`
+  );
+
+  return merged.slice(0, matchCount);
 }
