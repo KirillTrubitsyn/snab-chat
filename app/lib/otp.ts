@@ -2,12 +2,13 @@
  * OTP утилиты — генерация, сохранение и проверка одноразовых кодов.
  */
 
+import { randomInt } from "crypto";
 import { createServiceClient } from "./supabase";
 import { generateSecret, generateURI, verifySync } from "otplib";
 
-/** Генерация 6-значного числового OTP-кода */
+/** Генерация 6-значного числового OTP-кода (криптографически безопасный) */
 export function generateOTP(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(randomInt(100000, 1000000));
 }
 
 /** Сохранить OTP в БД */
