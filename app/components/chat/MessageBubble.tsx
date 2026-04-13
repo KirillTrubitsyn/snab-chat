@@ -298,7 +298,9 @@ export default function MessageBubble({
       .filter((line) => line.length > 0 && line.endsWith("?"));
   }
 
-  const processedContent = linkifyContent(mainContent, allSources);
+  // Ensure blank lines before markdown headings (## / ###) so ReactMarkdown parses them correctly
+  const linkedContent = linkifyContent(mainContent, allSources);
+  const processedContent = linkedContent.replace(/([^\n])\n(#{1,4}\s)/g, "$1\n\n$2");
   const [expandedImg, setExpandedImg] = useState<string | null>(null);
 
   return (
