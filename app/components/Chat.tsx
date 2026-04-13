@@ -403,8 +403,8 @@ export default function Chat() {
   }, []);
 
   useEffect(() => {
-    loadSources();
-  }, [loadSources]);
+    if (isAuthenticated) loadSources();
+  }, [loadSources, isAuthenticated]);
 
   // Combined list for source matching in citations (visible + hidden denormalized)
   const allSourcesForMatching = useMemo(
