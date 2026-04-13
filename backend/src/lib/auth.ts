@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { createHmac, timingSafeEqual, randomBytes } from "crypto";
+import { createHmac, timingSafeEqual, randomBytes, createHash } from "crypto";
 import { createServiceClient } from "./supabase.js";
 
 // ============================================================
@@ -268,6 +268,99 @@ export function verifyAuthToken(
 }
 
 // ============================================================
+// Admin 2FA: session tokens (DB-backed for revocability)
+// ============================================================
+
+const ADMIN_SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * Get admin 2FA data from DB.
+ */
+export async function getAdmin2FAData(
+  adminNumber: number
+): Promise<{ totp_secret: string | null; telegram_chat_id: string | null } | null> {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("admin_2fa")
+    .select("totp_secret, telegram_chat_id")
+    .eq("admin_number", adminNumber)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data;
+}
+
+/**
+ * Get admin 2FA status: which methods are configured.
+ */
+export async function getAdmin2FAStatus(
+  adminNumber: number
+): Promise<{ hasAnyMethod: boolean; methods: string[] }> {
+  const data = await getAdmin2FAData(adminNumber);
+  const methods: string[] = [];
+  if (data?.totp_secret) methods.push("totp");
+  if (data?.telegram_chat_id) methods.push("telegram");
+  return { hasAnyMethod: methods.length > 0, methods };
+}
+
+/**
+ * Generate admin session token after successful 2FA verification.
+ * Stores SHA-256 hash in admin_sessions table; returns the raw token.
+ */
+export async function generateAdminSessionToken(
+  adminNumber: number,
+  ip: string,
+  userAgent: string
+): Promise<string> {
+  const token = randomBytes(32).toString("hex");
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(Date.now() + ADMIN_SESSION_MAX_AGE_MS).toISOString();
+
+  const supabase = createServiceClient();
+  await supabase.from("admin_sessions").insert({
+    admin_number: adminNumber,
+    token_hash: tokenHash,
+    ip_address: ip,
+    user_agent: userAgent,
+    expires_at: expiresAt,
+  });
+
+  return token;
+}
+
+/**
+ * Verify admin session token: hash, look up in DB, check expiry.
+ */
+export async function verifyAdminSessionToken(
+  token: string
+): Promise<{ adminNumber: number } | null> {
+  if (!token) return null;
+  const tokenHash = hashToken(token);
+
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("admin_sessions")
+    .select("admin_number, expires_at")
+    .eq("token_hash", tokenHash)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  // Check expiration
+  if (new Date(data.expires_at) < new Date()) {
+    // Clean up expired session
+    await supabase.from("admin_sessions").delete().eq("token_hash", tokenHash);
+    return null;
+  }
+
+  return { adminNumber: data.admin_number };
+}
+
+// ============================================================
 // Helpers для защиты API-роутов (Express)
 // ============================================================
 
@@ -285,28 +378,61 @@ function getHeader(req: Request, name: string): string {
   }
 }
 
-export function requireAdmin(
+export async function requireAdmin(
   req: Request,
   res: Response
-): { adminName: string } | null {
+): Promise<{ adminName: string; adminNumber: number } | null> {
   const code = getHeader(req, "x-admin-code");
   const name = getAdminName(code);
   if (!name) {
     res.status(401).json({ error: "Требуются права администратора" });
     return null;
   }
-  return { adminName: name };
+
+  const adminNumber = getAdminNumber(code)!;
+  const sessionToken = getHeader(req, "x-admin-session");
+
+  if (!sessionToken) {
+    // Grace period: allow code-only access with warning
+    console.warn(`[auth] Admin ${name} (${adminNumber}) accessing without 2FA session — grace period`);
+    return { adminName: name, adminNumber };
+  }
+
+  const session = await verifyAdminSessionToken(sessionToken);
+  if (!session) {
+    res.status(401).json({ error: "Сессия истекла, войдите заново" });
+    return null;
+  }
+
+  if (session.adminNumber !== adminNumber) {
+    res.status(401).json({ error: "Несоответствие сессии" });
+    return null;
+  }
+
+  return { adminName: name, adminNumber };
 }
 
-export function requireDocumentAdmin(
+export async function requireDocumentAdmin(
   req: Request,
   res: Response
-): { adminName: string } | null {
+): Promise<{ adminName: string } | null> {
   const code = getHeader(req, "x-admin-code");
   if (!isDocumentAdmin(code)) {
     res.status(401).json({ error: "Требуются права администратора" });
     return null;
   }
+
+  const sessionToken = getHeader(req, "x-admin-session");
+  if (sessionToken) {
+    const session = await verifyAdminSessionToken(sessionToken);
+    if (!session) {
+      res.status(401).json({ error: "Сессия истекла, войдите заново" });
+      return null;
+    }
+  } else {
+    console.warn(`[auth] Doc admin ${getAdminName(code)} accessing without 2FA session — grace period`);
+  }
+
   return { adminName: getAdminName(code)! };
 }
 

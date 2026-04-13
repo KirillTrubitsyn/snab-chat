@@ -103,7 +103,7 @@ router.post("/api/kb-search", async (req: Request, res: Response) => {
 
 router.get("/api/debug-chunks", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const filename = (req.query.filename as string) || "SRM";

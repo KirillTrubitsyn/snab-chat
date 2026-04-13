@@ -79,7 +79,7 @@ async function saveAdminReply(supportMessageId: string, replyText: string, admin
  */
 router.post("/api/telegram/test", async (req: Request, res: Response) => {
   try {
-    const adminCheck = requireAdmin(req, res);
+    const adminCheck = await requireAdmin(req, res);
     if (!adminCheck) return;
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -137,7 +137,7 @@ router.post("/api/telegram/test", async (req: Request, res: Response) => {
  */
 router.post("/api/telegram/setup", async (req: Request, res: Response) => {
   try {
-    const adminCheck = requireAdmin(req, res);
+    const adminCheck = await requireAdmin(req, res);
     if (!adminCheck) return;
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -221,7 +221,7 @@ router.post("/api/telegram/setup", async (req: Request, res: Response) => {
  * POST /api/telegram/test-2fa — проверка 2FA-бота.
  */
 router.post("/api/telegram/test-2fa", async (req: Request, res: Response) => {
-  const adminCheck = requireAdmin(req, res);
+  const adminCheck = await requireAdmin(req, res);
   if (!adminCheck) return;
 
   const botToken = process.env.TELEGRAM_2FA_BOT_TOKEN;

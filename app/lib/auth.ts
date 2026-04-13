@@ -312,31 +312,69 @@ export async function getDeviceCount(inviteCodeId: string): Promise<number> {
 }
 
 // ============================================================
+// Admin session verification (DB-backed)
+// ============================================================
+
+function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+async function verifyAdminSession(sessionToken: string): Promise<{ adminNumber: number } | null> {
+  if (!sessionToken) return null;
+  const tokenHash = hashToken(sessionToken);
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("admin_sessions")
+    .select("admin_number, expires_at")
+    .eq("token_hash", tokenHash)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  if (new Date(data.expires_at) < new Date()) return null;
+  return { adminNumber: data.admin_number };
+}
+
+// ============================================================
 // Helpers для защиты API-роутов
 // ============================================================
 
 /**
- * Проверяет заголовок X-Admin-Code и возвращает имя админа или 401
+ * Проверяет заголовок X-Admin-Code + X-Admin-Session и возвращает имя админа или 401
  */
-export function requireAdmin(
+export async function requireAdmin(
   req: NextRequest
-): { adminName: string } | NextResponse {
+): Promise<{ adminName: string } | NextResponse> {
   const rawCode = req.headers.get("x-admin-code") ?? "";
   const code = decodeURIComponent(rawCode);
   const name = getAdminName(code);
   if (!name) {
     return adminRequiredResponse();
   }
+
+  const sessionToken = req.headers.get("x-admin-session") ?? "";
+  if (sessionToken) {
+    const session = await verifyAdminSession(sessionToken);
+    if (!session) {
+      return NextResponse.json({ error: "Сессия истекла, войдите заново" }, { status: 401 });
+    }
+    const adminNumber = getAdminNumber(code);
+    if (session.adminNumber !== adminNumber) {
+      return adminRequiredResponse();
+    }
+  } else {
+    // Grace period: allow code-only access
+    console.warn(`[auth] Admin ${name} accessing Next.js route without 2FA session — grace period`);
+  }
+
   return { adminName: name };
 }
 
 /**
  * Проверяет, что запрос от главного администратора (номер 1).
- * Используется для операций, доступных только главному админу (удаление кодов и т.д.)
  */
-export function requirePrimaryAdmin(
+export async function requirePrimaryAdmin(
   req: NextRequest
-): { adminName: string } | NextResponse {
+): Promise<{ adminName: string } | NextResponse> {
   const rawCode = req.headers.get("x-admin-code") ?? "";
   const code = decodeURIComponent(rawCode);
   const name = getAdminName(code);
@@ -344,20 +382,42 @@ export function requirePrimaryAdmin(
   if (!name || number !== 1) {
     return adminRequiredResponse();
   }
+
+  const sessionToken = req.headers.get("x-admin-session") ?? "";
+  if (sessionToken) {
+    const session = await verifyAdminSession(sessionToken);
+    if (!session || session.adminNumber !== number) {
+      return NextResponse.json({ error: "Сессия истекла, войдите заново" }, { status: 401 });
+    }
+  } else {
+    console.warn(`[auth] Primary admin ${name} accessing without 2FA session — grace period`);
+  }
+
   return { adminName: name };
 }
 
 /**
  * Проверяет, что запрос от администратора с правами управления документами (isDocAdmin)
  */
-export function requireDocumentAdmin(
+export async function requireDocumentAdmin(
   req: NextRequest
-): { adminName: string } | NextResponse {
+): Promise<{ adminName: string } | NextResponse> {
   const rawCode = req.headers.get("x-admin-code") ?? "";
   const code = decodeURIComponent(rawCode);
   if (!isDocumentAdmin(code)) {
     return adminRequiredResponse();
   }
+
+  const sessionToken = req.headers.get("x-admin-session") ?? "";
+  if (sessionToken) {
+    const session = await verifyAdminSession(sessionToken);
+    if (!session) {
+      return NextResponse.json({ error: "Сессия истекла, войдите заново" }, { status: 401 });
+    }
+  } else {
+    console.warn(`[auth] Doc admin ${getAdminName(code)} accessing without 2FA session — grace period`);
+  }
+
   return { adminName: getAdminName(code)! };
 }
 

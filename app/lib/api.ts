@@ -33,12 +33,16 @@ export function getAuthHeaders(): Record<string, string> {
 
 /**
  * Build headers for admin API requests.
- * Includes x-admin-code and x-api-key.
+ * Includes x-admin-code, x-admin-session, and x-api-key.
  */
 export function getAdminHeaders(adminCode: string): Record<string, string> {
   const headers: Record<string, string> = {
     "x-admin-code": encodeURIComponent(adminCode),
   };
+  if (typeof window !== "undefined") {
+    const session = sessionStorage.getItem("snabchat_admin_session");
+    if (session) headers["x-admin-session"] = session;
+  }
   if (BACKEND_API_KEY) headers["x-api-key"] = BACKEND_API_KEY;
   return headers;
 }
