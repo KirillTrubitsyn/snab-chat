@@ -894,54 +894,83 @@ export async function graphAwareSearch(
 
     const groupSearches = graphResult.groups.map(async (group) => {
       try {
-        // Create a clean group-focused query: "порядок закупок НТСК"
         const groupQuery = `${coreTopic} ${group.name}`;
         const groupEmbedding = await embedQuery(groupQuery);
         const groupEmbStr = `[${groupEmbedding.join(",")}]`;
 
-        const { data, error } = await supabase.rpc("hybrid_search_scoped", {
-          query_text: groupQuery,
-          query_embedding: groupEmbStr,
-          p_chunk_ids: group.chunkIds,
-          match_count: perGroup,
-        });
-        if (!error && data) {
-          const raw = (data as SearchResult[]).map((r) => ({
-            ...r,
-            image_paths: r.image_paths ?? [],
-          }));
+        // Two parallel searches for each group:
+        // 1. Scoped semantic search (within graph-discovered chunks)
+        // 2. Direct filename-based search (primary docs only, not .md)
+        const [scopedRes, filenameRes] = await Promise.all([
+          supabase.rpc("hybrid_search_scoped", {
+            query_text: groupQuery,
+            query_embedding: groupEmbStr,
+            p_chunk_ids: group.chunkIds,
+            match_count: perGroup,
+          }),
+          // Search for primary documents (.docx/.pdf) containing the group name
+          supabase.rpc("hybrid_search", {
+            query_text: groupQuery,
+            query_embedding: groupEmbStr,
+            match_count: 6,
+            filter_tags: null,
+          }),
+        ]);
 
-          // Diversify: limit to max 2 chunks per source file, prefer primary
-          // documents (.docx/.pdf) over denormalized (.md) files
-          const byFile = new Map<string, SearchResult[]>();
-          for (const r of raw) {
-            const arr = byFile.get(r.source_filename) ?? [];
-            arr.push(r);
-            byFile.set(r.source_filename, arr);
-          }
+        const scopedRaw = (!scopedRes.error && scopedRes.data)
+          ? (scopedRes.data as SearchResult[]).map(r => ({ ...r, image_paths: r.image_paths ?? [] }))
+          : [];
 
-          // Sort files: primary docs first, then .md
-          const fileEntries = [...byFile.entries()].sort(([a], [b]) => {
-            const aIsMd = a.endsWith(".md");
-            const bIsMd = b.endsWith(".md");
-            if (aIsMd !== bIsMd) return aIsMd ? 1 : -1;
-            return 0;
-          });
+        // From general hybrid_search, keep only results whose filename contains
+        // the group name AND are primary documents (not .md)
+        const groupNameLc = group.name.toLowerCase();
+        const nameParts = groupNameLc.split(/[\s_-]+/).filter(p => p.length >= 3);
+        const filenameRaw = (!filenameRes.error && filenameRes.data)
+          ? (filenameRes.data as SearchResult[])
+              .map(r => ({ ...r, image_paths: r.image_paths ?? [] }))
+              .filter(r => {
+                const fn = r.source_filename.toLowerCase();
+                if (fn.endsWith(".md")) return false;
+                return nameParts.some(p => fn.includes(p));
+              })
+          : [];
 
-          const diversified: SearchResult[] = [];
-          const MAX_PER_FILE = 2;
-          for (const [, chunks] of fileEntries) {
-            for (const c of chunks.slice(0, MAX_PER_FILE)) {
-              diversified.push(c);
-            }
-          }
+        // Merge: primary docs first, then scoped results (dedup by id)
+        const seen = new Set<string>();
+        const merged: SearchResult[] = [];
 
-          console.log(
-            `[graphAwareSearch] Group "${group.name}": ${raw.length} raw → ${diversified.length} diversified ` +
-            `(${byFile.size} files) from ${group.chunkIds.length} scoped chunks`
-          );
-          return diversified;
+        // Add primary doc results first (these are the core documents)
+        for (const r of filenameRaw) {
+          if (!seen.has(r.id)) { seen.add(r.id); merged.push(r); }
         }
+        // Add scoped results
+        for (const r of scopedRaw) {
+          if (!seen.has(r.id)) { seen.add(r.id); merged.push(r); }
+        }
+
+        // Diversify: max 2 chunks per file, primary docs (.docx/.pdf) first
+        const byFile = new Map<string, SearchResult[]>();
+        for (const r of merged) {
+          const arr = byFile.get(r.source_filename) ?? [];
+          arr.push(r);
+          byFile.set(r.source_filename, arr);
+        }
+        const fileEntries = [...byFile.entries()].sort(([a], [b]) => {
+          const aIsMd = a.endsWith(".md");
+          const bIsMd = b.endsWith(".md");
+          if (aIsMd !== bIsMd) return aIsMd ? 1 : -1;
+          return 0;
+        });
+        const diversified: SearchResult[] = [];
+        for (const [, chunks] of fileEntries) {
+          for (const c of chunks.slice(0, 2)) diversified.push(c);
+        }
+
+        console.log(
+          `[graphAwareSearch] Group "${group.name}": scoped=${scopedRaw.length}, filename=${filenameRaw.length}, ` +
+          `merged=${merged.length} → ${diversified.length} diversified (${byFile.size} files)`
+        );
+        return diversified;
       } catch (err) {
         console.error(`[graphAwareSearch] Group "${group.name}" error:`, err);
       }
