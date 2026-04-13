@@ -1688,10 +1688,21 @@ export default function Chat() {
                     const src = sources.find(s => String(s.id) === String(sourceId));
                     if (src) setViewingSource(src);
                   }}
-                  onDownload={(sourceId, filename) => {
-                    const isMd = filename?.endsWith(".md");
-                    const endpoint = isMd ? "/api/sources/download-docx" : "/api/sources/download";
-                    window.open(apiUrl(endpoint + "?id=" + sourceId + "&action=download&token=" + encodeURIComponent(inviteCodeRef.current)), "_blank");
+                  onDownload={async (sourceId, filename) => {
+                    try {
+                      const isMd = filename?.endsWith(".md");
+                      const endpoint = isMd ? "/api/sources/download-docx" : "/api/sources/download";
+                      const res = await fetch(apiUrl(endpoint + "?id=" + sourceId + "&action=download"), { headers: getAuthHeaders() });
+                      if (!res.ok) return;
+                      const blob = await res.blob();
+                      const disposition = res.headers.get("content-disposition");
+                      const match = disposition?.match(/filename\*?=(?:UTF-8'')?([^;\n]+)/i);
+                      const fname = match ? decodeURIComponent(match[1]) : filename || "download";
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url; a.download = fname; document.body.appendChild(a); a.click();
+                      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+                    } catch (e) { console.error("Download error:", e); }
                   }}
                 />
                   {(() => {
@@ -1779,17 +1790,31 @@ export default function Chat() {
                                   <circle cx="12" cy="12" r="3" />
                                 </svg>
                               </button>
-                              <a
+                              <button
                                 className="kb-action-btn"
-                                href={apiUrl(`/api/sources/${ext === "md" ? "download-docx" : "download"}?id=${doc.id}&action=download&token=${encodeURIComponent(inviteCodeRef.current)}`)}
                                 title="Скачать"
+                                onClick={async () => {
+                                  try {
+                                    const endpoint = ext === "md" ? "download-docx" : "download";
+                                    const res = await fetch(apiUrl(`/api/sources/${endpoint}?id=${doc.id}&action=download`), { headers: getAuthHeaders() });
+                                    if (!res.ok) return;
+                                    const blob = await res.blob();
+                                    const disposition = res.headers.get("content-disposition");
+                                    const match = disposition?.match(/filename\*?=(?:UTF-8'')?([^;\n]+)/i);
+                                    const fname = match ? decodeURIComponent(match[1]) : doc.filename || "download";
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement("a");
+                                    a.href = url; a.download = fname; document.body.appendChild(a); a.click();
+                                    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+                                  } catch (e) { console.error("Download error:", e); }
+                                }}
                               >
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                                   <polyline points="7 10 12 15 17 10" />
                                   <line x1="12" y1="15" x2="12" y2="3" />
                                 </svg>
-                              </a>
+                              </button>
                             </div>
                           </div>
                         );

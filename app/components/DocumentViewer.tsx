@@ -170,6 +170,8 @@ export default function DocumentViewer({
   const [loading, setLoading] = useState(true);
   // Resolved source: original file if this is a denormalized document
   const [resolved, setResolved] = useState<DocumentSource | null>(null);
+  // Blob URL for PDF preview (avoids credentials in iframe src)
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
 
   // The effective source for display (original if resolved, otherwise the input source)
   const eff = resolved || source;
@@ -189,7 +191,6 @@ export default function DocumentViewer({
     eff.filename?.endsWith(".ppt");
   const hasOriginal = !!eff.storage_path;
   const isDenormalized = source.mime_type === "application/x-denormalized";
-  const tokenParam = authCode ? `&token=${encodeURIComponent(authCode)}` : "";
   const authHeaders: HeadersInit = authCode
     ? { "x-invite-code": encodeURIComponent(authCode), ...getAuthHeaders() }
     : getAuthHeaders();
@@ -209,6 +210,20 @@ export default function DocumentViewer({
       })
       .catch(() => {});
   }, [source.id, isDenormalized]);
+
+  // Load PDF as blob for secure iframe rendering (no credentials in src URL)
+  useEffect(() => {
+    if (!isPdf || !hasOriginal) return;
+    let revoked = false;
+    fetch(apiUrl(`/api/sources/download?id=${eff.id}&action=view`), { headers: authHeaders })
+      .then((r) => r.ok ? r.blob() : null)
+      .then((blob) => {
+        if (blob && !revoked) setPdfBlobUrl(URL.createObjectURL(blob));
+      })
+      .catch(() => {});
+    return () => { revoked = true; if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eff.id, isPdf, hasOriginal]);
 
   // Step 2: load content based on effective source
   useEffect(() => {
@@ -322,12 +337,20 @@ export default function DocumentViewer({
             <button
               className="btn-primary"
               style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13 }}
-              onClick={() =>
-                window.open(
-                  apiUrl(`/api/sources/download?id=${eff.id}&action=download${tokenParam}`),
-                  "_blank"
-                )
-              }
+              onClick={async () => {
+                try {
+                  const res = await fetch(apiUrl(`/api/sources/download?id=${eff.id}&action=download`), { headers: authHeaders });
+                  if (!res.ok) return;
+                  const blob = await res.blob();
+                  const disposition = res.headers.get("content-disposition");
+                  const match = disposition?.match(/filename\*?=(?:UTF-8'')?([^;\n]+)/i);
+                  const filename = match ? decodeURIComponent(match[1]) : source.filename || "download";
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+                  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+                } catch (e) { console.error("Download error:", e); }
+              }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -344,9 +367,9 @@ export default function DocumentViewer({
         <div className="document-viewer-body">
           {loading ? (
             <div className="document-viewer-loading">Загрузка...</div>
-          ) : isPdf && hasOriginal ? (
+          ) : isPdf && hasOriginal && pdfBlobUrl ? (
             <iframe
-              src={apiUrl(`/api/sources/download?id=${eff.id}&action=view${tokenParam}`)}
+              src={pdfBlobUrl}
               className="document-viewer-iframe"
               title={source.filename}
             />
