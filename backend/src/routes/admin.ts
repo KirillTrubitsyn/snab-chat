@@ -968,4 +968,86 @@ router.delete("/api/admin/off-topic", async (req: Request, res: Response) => {
   }
 });
 
+/* ══════════════════════════════════════════════════════════════
+   Knowledge Graph: generate missing entity embeddings
+   POST /api/admin/kg-embeddings   { limit?: number }
+   ══════════════════════════════════════════════════════════════ */
+
+router.post("/kg-embeddings", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const supabase = createServiceClient();
+    const batchLimit = Math.min(Number(req.body?.limit) || 50, 100);
+
+    // Fetch entities without embeddings
+    const { data: entities, error: fetchErr } = await supabase
+      .from("kg_entities")
+      .select("id, name, entity_type, description")
+      .is("embedding", null)
+      .order("id")
+      .limit(batchLimit);
+
+    if (fetchErr) {
+      return res.status(500).json({ error: fetchErr.message });
+    }
+
+    if (!entities || entities.length === 0) {
+      return res.json({ processed: 0, errors: 0, remaining: 0, message: "All entities have embeddings" });
+    }
+
+    // Import embedTexts from embeddings module
+    const { embedTexts } = await import("../lib/embeddings.js");
+
+    // Prepare text for each entity: name + type + description
+    const texts = entities.map((e) => {
+      const parts = [e.name];
+      if (e.entity_type) parts.push(`(${e.entity_type})`);
+      if (e.description) parts.push(e.description);
+      return parts.join(" ");
+    });
+
+    // Generate embeddings in sub-batches of 5
+    const SUB_BATCH = 5;
+    let processed = 0;
+    let errors = 0;
+
+    for (let i = 0; i < texts.length; i += SUB_BATCH) {
+      const batchTexts = texts.slice(i, i + SUB_BATCH);
+      const batchEntities = entities.slice(i, i + SUB_BATCH);
+
+      try {
+        const embeddings = await embedTexts(batchTexts);
+
+        for (let j = 0; j < batchEntities.length; j++) {
+          const embStr = `[${embeddings[j].join(",")}]`;
+          const { error: updErr } = await supabase
+            .from("kg_entities")
+            .update({ embedding: embStr })
+            .eq("id", batchEntities[j].id);
+
+          if (updErr) {
+            console.error(`[kg-embeddings] Update error for ${batchEntities[j].name}:`, updErr.message);
+            errors++;
+          } else {
+            processed++;
+          }
+        }
+      } catch (embErr: any) {
+        console.error(`[kg-embeddings] Embedding batch error:`, embErr?.message);
+        errors += batchTexts.length;
+      }
+    }
+
+    // Count remaining
+    const { count } = await supabase
+      .from("kg_entities")
+      .select("id", { count: "exact", head: true })
+      .is("embedding", null);
+
+    return res.json({ processed, errors, remaining: count ?? 0 });
+  } catch (err: any) {
+    console.error("[kg-embeddings] Error:", err?.message);
+    return res.status(500).json({ error: err?.message || "Internal error" });
+  }
+});
+
 export default router;
