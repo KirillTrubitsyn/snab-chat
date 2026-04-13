@@ -973,8 +973,11 @@ router.delete("/api/admin/off-topic", async (req: Request, res: Response) => {
    POST /api/admin/kg-embeddings   { limit?: number }
    ══════════════════════════════════════════════════════════════ */
 
-router.post("/kg-embeddings", requireAdmin, async (req: Request, res: Response) => {
+router.post("/api/admin/kg-embeddings", async (req: Request, res: Response) => {
   try {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+
     const supabase = createServiceClient();
     const batchLimit = Math.min(Number(req.body?.limit) || 50, 100);
 
