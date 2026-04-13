@@ -997,17 +997,45 @@ export async function graphAwareSearch(
 
     const groupResults = await Promise.all(groupSearches);
 
-    // Interleave: take results round-robin from each group for fair distribution
-    const maxLen = Math.max(...groupResults.map(g => g.length));
-    for (let i = 0; i < maxLen; i++) {
-      for (const group of groupResults) {
-        if (i < group.length) {
-          graphChunkResults.push(group[i]);
+    // Reserve minimum slots per group to ensure balanced representation.
+    // Each group's diversified results are ordered: primary docs (.docx/.pdf)
+    // first, then .md.  Without reservation the final similarity sort can
+    // push an entire group's primary docs below the cutoff.
+    const MIN_RESERVED_PER_GROUP = 3;
+    const reservedSet = new Set<string>();
+    const reserved: SearchResult[] = [];
+
+    for (const group of groupResults) {
+      let taken = 0;
+      for (const r of group) {
+        if (taken >= MIN_RESERVED_PER_GROUP) break;
+        if (!reservedSet.has(r.id)) {
+          reservedSet.add(r.id);
+          reserved.push(r);
+          taken++;
         }
       }
     }
 
-    console.log(`[graphAwareSearch] Balanced: ${graphResult.groups.length} groups, ${graphChunkResults.length} total graph results`);
+    // Remaining results (round-robin, excluding reserved)
+    const remaining: SearchResult[] = [];
+    const maxLen = Math.max(...groupResults.map(g => g.length));
+    for (let i = 0; i < maxLen; i++) {
+      for (const group of groupResults) {
+        if (i < group.length && !reservedSet.has(group[i].id)) {
+          remaining.push(group[i]);
+        }
+      }
+    }
+
+    // Reserved first, then remaining sorted by similarity
+    remaining.sort((a, b) => b.similarity - a.similarity);
+    graphChunkResults = [...reserved, ...remaining];
+
+    console.log(
+      `[graphAwareSearch] Balanced: ${graphResult.groups.length} groups, ` +
+      `reserved=${reserved.length}, remaining=${remaining.length}, total=${graphChunkResults.length}`
+    );
   } else {
     // Single entity or no named groups → unified scoped search
     try {
@@ -1028,26 +1056,41 @@ export async function graphAwareSearch(
     }
   }
 
-  // Merge: graph chunks with bonus + standard
+  // Merge: graph chunks with bonus + standard.
+  // For multi-group queries the first `reservedCount` graph results are
+  // guaranteed per-group primary docs — they must stay at the top.
   const GRAPH_BONUS = 0.15;
-  const seen = new Set<string>();
-  const merged: SearchResult[] = [];
+  const isMultiGroup = graphResult.groups.length >= 2;
+  const reservedCount = isMultiGroup
+    ? Math.min(graphResult.groups.length * 3, graphChunkResults.length)
+    : 0;
 
-  for (const r of graphChunkResults) {
-    if (!seen.has(r.id)) {
-      seen.add(r.id);
-      merged.push({ ...r, similarity: Math.min(r.similarity + GRAPH_BONUS, 1.0) });
+  const seen = new Set<string>();
+  const mergedReserved: SearchResult[] = [];
+  const mergedRest: SearchResult[] = [];
+
+  for (let i = 0; i < graphChunkResults.length; i++) {
+    const r = graphChunkResults[i];
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    const boosted = { ...r, similarity: Math.min(r.similarity + GRAPH_BONUS, 1.0) };
+    if (i < reservedCount) {
+      mergedReserved.push(boosted);
+    } else {
+      mergedRest.push(boosted);
     }
   }
 
   for (const r of standardResults) {
     if (!seen.has(r.id)) {
       seen.add(r.id);
-      merged.push(r);
+      mergedRest.push(r);
     }
   }
 
-  merged.sort((a, b) => b.similarity - a.similarity);
+  // Sort only the non-reserved portion by similarity
+  mergedRest.sort((a, b) => b.similarity - a.similarity);
+  const merged = [...mergedReserved, ...mergedRest];
 
   console.log(
     `[graphAwareSearch] graph=${graphChunkResults.length}, standard=${standardResults.length}, merged=${merged.length}, groups=${graphResult.groups.length}`
