@@ -22,6 +22,7 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
   const [ready, setReady] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const autoPlayFired = useRef(false);
+  const playPromise = useRef<Promise<void> | null>(null);
 
   /* ── Auto-hide controls ── */
   const scheduleHide = useCallback(() => {
@@ -38,12 +39,22 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
     if (!v) return;
     setError(null);
     if (v.paused) {
-      v.play()
-        .then(() => setPlaying(true))
-        .catch((e) => setError(e.message));
+      const p = v.play();
+      playPromise.current = p;
+      p.then(() => setPlaying(true))
+        .catch((e) => {
+          if (e.name === "AbortError") return;
+          setError(e.message);
+        });
     } else {
-      v.pause();
-      setPlaying(false);
+      const pending = playPromise.current;
+      if (pending) {
+        pending.then(() => { v.pause(); setPlaying(false); }).catch(() => { v.pause(); setPlaying(false); });
+        playPromise.current = null;
+      } else {
+        v.pause();
+        setPlaying(false);
+      }
     }
     scheduleHide();
   }, [scheduleHide]);
@@ -52,8 +63,9 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
   useEffect(() => {
     if (!open || !ready || !videoRef.current || autoPlayFired.current) return;
     autoPlayFired.current = true;
-    videoRef.current.play()
-      .then(() => { setPlaying(true); scheduleHide(); })
+    const p = videoRef.current.play();
+    playPromise.current = p;
+    p.then(() => { setPlaying(true); scheduleHide(); })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, ready]);
@@ -62,9 +74,16 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
   useEffect(() => {
     if (!open) {
       autoPlayFired.current = false;
-      if (videoRef.current) {
-        videoRef.current.pause();
-        videoRef.current.currentTime = 0;
+      const v = videoRef.current;
+      if (v) {
+        const pending = playPromise.current;
+        if (pending) {
+          pending.then(() => { v.pause(); v.currentTime = 0; }).catch(() => { v.pause(); v.currentTime = 0; });
+          playPromise.current = null;
+        } else {
+          v.pause();
+          v.currentTime = 0;
+        }
       }
       setPlaying(false);
       setReady(false);
@@ -91,7 +110,16 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
   };
 
   const handleClose = () => {
-    if (videoRef.current) videoRef.current.pause();
+    const v = videoRef.current;
+    if (v) {
+      const pending = playPromise.current;
+      if (pending) {
+        pending.then(() => v.pause()).catch(() => v.pause());
+        playPromise.current = null;
+      } else {
+        v.pause();
+      }
+    }
     setPlaying(false);
     onClose();
   };
