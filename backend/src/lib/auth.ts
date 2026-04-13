@@ -144,34 +144,7 @@ export async function validateInviteCode(
     .single();
 
   if (error || !data) return null;
-  // Пользователи с паролем могут логиниться неограниченно
-  if (data.uses_remaining !== null && data.uses_remaining <= 0 && !data.password_hash) {
-    return null;
-  }
   return data as InviteCode;
-}
-
-export async function consumeInviteCode(codeId: string): Promise<void> {
-  const supabase = createServiceClient();
-  await supabase.rpc("decrement_invite_uses", { code_id: codeId });
-}
-
-export async function consumeInviteCodeFallback(
-  codeId: string
-): Promise<void> {
-  const supabase = createServiceClient();
-  const { data } = await supabase
-    .from("invite_codes")
-    .select("uses_remaining")
-    .eq("id", codeId)
-    .single();
-
-  if (data && data.uses_remaining !== null) {
-    await supabase
-      .from("invite_codes")
-      .update({ uses_remaining: data.uses_remaining - 1 })
-      .eq("id", codeId);
-  }
 }
 
 // ============================================================

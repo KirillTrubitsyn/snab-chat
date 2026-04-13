@@ -8,7 +8,6 @@ import {
   isDocumentAdmin,
   isCodeDeletionAdmin,
   validateInviteCode,
-  consumeInviteCodeFallback,
   checkAndRegisterDevice,
   generateAuthToken,
   getInviteCodeFromHeader,
