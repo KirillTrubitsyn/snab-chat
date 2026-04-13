@@ -10,6 +10,36 @@ const DEFAULT_TOP_K = 5;
 const DEFAULT_MAX_HOPS = 2;
 const MAX_SCOPED_CHUNKS = 200;
 
+/** Известные именованные сущности для прямого поиска */
+const KNOWN_ENTITY_PATTERNS = [
+  // Филиалы / организации
+  /\bСГК[\s-]?Алтай\b/i,
+  /\bНТСК\b/i,
+  /\bЕТГК\b/i,
+  /\bКузбассэнерго\b/i,
+  /\bСГК[\s-]?Новосибирск\b/i,
+  /\bСГК\b/i,
+  // Стандарты / регуляции
+  /\bГОСТ\s*[\d.\-]+/i,
+  /\b223[\s-]?ФЗ\b/i,
+  /\b44[\s-]?ФЗ\b/i,
+  // Системы
+  /\bSAP\s*(?:ERP|SRM|SEM|MM)?\b/i,
+  /\bB2B[\s-]?Center\b/i,
+  // Процедуры
+  /закупк[аиу]\s+у\s+единственного\s+источника/i,
+  /конкурентн(?:ая|ой|ую)\s+закупк/i,
+  /запрос\s+(?:котировок|предложений)/i,
+  /маркетинговое\s+исследование/i,
+  // Роли
+  /\bДКБ\b/i,
+  /\bЦЗК\b/i,
+  /\bЗКО\b/i,
+  /инициатор\s+закупки/i,
+  /организатор\s+закупки/i,
+  /комитет\s+по\s+закупкам/i,
+];
+
 export interface KGEntity {
   entity_id: string;
   name: string;
@@ -58,6 +88,46 @@ export async function findEntities(
   }
 
   return (data || []) as KGEntity[];
+}
+
+/* ── 1b. Именной поиск: извлечь имена из запроса и найти через ILIKE ── */
+
+export async function findEntitiesByName(query: string): Promise<KGEntity[]> {
+  const supabase = createServiceClient();
+  const matched: string[] = [];
+
+  for (const pattern of KNOWN_ENTITY_PATTERNS) {
+    const m = query.match(pattern);
+    if (m) matched.push(m[0]);
+  }
+
+  if (matched.length === 0) return [];
+
+  const results: KGEntity[] = [];
+  const seenIds = new Set<string>();
+
+  for (const name of matched) {
+    const { data, error } = await supabase.rpc("kg_find_entity_by_name", {
+      search_name: name,
+      filter_types: null,
+    });
+
+    if (error) {
+      console.error(`kg_find_entity_by_name error for "${name}":`, error.message);
+      continue;
+    }
+
+    for (const e of (data || []) as KGEntity[]) {
+      const eid = e.entity_id || (e as any).id;
+      if (!seenIds.has(eid)) {
+        seenIds.add(eid);
+        results.push({ ...e, entity_id: eid });
+      }
+    }
+  }
+
+  console.log(`[kg] findEntitiesByName: query="${query}" → matched patterns: [${matched.join(", ")}] → ${results.length} entities`);
+  return results;
 }
 
 /* ── 2. Обход графа от стартовых сущностей ── */
@@ -111,11 +181,29 @@ export async function graphQuery(
   connectedEntities: KGTraversalResult[];
   scopedChunkIds: number[];
 }> {
-  const startEntities = await findEntities(question, DEFAULT_TOP_K);
+  // Параллельно: семантический поиск + именной поиск
+  const [semanticEntities, namedEntities] = await Promise.all([
+    findEntities(question, DEFAULT_TOP_K),
+    findEntitiesByName(question),
+  ]);
+
+  // Объединить, дедуплицировать
+  const seenIds = new Set<string>();
+  const startEntities: KGEntity[] = [];
+
+  for (const e of [...namedEntities, ...semanticEntities]) {
+    const eid = e.entity_id || (e as any).id;
+    if (!seenIds.has(eid)) {
+      seenIds.add(eid);
+      startEntities.push({ ...e, entity_id: eid });
+    }
+  }
 
   if (startEntities.length === 0) {
     return { startEntities: [], connectedEntities: [], scopedChunkIds: [] };
   }
+
+  console.log(`[kg] graphQuery: ${startEntities.length} start entities (${namedEntities.length} by name, ${semanticEntities.length} semantic)`);
 
   const startIds = startEntities.map((e) => e.entity_id);
   const connected = await traverseGraph(startIds, maxHops);
@@ -148,7 +236,7 @@ export async function graphScopedSearch(
     }
 
     console.log(
-      `graphScopedSearch: ${result.startEntities.length} entities, ` +
+      `[kg] graphScopedSearch: ${result.startEntities.length} entities, ` +
       `${result.connectedEntities.length} connected, ` +
       `${result.scopedChunkIds.length} scoped chunks`
     );
