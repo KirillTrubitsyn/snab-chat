@@ -31,7 +31,7 @@ router.get("/api/conversations", async (req: Request, res: Response) => {
 
     let query = supabase
       .from("conversations")
-      .select("id, title, created_at, updated_at, summary, invite_code_id")
+      .select("id, title, created_at, updated_at, summary")
       .order("updated_at", { ascending: false })
       .limit(50);
 
@@ -62,7 +62,7 @@ router.get("/api/conversations", async (req: Request, res: Response) => {
         query = supabase
           .from("conversations")
           .select(
-            "id, title, created_at, updated_at, summary, invite_code_id"
+            "id, title, created_at, updated_at, summary"
           )
           .order("updated_at", { ascending: false })
           .limit(50);
