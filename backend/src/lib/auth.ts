@@ -349,7 +349,7 @@ export async function getInviteCodeFromHeader(
   const authToken = getHeader(req, "x-auth-token");
   if (!authToken || !verifyAuthToken(authToken, data.id)) {
     console.warn(
-      `[auth] Rejected request for code ${code.toUpperCase()}: auth token is missing or invalid`
+      `[auth] Rejected request for code ***${code.slice(-3).toUpperCase()}: auth token is missing or invalid`
     );
     return null;
   }
