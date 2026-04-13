@@ -226,34 +226,101 @@ export async function graphQuery(
   return { startEntities, connectedEntities: connected, scopedChunkIds };
 }
 
-/* ── 5. Graph-enhanced search: scoped hybrid search по чанкам из графа ── */
+/* ── 5. Graph-enhanced search: balanced multi-entity scoped search ── */
+
+export interface GraphScopedResult {
+  /** All scoped chunk_ids (unified) */
+  chunkIds: number[];
+  /** Per-entity-group chunk_ids for balanced retrieval */
+  groups: { name: string; chunkIds: number[] }[];
+  hasGraphResults: boolean;
+}
 
 export async function graphScopedSearch(
   query: string,
   matchCount: number = 15
-): Promise<{
-  chunkIds: number[];
-  hasGraphResults: boolean;
-}> {
+): Promise<GraphScopedResult> {
   try {
-    const result = await graphQuery(query);
+    // Step 1: Find named + semantic entities
+    const [semanticEntities, namedEntities] = await Promise.all([
+      findEntities(query, DEFAULT_TOP_K),
+      findEntitiesByName(query),
+    ]);
 
-    if (result.scopedChunkIds.length === 0) {
-      return { chunkIds: [], hasGraphResults: false };
+    // Merge all entities
+    const seenIds = new Set<string>();
+    const allEntities: KGEntity[] = [];
+    for (const e of [...namedEntities, ...semanticEntities]) {
+      const eid = e.entity_id || (e as any).id;
+      if (!seenIds.has(eid)) {
+        seenIds.add(eid);
+        allEntities.push({ ...e, entity_id: eid });
+      }
     }
 
+    if (allEntities.length === 0) {
+      return { chunkIds: [], groups: [], hasGraphResults: false };
+    }
+
+    // Step 2: Group named entities by matched pattern name
+    // (e.g., all "СГК-Алтай" entities in one group, all "НТСК" in another)
+    const matched: string[] = [];
+    for (const pattern of KNOWN_ENTITY_PATTERNS) {
+      const m = query.match(pattern);
+      if (m) matched.push(m[0].trim());
+    }
+
+    // Build per-group chunk_ids if we have multiple named groups
+    const groups: { name: string; chunkIds: number[] }[] = [];
+
+    if (matched.length >= 2) {
+      // Multiple named entities → build separate scoped chunks per group
+      const supabase = createServiceClient();
+
+      for (const name of matched) {
+        // Find entities matching this name
+        const { data: nameEntities } = await supabase.rpc("kg_find_entity_by_name", {
+          search_name: name,
+          filter_types: null,
+        });
+
+        if (!nameEntities || nameEntities.length === 0) continue;
+
+        const entityIds = nameEntities.map((e: any) => e.entity_id);
+
+        // Traverse from these entities
+        const connected = await traverseGraph(entityIds, DEFAULT_MAX_HOPS);
+        const allIds = [...new Set([...entityIds, ...connected.map(c => c.entity_id)])];
+
+        // Get scoped chunks for this group
+        const chunkIds = await getScopedChunkIds(allIds);
+
+        if (chunkIds.length > 0) {
+          groups.push({ name, chunkIds });
+          console.log(`[kg] Group "${name}": ${nameEntities.length} entities, ${connected.length} connected, ${chunkIds.length} chunks`);
+        }
+      }
+    }
+
+    // Also compute unified scoped chunks (for fallback / single-entity queries)
+    const startIds = allEntities.map(e => e.entity_id);
+    const connected = await traverseGraph(startIds, DEFAULT_MAX_HOPS);
+    const uniqueIds = [...new Set([...startIds, ...connected.map(c => c.entity_id)])];
+    const allChunkIds = await getScopedChunkIds(uniqueIds);
+
     console.log(
-      `[kg] graphScopedSearch: ${result.startEntities.length} entities, ` +
-      `${result.connectedEntities.length} connected, ` +
-      `${result.scopedChunkIds.length} scoped chunks`
+      `[kg] graphScopedSearch: ${allEntities.length} entities, ` +
+      `${connected.length} connected, ${allChunkIds.length} total chunks, ` +
+      `${groups.length} named groups`
     );
 
     return {
-      chunkIds: result.scopedChunkIds,
-      hasGraphResults: true,
+      chunkIds: allChunkIds,
+      groups,
+      hasGraphResults: allChunkIds.length > 0,
     };
   } catch (error) {
     console.error("graphScopedSearch error:", error);
-    return { chunkIds: [], hasGraphResults: false };
+    return { chunkIds: [], groups: [], hasGraphResults: false };
   }
 }

@@ -1,6 +1,6 @@
 import { createServiceClient } from "./supabase.js";
 import { embedQuery } from "./embeddings.js";
-import { graphScopedSearch } from "./kg-search.js";
+import { graphScopedSearch, type GraphScopedResult } from "./kg-search.js";
 import type { IntentResult, QueryIntent } from "./intent-classifier.js";
 import type { SectionReference, DocumentReference, CatalogQuery } from "./query-analyzer.js";
 
@@ -838,8 +838,9 @@ export async function graphAwareSearch(
   const supabase = createServiceClient();
 
   const [graphResult, standardResults] = await Promise.all([
-    graphScopedSearch(query, matchCount).catch(() => ({
-      chunkIds: [] as number[],
+    graphScopedSearch(query, matchCount).catch((): GraphScopedResult => ({
+      chunkIds: [],
+      groups: [],
       hasGraphResults: false,
     })),
     hybridSearch(query, matchCount, filterTags),
@@ -850,32 +851,71 @@ export async function graphAwareSearch(
     return standardResults;
   }
 
-  console.log(`[graphAwareSearch] Graph returned ${graphResult.chunkIds.length} scoped chunk_ids`);
+  const queryEmbedding = await embedQuery(query);
+  const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
-  // Scoped search по чанкам из графа
+  // If we have multiple named groups, run balanced scoped search per group
   let graphChunkResults: SearchResult[] = [];
-  try {
-    const queryEmbedding = await embedQuery(query);
-    const embeddingStr = `[${queryEmbedding.join(",")}]`;
 
-    const { data, error } = await supabase.rpc("hybrid_search_scoped", {
-      query_text: query,
-      query_embedding: embeddingStr,
-      p_chunk_ids: graphResult.chunkIds,
-      match_count: matchCount,
+  if (graphResult.groups.length >= 2) {
+    // Balanced: equal slots per group
+    const perGroup = Math.max(5, Math.ceil(matchCount / graphResult.groups.length));
+
+    const groupSearches = graphResult.groups.map(async (group) => {
+      try {
+        const { data, error } = await supabase.rpc("hybrid_search_scoped", {
+          query_text: query,
+          query_embedding: embeddingStr,
+          p_chunk_ids: group.chunkIds,
+          match_count: perGroup,
+        });
+        if (!error && data) {
+          console.log(`[graphAwareSearch] Group "${group.name}": ${(data as any[]).length} results from ${group.chunkIds.length} chunks`);
+          return (data as SearchResult[]).map((r) => ({
+            ...r,
+            image_paths: r.image_paths ?? [],
+          }));
+        }
+      } catch (err) {
+        console.error(`[graphAwareSearch] Group "${group.name}" error:`, err);
+      }
+      return [] as SearchResult[];
     });
 
-    if (!error && data) {
-      graphChunkResults = (data as SearchResult[]).map((r) => ({
-        ...r,
-        image_paths: r.image_paths ?? [],
-      }));
+    const groupResults = await Promise.all(groupSearches);
+
+    // Interleave: take results round-robin from each group for fair distribution
+    const maxLen = Math.max(...groupResults.map(g => g.length));
+    for (let i = 0; i < maxLen; i++) {
+      for (const group of groupResults) {
+        if (i < group.length) {
+          graphChunkResults.push(group[i]);
+        }
+      }
     }
-  } catch (err) {
-    console.error("graphAwareSearch scoped search error:", err);
+
+    console.log(`[graphAwareSearch] Balanced: ${graphResult.groups.length} groups, ${graphChunkResults.length} total graph results`);
+  } else {
+    // Single entity or no named groups → unified scoped search
+    try {
+      const { data, error } = await supabase.rpc("hybrid_search_scoped", {
+        query_text: query,
+        query_embedding: embeddingStr,
+        p_chunk_ids: graphResult.chunkIds,
+        match_count: matchCount,
+      });
+      if (!error && data) {
+        graphChunkResults = (data as SearchResult[]).map((r) => ({
+          ...r,
+          image_paths: r.image_paths ?? [],
+        }));
+      }
+    } catch (err) {
+      console.error("graphAwareSearch scoped search error:", err);
+    }
   }
 
-  // Объединить: чанки из графа с бонусом + стандартные
+  // Merge: graph chunks with bonus + standard
   const GRAPH_BONUS = 0.15;
   const seen = new Set<string>();
   const merged: SearchResult[] = [];
@@ -897,7 +937,7 @@ export async function graphAwareSearch(
   merged.sort((a, b) => b.similarity - a.similarity);
 
   console.log(
-    `graphAwareSearch: graph=${graphChunkResults.length}, standard=${standardResults.length}, merged=${merged.length}`
+    `[graphAwareSearch] graph=${graphChunkResults.length}, standard=${standardResults.length}, merged=${merged.length}`
   );
 
   return merged.slice(0, matchCount);
