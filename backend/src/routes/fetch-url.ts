@@ -158,7 +158,7 @@ router.post("/api/fetch-url", async (req: Request, res: Response) => {
       "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.5",
     };
 
-    let response: globalThis.Response;
+    let response!: globalThis.Response;
     let currentUrl = url;
     try {
       for (let i = 0; i <= MAX_REDIRECTS; i++) {
