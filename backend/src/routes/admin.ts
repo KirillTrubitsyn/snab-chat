@@ -245,7 +245,8 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
     ]);
 
     if (msgError) {
-      return res.status(500).json({ error: msgError.message });
+      console.error("[admin/activity] DB error:", msgError.message);
+      return res.status(500).json({ error: "Внутренняя ошибка сервера" });
     }
 
     const offTopicTexts = new Set((offTopicRows || []).map((r) => r.query_text));
@@ -990,7 +991,8 @@ router.post("/api/admin/kg-embeddings", async (req: Request, res: Response) => {
       .limit(batchLimit);
 
     if (fetchErr) {
-      return res.status(500).json({ error: fetchErr.message });
+      console.error("[admin] DB fetch error:", fetchErr.message);
+      return res.status(500).json({ error: "Внутренняя ошибка сервера" });
     }
 
     if (!entities || entities.length === 0) {
@@ -1049,7 +1051,7 @@ router.post("/api/admin/kg-embeddings", async (req: Request, res: Response) => {
     return res.json({ processed, errors, remaining: count ?? 0 });
   } catch (err: any) {
     console.error("[kg-embeddings] Error:", err?.message);
-    return res.status(500).json({ error: err?.message || "Internal error" });
+    return res.status(500).json({ error: "Ошибка обработки эмбеддингов" });
   }
 });
 

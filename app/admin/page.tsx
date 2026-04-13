@@ -26,14 +26,24 @@ export default function AdminPage() {
     setAdminCode(code);
     setUserName(name || "Администратор");
 
-    // Fetch isDocAdmin from server (localStorage may be stale/missing)
+    // Verify admin code server-side and fetch permissions
     fetch(apiUrl("/api/auth/login"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code }),
     })
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) {
+          // Server rejected the admin code — clear session and redirect
+          sessionStorage.removeItem("snabchat_admin_code");
+          sessionStorage.removeItem("snabchat_is_admin");
+          router.push("/");
+          return null;
+        }
+        return res.json();
+      })
       .then((data) => {
+        if (!data) return;
         if (data.isDocumentAdmin) {
           setIsDocAdmin(true);
           sessionStorage.setItem("snabchat_is_doc_admin", "true");
@@ -47,7 +57,12 @@ export default function AdminPage() {
           sessionStorage.removeItem("snabchat_is_primary_admin");
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        // Network error — clear session and redirect for safety
+        sessionStorage.removeItem("snabchat_admin_code");
+        sessionStorage.removeItem("snabchat_is_admin");
+        router.push("/");
+      })
       .finally(() => setLoading(false));
   }, [router]);
 

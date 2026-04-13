@@ -612,7 +612,10 @@ router.post("/api/sources/upload-original", upload.single("file"), async (req: R
         upsert: true,
       });
 
-    if (uploadError) return res.status(500).json({ error: uploadError.message });
+    if (uploadError) {
+      console.error("[sources/upload] Storage error:", uploadError.message);
+      return res.status(500).json({ error: "Ошибка загрузки файла" });
+    }
 
     await supabase.from("sources").update({ storage_path: storagePath }).eq("id", sourceId);
     return res.json({ ok: true, storagePath });
