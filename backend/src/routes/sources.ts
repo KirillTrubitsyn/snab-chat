@@ -248,7 +248,7 @@ router.get("/api/sources/download", async (req: Request, res: Response) => {
       res.setHeader("Content-Type", mimeType);
       res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(source.filename)}`);
       res.removeHeader("X-Frame-Options");
-      res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self' https://*.snabchat.app https://*.vercel.app");
+      res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'self'; frame-ancestors 'self' https://*.snabchat.app https://*.vercel.app");
     }
     return res.send(buffer);
   } catch (err) {

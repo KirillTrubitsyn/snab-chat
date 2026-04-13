@@ -45,7 +45,7 @@ function buildCSP(nonce: string, pathname: string): string {
     "img-src 'self' data: blob:",
     "media-src 'self' https://*.supabase.co",
     `connect-src ${connectSrcParts.join(" ")}`,
-    `frame-src ${frameSrcParts.join(" ")}`,
+    `frame-src blob: ${frameSrcParts.join(" ")}`,
     `frame-ancestors ${frameAncestors}`,
   ].join("; ");
 }
