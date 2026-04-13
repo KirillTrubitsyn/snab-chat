@@ -5,7 +5,6 @@ import { apiUrl } from "@/app/lib/api";
 
 interface OnlineUser {
   invite_code_id: string;
-  code: string;
   name: string;
   organization: string | null;
   device_count: number;
@@ -65,7 +64,6 @@ export default function OnlineTab({ adminCode }: { adminCode: string }) {
     ? users.filter(
         (u) =>
           u.name.toLowerCase().includes(q) ||
-          u.code.toLowerCase().includes(q) ||
           (u.organization && u.organization.toLowerCase().includes(q))
       )
     : users;
@@ -93,7 +91,7 @@ export default function OnlineTab({ adminCode }: { adminCode: string }) {
             <div className="admin-search-field">
               <input
                 type="text"
-                placeholder="Поиск по имени, коду, организации..."
+                placeholder="Поиск по имени, организации..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -160,7 +158,6 @@ export default function OnlineTab({ adminCode }: { adminCode: string }) {
                     </td>
                     <td>
                       <div style={{ fontWeight: 500 }}>{u.name}</div>
-                      <div className="admin-text-muted" style={{ fontSize: 12 }}>{u.code}</div>
                     </td>
                     <td>{u.organization || <span className="admin-text-muted">—</span>}</td>
                     <td>
