@@ -1053,4 +1053,47 @@ router.post("/api/admin/kg-embeddings", async (req: Request, res: Response) => {
   }
 });
 
+/* ══════════════════════════════════════════════════════════════
+   Knowledge Graph: diagnostic endpoint
+   POST /api/admin/kg-debug   { query: string }
+   ══════════════════════════════════════════════════════════════ */
+
+router.post("/api/admin/kg-debug", async (req: Request, res: Response) => {
+  try {
+    const admin = requireAdmin(req, res);
+    if (!admin) return;
+
+    const query = req.body?.query;
+    if (!query) return res.status(400).json({ error: "query required" });
+
+    const { graphQuery, findEntitiesByName } = await import("../lib/kg-search.js");
+    const { graphAwareSearch } = await import("../lib/retrieval.js");
+
+    // Step 1: named entity extraction
+    const namedEntities = await findEntitiesByName(query);
+
+    // Step 2: full graph query
+    const graphResult = await graphQuery(query);
+
+    // Step 3: graph-aware search (actual results with scores)
+    const searchResults = await graphAwareSearch(query, 15, null);
+
+    return res.json({
+      namedEntities: namedEntities.map(e => ({ id: e.entity_id, name: e.name, type: e.entity_type })),
+      startEntities: graphResult.startEntities.map(e => ({ id: e.entity_id, name: e.name, type: e.entity_type })),
+      connectedCount: graphResult.connectedEntities.length,
+      scopedChunkCount: graphResult.scopedChunkIds.length,
+      searchResults: searchResults.map(r => ({
+        id: r.id,
+        filename: r.source_filename,
+        similarity: r.similarity,
+        contentPreview: r.content?.substring(0, 100),
+      })),
+    });
+  } catch (err: any) {
+    console.error("[kg-debug] Error:", err);
+    return res.status(500).json({ error: err?.message || "Internal error", stack: err?.stack });
+  }
+});
+
 export default router;
