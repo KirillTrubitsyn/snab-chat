@@ -68,11 +68,36 @@ router.patch("/api/sources", async (req: Request, res: Response) => {
     const updates: Record<string, unknown> = {};
 
     const { tags, filename, content_preview, description, folder_path } = req.body;
-    if (tags !== undefined) updates.tags = tags;
-    if (filename !== undefined) updates.filename = filename;
-    if (content_preview !== undefined) updates.content_preview = content_preview;
-    if (description !== undefined) updates.description = description;
-    if (folder_path !== undefined) updates.folder_path = folder_path;
+    if (tags !== undefined) {
+      if (!Array.isArray(tags) || !tags.every((t: unknown) => typeof t === "string")) {
+        return res.status(400).json({ error: "tags must be an array of strings" });
+      }
+      updates.tags = tags;
+    }
+    if (filename !== undefined) {
+      if (typeof filename !== "string" || filename.length === 0 || filename.length > 500) {
+        return res.status(400).json({ error: "filename must be a non-empty string (max 500 chars)" });
+      }
+      updates.filename = filename.trim();
+    }
+    if (content_preview !== undefined) {
+      if (typeof content_preview !== "string") {
+        return res.status(400).json({ error: "content_preview must be a string" });
+      }
+      updates.content_preview = content_preview;
+    }
+    if (description !== undefined) {
+      if (typeof description !== "string") {
+        return res.status(400).json({ error: "description must be a string" });
+      }
+      updates.description = description;
+    }
+    if (folder_path !== undefined) {
+      if (typeof folder_path !== "string") {
+        return res.status(400).json({ error: "folder_path must be a string" });
+      }
+      updates.folder_path = folder_path;
+    }
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: "No fields to update" });

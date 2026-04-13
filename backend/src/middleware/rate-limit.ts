@@ -134,7 +134,7 @@ async function checkRedisRateLimit(
   }
 }
 
-async function checkRateLimit(
+export async function checkRateLimit(
   key: string,
   maxRequests: number,
   windowMs: number
