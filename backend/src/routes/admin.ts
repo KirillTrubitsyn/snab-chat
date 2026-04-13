@@ -836,7 +836,6 @@ router.get("/api/admin/online-users", async (req: Request, res: Response) => {
       .filter((id) => id in codesMap)
       .map((id) => ({
         invite_code_id: id,
-        code: codesMap[id].code,
         name: codesMap[id].name,
         organization: codesMap[id].organization,
         device_count: byUser[id].devices.length,
@@ -848,7 +847,6 @@ router.get("/api/admin/online-users", async (req: Request, res: Response) => {
     for (const adm of onlineAdmins) {
       users.push({
         invite_code_id: `admin-${adm.code}`,
-        code: adm.code,
         name: adm.name,
         organization: "Админ",
         device_count: 1,
