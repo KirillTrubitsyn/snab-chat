@@ -109,6 +109,20 @@ export default function ChatDocumentViewer({
   const authHeaders: HeadersInit = inviteCode
     ? { "x-invite-code": encodeURIComponent(inviteCode), ...getAuthHeaders() }
     : getAuthHeaders();
+  // Blob URL for PDF preview (avoids credentials in iframe src)
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+
+  // Load PDF as blob for secure iframe rendering
+  useEffect(() => {
+    if (!isPdf || !hasOriginal) return;
+    let revoked = false;
+    fetch(apiUrl(`/api/sources/download?id=${source.id}&action=view`), { headers: authHeaders })
+      .then((r) => r.ok ? r.blob() : null)
+      .then((blob) => { if (blob && !revoked) setPdfBlobUrl(URL.createObjectURL(blob)); })
+      .catch(() => {});
+    return () => { revoked = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source.id, isPdf, hasOriginal]);
 
   useEffect(() => {
     if (isPdf && hasOriginal) {
@@ -206,13 +220,21 @@ export default function ChatDocumentViewer({
             <button
               className="btn-primary"
               style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13 }}
-              onClick={() => {
-                const isMd = source.filename.endsWith(".md") || source.mime_type === "application/x-denormalized";
-                const endpoint = !hasOriginal && isMd ? "download-docx" : "download";
-                window.open(
-                  apiUrl(`/api/sources/${endpoint}?id=${source.id}&action=download${inviteCode ? `&token=${encodeURIComponent(inviteCode)}` : ""}`),
-                  "_blank"
-                );
+              onClick={async () => {
+                try {
+                  const isMd = source.filename.endsWith(".md") || source.mime_type === "application/x-denormalized";
+                  const endpoint = !hasOriginal && isMd ? "download-docx" : "download";
+                  const res = await fetch(apiUrl(`/api/sources/${endpoint}?id=${source.id}&action=download`), { headers: authHeaders });
+                  if (!res.ok) return;
+                  const blob = await res.blob();
+                  const disposition = res.headers.get("content-disposition");
+                  const match = disposition?.match(/filename\*?=(?:UTF-8'')?([^;\n]+)/i);
+                  const fname = match ? decodeURIComponent(match[1]) : source.filename || "download";
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url; a.download = fname; document.body.appendChild(a); a.click();
+                  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+                } catch (e) { console.error("Download error:", e); }
               }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -232,7 +254,7 @@ export default function ChatDocumentViewer({
             <div className="document-viewer-loading">Загрузка...</div>
           ) : isPdf && hasOriginal ? (
             <iframe
-              src={apiUrl(`/api/sources/download?id=${source.id}&action=view${inviteCode ? `&token=${encodeURIComponent(inviteCode)}` : ""}`)}
+              src={pdfBlobUrl || "about:blank"}
               className="document-viewer-iframe"
               title={source.filename}
             />

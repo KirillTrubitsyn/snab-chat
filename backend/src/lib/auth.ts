@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac, timingSafeEqual, randomBytes } from "crypto";
 import { createServiceClient } from "./supabase.js";
 
 // ============================================================
@@ -80,26 +80,38 @@ export const ADMIN_NAMES_BY_NUMBER: Record<number, string> = new Proxy(
   }
 );
 
+// Timing-safe admin entry lookup — iterates all entries to prevent timing leaks
+function findAdminEntry(code: string): AdminEntry | null {
+  const upperCode = code.toUpperCase();
+  let found: AdminEntry | null = null;
+  for (const entry of getAdminEntries()) {
+    const a = Buffer.from(entry.code);
+    const b = Buffer.from(upperCode);
+    if (a.length === b.length && timingSafeEqual(a, b)) {
+      found = entry;
+    }
+  }
+  return found;
+}
+
 export function isAdminCode(code: string): boolean {
-  return code.toUpperCase() in getAdminCodesMap();
+  return findAdminEntry(code) !== null;
 }
 
 export function isDocumentAdmin(code: string): boolean {
-  const entry = getAdminEntries().find((e) => e.code === code.toUpperCase());
-  return entry?.isDocAdmin === true;
+  return findAdminEntry(code)?.isDocAdmin === true;
 }
 
 export function isCodeDeletionAdmin(code: string): boolean {
-  const entry = getAdminEntries().find((e) => e.code === code.toUpperCase());
-  return entry?.canDeleteCodes === true;
+  return findAdminEntry(code)?.canDeleteCodes === true;
 }
 
 export function getAdminName(code: string): string | null {
-  return getAdminCodesMap()[code.toUpperCase()] ?? null;
+  return findAdminEntry(code)?.name ?? null;
 }
 
 export function getAdminNumber(code: string): number | null {
-  return getAdminNumbersMap()[code.toUpperCase()] ?? null;
+  return findAdminEntry(code)?.number ?? null;
 }
 
 // ============================================================
@@ -228,7 +240,10 @@ export async function getDeviceCount(inviteCodeId: string): Promise<number> {
 const AUTH_TOKEN_SECRET =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_KEY ||
-  "snabchat-auth-fallback-key";
+  (() => {
+    console.warn("[auth] WARNING: No auth token secret configured — using random ephemeral key. Tokens will NOT survive restarts.");
+    return randomBytes(32).toString("hex");
+  })();
 const AUTH_TOKEN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 /**
