@@ -101,6 +101,24 @@ export default function Chat() {
     }
   }, [isAuthenticated]);
 
+  /* ── Heartbeat: keep user visible as online while in chat ── */
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const deviceId = localStorage.getItem("snabchat_device_id") || "";
+    const sendHeartbeat = () => {
+      fetch(apiUrl("/api/heartbeat"), {
+        method: "POST",
+        headers: {
+          ...getAuthHeaders(),
+          "x-device-id": deviceId,
+        },
+      }).catch(() => {});
+    };
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated]);
+
   const handleVideoClose = useCallback(() => {
     setShowVideoOverlay(false);
     if (typeof window !== "undefined") {
