@@ -174,6 +174,10 @@ export const adminSendOtpSchema = z.object({
   method: z.enum(["telegram"]),
 });
 
+export const adminRequestLoginApprovalSchema = z.object({
+  adminCode: trimmedString(1, 200),
+});
+
 // ── Parse helper ──
 
 /**

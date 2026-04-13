@@ -17,7 +17,8 @@ type Step =
   | "2fa-telegram-push"
   | "admin-2fa-setup"
   | "admin-2fa-choose"
-  | "admin-2fa-verify";
+  | "admin-2fa-verify"
+  | "admin-2fa-telegram-push";
 
 interface InviteGateProps {
   onSuccess: (data: {
@@ -86,6 +87,8 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
   const [adminPendingData, setAdminPendingData] = useState<{
     adminName: string; isDocumentAdmin: boolean; isPrimaryAdmin: boolean; canDeleteCodes: boolean;
   } | null>(null);
+  const [adminApprovalId, setAdminApprovalId] = useState("");
+  const adminApprovalPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const getOrCreateDeviceId = (): string => {
     const key = "snabchat_device_id";
@@ -102,6 +105,7 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     return () => {
       if (telegramPollRef.current) clearInterval(telegramPollRef.current);
       if (approvalPollRef.current) clearInterval(approvalPollRef.current);
+      if (adminApprovalPollRef.current) clearInterval(adminApprovalPollRef.current);
     };
   }, []);
 
@@ -260,7 +264,39 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     finally { setLoading(false); }
   };
 
-  /* ── Admin 2FA: отправка OTP для входа ── */
+  /* ── Admin 2FA: polling для push-подтверждения ── */
+  const startAdminApprovalPolling = useCallback((id: string) => {
+    if (adminApprovalPollRef.current) clearInterval(adminApprovalPollRef.current);
+    adminApprovalPollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(apiUrl(`/api/auth/admin/check-login-approval?id=${id}&adminCode=${encodeURIComponent(adminPendingCode)}`), { headers: getAuthHeaders() });
+        const data = await res.json();
+        if (data.status === "approved") {
+          if (adminApprovalPollRef.current) clearInterval(adminApprovalPollRef.current);
+          completeAdminLogin({
+            code: data.code,
+            adminName: data.adminName,
+            adminSessionToken: data.adminSessionToken,
+            isDocumentAdmin: data.isDocumentAdmin,
+            isPrimaryAdmin: data.isPrimaryAdmin,
+            canDeleteCodes: data.canDeleteCodes,
+          });
+        } else if (data.status === "denied") {
+          if (adminApprovalPollRef.current) clearInterval(adminApprovalPollRef.current);
+          setError("Вход отклонён. Если это не вы — немедленно смените админ-код.");
+          setStep("admin-2fa-choose");
+        } else if (data.status === "expired") {
+          if (adminApprovalPollRef.current) clearInterval(adminApprovalPollRef.current);
+          setError("Время подтверждения истекло. Попробуйте снова.");
+          setStep("admin-2fa-choose");
+        }
+      } catch {
+        // Игнорируем ошибки сети при поллинге
+      }
+    }, 2000);
+  }, [adminPendingCode, completeAdminLogin]);
+
+  /* ── Admin 2FA: отправка запроса на подтверждение для входа ── */
   const handleAdminSendLoginOTP = async (method: string) => {
     setError("");
     setLoading(true);
@@ -272,16 +308,18 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       return;
     }
 
-    // Telegram
+    // Telegram: push-уведомление с кнопками
     try {
-      const res = await fetch(apiUrl("/api/auth/admin/send-otp"), {
+      const res = await fetch(apiUrl("/api/auth/admin/request-login-approval"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify({ adminCode: adminPendingCode, method: "telegram" }),
+        body: JSON.stringify({ adminCode: adminPendingCode }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error || "Ошибка отправки"); return; }
-      setStep("admin-2fa-verify");
+      if (!res.ok) { setError(data.error || "Ошибка отправки уведомления"); return; }
+      setAdminApprovalId(data.approval_id);
+      setStep("admin-2fa-telegram-push");
+      startAdminApprovalPolling(data.approval_id);
     } catch { setError("Ошибка подключения к серверу"); }
     finally { setLoading(false); }
   };
@@ -780,6 +818,13 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       loadTwoFAStatus();
     }
   }, [step, savedCode, loadTwoFAStatus]);
+
+  /* ── Загрузить статус admin 2FA при входе в admin-2fa-setup ── */
+  useEffect(() => {
+    if (step === "admin-2fa-setup" && adminPendingCode) {
+      loadAdmin2FAStatus();
+    }
+  }, [step, adminPendingCode, loadAdmin2FAStatus]);
 
   const EyeIcon = ({ open }: { open: boolean }) =>
     open ? (
@@ -1362,6 +1407,42 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
               className="invite-gate-back"
               onClick={() => { setStep("code"); setError(""); setAdminPendingCode(""); }}
               style={{ marginTop: 12 }}
+            >
+              Назад
+            </button>
+          </div>
+        )}
+
+        {/* ══ Admin 2FA: Ожидание push-подтверждения из Telegram ══ */}
+        {step === "admin-2fa-telegram-push" && (
+          <div className="invite-gate-form">
+            <div style={{ textAlign: "center", marginBottom: 16 }}>
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 2L11 13" />
+                <path d="M22 2L15 22L11 13L2 9L22 2Z" />
+              </svg>
+            </div>
+            <p className="invite-gate-register-hint" style={{ fontWeight: 500, marginBottom: 8 }}>
+              Подтвердите вход в Telegram
+            </p>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center", marginBottom: 16 }}>
+              Мы отправили уведомление в ваш Telegram.
+              Нажмите &laquo;Да, это я&raquo; для подтверждения входа в админ-панель.
+            </p>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 16 }}>
+              <div className="spinner" style={{ width: 20, height: 20 }} />
+              <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Ожидаем подтверждение...</span>
+            </div>
+            {error && <p className="invite-gate-error">{error}</p>}
+            <button
+              type="button"
+              onClick={() => {
+                if (adminApprovalPollRef.current) clearInterval(adminApprovalPollRef.current);
+                setStep("admin-2fa-choose");
+                setError("");
+                setAdminApprovalId("");
+              }}
+              className="invite-gate-back"
             >
               Назад
             </button>
