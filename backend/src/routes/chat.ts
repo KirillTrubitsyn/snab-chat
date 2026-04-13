@@ -848,6 +848,35 @@ ${sanitizeUserInput(userMessage.content)}
   relevantChunks = filtered.results;
   lowConfidence = filtered.lowConfidence;
 
+  // ── Graph slot reservation ──
+  // The Gemini reranker completely reassigns similarity scores, so the pre-rerank
+  // boost on graph results is ineffective. To ensure graph-discovered chunks
+  // (especially from comparative multi-entity queries) survive filtering, we
+  // reserve up to GRAPH_RESERVED_SLOTS slots by injecting the best reranked graph
+  // chunks that were filtered out.
+  if (graphResults.length > 0) {
+    const GRAPH_RESERVED_SLOTS = 4;
+    const graphChunkIds = new Set(graphResults.map((r) => r.id));
+    const graphInFinal = relevantChunks.filter((r) => graphChunkIds.has(r.id));
+
+    if (graphInFinal.length < GRAPH_RESERVED_SLOTS) {
+      // Find graph chunks that survived reranking but were cut by filterByRelevance
+      const finalIds = new Set(relevantChunks.map((r) => r.id));
+      const graphCandidates = rerankResult
+        .filter((r) => graphChunkIds.has(r.id) && !finalIds.has(r.id) && r.similarity >= 0.20)
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, GRAPH_RESERVED_SLOTS - graphInFinal.length);
+
+      if (graphCandidates.length > 0) {
+        relevantChunks = [...relevantChunks, ...graphCandidates];
+        console.log(
+          `[chat] Graph slot reservation: injected ${graphCandidates.length} graph chunks ` +
+          `(${graphInFinal.length} already in final, target ${GRAPH_RESERVED_SLOTS})`
+        );
+      }
+    }
+  }
+
   } // end deterministic path
 
   // ── Ensure original source documents are included alongside denormalized files ──
