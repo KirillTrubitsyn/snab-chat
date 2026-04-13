@@ -830,11 +830,19 @@ export async function fetchCatalogResults(
  * 3. Результаты графа получают бонус +0.15 к similarity
  * 4. Graceful fallback: если граф пуст или RPC недоступен — обычный поиск
  */
+export interface GraphAwareResult {
+  results: SearchResult[];
+  /** Number of named-entity groups found (e.g., 2 for "СГК-Алтай vs НТСК") */
+  groupCount: number;
+  /** Whether the graph produced meaningful results */
+  hasGraphResults: boolean;
+}
+
 export async function graphAwareSearch(
   query: string,
   matchCount: number = 20,
   filterTags: string[] | null = null
-): Promise<SearchResult[]> {
+): Promise<GraphAwareResult> {
   const supabase = createServiceClient();
 
   const [graphResult, standardResults] = await Promise.all([
@@ -848,7 +856,7 @@ export async function graphAwareSearch(
 
   if (!graphResult.hasGraphResults || graphResult.chunkIds.length === 0) {
     console.log(`[graphAwareSearch] No graph results, falling back to standard (${standardResults.length} results)`);
-    return standardResults;
+    return { results: standardResults, groupCount: 0, hasGraphResults: false };
   }
 
   const queryEmbedding = await embedQuery(query);
@@ -942,8 +950,12 @@ export async function graphAwareSearch(
   merged.sort((a, b) => b.similarity - a.similarity);
 
   console.log(
-    `[graphAwareSearch] graph=${graphChunkResults.length}, standard=${standardResults.length}, merged=${merged.length}`
+    `[graphAwareSearch] graph=${graphChunkResults.length}, standard=${standardResults.length}, merged=${merged.length}, groups=${graphResult.groups.length}`
   );
 
-  return merged.slice(0, matchCount);
+  return {
+    results: merged.slice(0, matchCount),
+    groupCount: graphResult.groups.length,
+    hasGraphResults: true,
+  };
 }

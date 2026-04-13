@@ -384,7 +384,7 @@ router.post("/api/chat", async (req: Request, res: Response) => {
   // ── Determine retrieval strategy: agentic (complex) vs deterministic (simple) ──
   const useAgenticRag = isComplexQuery(userMessage.content, intentResult);
   let relevantChunks: SearchResult[];
-  let lowConfidence: boolean;
+  let lowConfidence: boolean = false;
 
   if (useAgenticRag) {
     // ═══ AGENTIC PATH: LLM decides what to search (via @google/genai) ═══
@@ -556,10 +556,10 @@ ${sanitizeUserInput(userMessage.content)}
   // Graph-aware search: параллельно с остальными поисками
   const graphSearchPromise = graphAwareSearch(searchQuery, 15, searchHints).catch((err) => {
     console.error("[chat] graphAwareSearch error (non-fatal):", err);
-    return [] as SearchResult[];
+    return { results: [] as SearchResult[], groupCount: 0, hasGraphResults: false };
   });
 
-  const [sectionResults, docResults, catalogResults, contractorResults, graphResults, ...variantResults] = await Promise.all([
+  const [sectionResults, docResults, catalogResults, contractorResults, graphSearchResult, ...variantResults] = await Promise.all([
     sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
     docRef ? fetchChunksByDocument(docRef, docRef.filenameHints.length > 2 ? 15 : 8, userMessage.content) : Promise.resolve([]),
     catalogQuery ? fetchCatalogResults(catalogQuery) : Promise.resolve([]),
@@ -635,8 +635,10 @@ ${sanitizeUserInput(userMessage.content)}
   }
 
   // Merge graph-aware search results (entity-linked chunks with boosted similarity)
-  // Graph results already have +0.15 from graphAwareSearch; additionally boost to
-  // minimum 0.75 so they survive reranking alongside boosted doc/catalog results.
+  const graphResults = graphSearchResult.results;
+  const graphGroupCount = graphSearchResult.groupCount;
+  const graphChunkIdSet = new Set<string>();
+
   if (graphResults.length > 0) {
     const boostedGraphResults = graphResults
       .filter((r) => !existingIds.has(r.id))
@@ -644,10 +646,14 @@ ${sanitizeUserInput(userMessage.content)}
         ...r,
         similarity: r.similarity >= 0.25 ? Math.max(r.similarity, 0.75) : r.similarity,
       }));
-    for (const r of boostedGraphResults) existingIds.add(r.id);
-    // Prepend so graph results appear before generic search results
+    for (const r of boostedGraphResults) {
+      existingIds.add(r.id);
+      graphChunkIdSet.add(r.id);
+    }
+    // Also track graph chunks that were already in combinedResults
+    for (const r of graphResults) graphChunkIdSet.add(r.id);
     combinedResults = [...boostedGraphResults, ...combinedResults];
-    console.log(`[chat] Graph search added ${boostedGraphResults.length} new chunks (boosted to 0.75)`);
+    console.log(`[chat] Graph search added ${boostedGraphResults.length} new chunks (boosted to 0.75), ${graphGroupCount} groups`);
   }
 
   // ── Intent-aware supplementary search ──
@@ -842,39 +848,51 @@ ${sanitizeUserInput(userMessage.content)}
   }
 
   // Rerank and filter
-  const rerankedResults = intentAwareRerank(combinedResults, intentResult);
-  const rerankResult = await rerank(userMessage.content, rerankedResults);
-  const filtered = filterByRelevance(rerankResult);
-  relevantChunks = filtered.results;
-  lowConfidence = filtered.lowConfidence;
+  // When graph search found multiple named entity groups (comparative queries like
+  // "СГК-Алтай vs НТСК"), bypass the Gemini LLM reranker for graph chunks.
+  // The reranker reassigns scores generically and destroys the balanced per-group
+  // distribution that graphAwareSearch carefully built.
+  if (graphGroupCount >= 2 && graphChunkIdSet.size > 0) {
+    // Split: graph chunks skip reranker, non-graph chunks go through reranker
+    const graphChunks = combinedResults.filter((r) => graphChunkIdSet.has(r.id));
+    const nonGraphChunks = combinedResults.filter((r) => !graphChunkIdSet.has(r.id));
 
-  // ── Graph slot reservation ──
-  // The Gemini reranker completely reassigns similarity scores, so the pre-rerank
-  // boost on graph results is ineffective. To ensure graph-discovered chunks
-  // (especially from comparative multi-entity queries) survive filtering, we
-  // reserve up to GRAPH_RESERVED_SLOTS slots by injecting the best reranked graph
-  // chunks that were filtered out.
-  if (graphResults.length > 0) {
-    const GRAPH_RESERVED_SLOTS = 4;
-    const graphChunkIds = new Set(graphResults.map((r) => r.id));
-    const graphInFinal = relevantChunks.filter((r) => graphChunkIds.has(r.id));
+    let rerankedNonGraph: SearchResult[] = [];
+    if (nonGraphChunks.length > 0) {
+      const rerankedNGResults = intentAwareRerank(nonGraphChunks, intentResult);
+      const rerankNGResult = await rerank(userMessage.content, rerankedNGResults);
+      const filteredNG = filterByRelevance(rerankNGResult);
+      rerankedNonGraph = filteredNG.results;
+      lowConfidence = filteredNG.lowConfidence;
+    }
 
-    if (graphInFinal.length < GRAPH_RESERVED_SLOTS) {
-      // Find graph chunks that survived reranking but were cut by filterByRelevance
-      const finalIds = new Set(relevantChunks.map((r) => r.id));
-      const graphCandidates = rerankResult
-        .filter((r) => graphChunkIds.has(r.id) && !finalIds.has(r.id) && r.similarity >= 0.20)
-        .sort((a, b) => b.similarity - a.similarity)
-        .slice(0, GRAPH_RESERVED_SLOTS - graphInFinal.length);
+    // Take top graph chunks (already sorted by similarity from graphAwareSearch)
+    const MAX_GRAPH_CHUNKS = 10;
+    const topGraph = graphChunks
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, MAX_GRAPH_CHUNKS);
 
-      if (graphCandidates.length > 0) {
-        relevantChunks = [...relevantChunks, ...graphCandidates];
-        console.log(
-          `[chat] Graph slot reservation: injected ${graphCandidates.length} graph chunks ` +
-          `(${graphInFinal.length} already in final, target ${GRAPH_RESERVED_SLOTS})`
-        );
+    // Merge: graph first, then reranked non-graph (dedup)
+    const seen = new Set(topGraph.map((r) => r.id));
+    const mergedFinal = [...topGraph];
+    for (const r of rerankedNonGraph) {
+      if (!seen.has(r.id)) {
+        seen.add(r.id);
+        mergedFinal.push(r);
       }
     }
+    relevantChunks = mergedFinal.slice(0, 15);
+
+    console.log(
+      `[chat] Graph bypass reranker: ${topGraph.length} graph + ${rerankedNonGraph.length} reranked = ${relevantChunks.length} total`
+    );
+  } else {
+    // Standard path: full reranking
+    const rerankedResults = intentAwareRerank(combinedResults, intentResult);
+    const rerankResult = await rerank(userMessage.content, rerankedResults);
+    const filtered = filterByRelevance(rerankResult);
+    relevantChunks = filtered.results;
+    lowConfidence = filtered.lowConfidence;
   }
 
   } // end deterministic path

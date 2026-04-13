@@ -1087,7 +1087,7 @@ router.post("/api/admin/kg-debug", async (req: Request, res: Response) => {
         totalChunks: scopedResult.chunkIds.length,
         groups: scopedResult.groups.map(g => ({ name: g.name, chunkCount: g.chunkIds.length })),
       },
-      searchResults: searchResults.map(r => ({
+      searchResults: searchResults.results.map((r: any) => ({
         id: r.id,
         filename: r.source_filename,
         similarity: r.similarity,
