@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { type ModelMessage } from "ai";
 import { GoogleGenAI } from "@google/genai";
-import { hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, searchContractorCards, type SearchResult } from "../lib/retrieval.js";
+import { hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, searchContractorCards, graphAwareSearch, type SearchResult } from "../lib/retrieval.js";
 import { rerank } from "../lib/reranker.js";
 import { classifyIntent, type SpuSubIntent } from "../lib/intent-classifier.js";
 import { loadConversationContext, saveMessage } from "../lib/memory.js";
@@ -553,11 +553,18 @@ ${sanitizeUserInput(userMessage.content)}
       ])
     : Promise.resolve([]);
 
-  const [sectionResults, docResults, catalogResults, contractorResults, ...variantResults] = await Promise.all([
+  // Graph-aware search: параллельно с остальными поисками
+  const graphSearchPromise = graphAwareSearch(searchQuery, 15, searchHints).catch((err) => {
+    console.error("[chat] graphAwareSearch error (non-fatal):", err);
+    return [] as SearchResult[];
+  });
+
+  const [sectionResults, docResults, catalogResults, contractorResults, graphResults, ...variantResults] = await Promise.all([
     sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
     docRef ? fetchChunksByDocument(docRef, docRef.filenameHints.length > 2 ? 15 : 8, userMessage.content) : Promise.resolve([]),
     catalogQuery ? fetchCatalogResults(catalogQuery) : Promise.resolve([]),
     contractorSearchPromise,
+    graphSearchPromise,
     ...searchPromises,
   ]);
 
@@ -625,6 +632,14 @@ ${sanitizeUserInput(userMessage.content)}
     for (const r of newCatalogResults) existingIds.add(r.id);
     combinedResults = [...newCatalogResults, ...combinedResults];
     console.log(`[chat] Catalog lookup added ${newCatalogResults.length} new chunks from ${new Set(newCatalogResults.map((r) => r.source_filename)).size} sources`);
+  }
+
+  // Merge graph-aware search results (entity-linked chunks with bonus)
+  if (graphResults.length > 0) {
+    const newGraphResults = graphResults.filter((r) => !existingIds.has(r.id));
+    for (const r of newGraphResults) existingIds.add(r.id);
+    combinedResults = [...combinedResults, ...newGraphResults];
+    console.log(`[chat] Graph search added ${newGraphResults.length} new chunks`);
   }
 
   // ── Intent-aware supplementary search ──
