@@ -14,9 +14,9 @@ export default function AdminPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const code = localStorage.getItem("snabchat_admin_code");
+    const code = sessionStorage.getItem("snabchat_admin_code");
     const name = localStorage.getItem("snabchat_user_name");
-    const isAdmin = localStorage.getItem("snabchat_is_admin");
+    const isAdmin = sessionStorage.getItem("snabchat_is_admin");
 
     if (!code || isAdmin !== "true") {
       router.push("/");
@@ -36,15 +36,15 @@ export default function AdminPage() {
       .then((data) => {
         if (data.isDocumentAdmin) {
           setIsDocAdmin(true);
-          localStorage.setItem("snabchat_is_doc_admin", "true");
+          sessionStorage.setItem("snabchat_is_doc_admin", "true");
         }
         if (data.canDeleteCodes) {
           setCanDeleteCodes(true);
         }
         if (data.isPrimaryAdmin) {
-          localStorage.setItem("snabchat_is_primary_admin", "true");
+          sessionStorage.setItem("snabchat_is_primary_admin", "true");
         } else {
-          localStorage.removeItem("snabchat_is_primary_admin");
+          sessionStorage.removeItem("snabchat_is_primary_admin");
         }
       })
       .catch(() => {})
@@ -53,7 +53,7 @@ export default function AdminPage() {
 
   /* ── Heartbeat: keep admin visible as online while on /admin ── */
   useEffect(() => {
-    const inviteCode = localStorage.getItem("snabchat_invite_code") || localStorage.getItem("snabchat_admin_code");
+    const inviteCode = localStorage.getItem("snabchat_invite_code") || sessionStorage.getItem("snabchat_admin_code");
     if (!inviteCode) return;
     const deviceId = localStorage.getItem("snabchat_device_id") || "";
     const sendHeartbeat = () => {
@@ -71,12 +71,12 @@ export default function AdminPage() {
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem("snabchat_admin_code");
+    sessionStorage.removeItem("snabchat_admin_code");
     localStorage.removeItem("snabchat_user_name");
-    localStorage.removeItem("snabchat_is_admin");
+    sessionStorage.removeItem("snabchat_is_admin");
     localStorage.removeItem("snabchat_invite_code");
-    localStorage.removeItem("snabchat_is_doc_admin");
-    localStorage.removeItem("snabchat_auth_token");
+    sessionStorage.removeItem("snabchat_is_doc_admin");
+    sessionStorage.removeItem("snabchat_auth_token");
     router.push("/");
   };
 

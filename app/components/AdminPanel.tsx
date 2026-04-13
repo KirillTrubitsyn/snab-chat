@@ -41,7 +41,7 @@ const navItems: { key: TabKey; label: string; icon: string }[] = [
 export default function AdminPanel({ adminCode, userName, isDocAdmin, canDeleteCodes, onLogout }: AdminPanelProps) {
   const [tab, setTab] = useState<TabKey>("activity");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const isPrimaryAdmin = typeof window !== "undefined" && localStorage.getItem("snabchat_is_primary_admin") === "true";
+  const isPrimaryAdmin = typeof window !== "undefined" && sessionStorage.getItem("snabchat_is_primary_admin") === "true";
 
   return (
     <div className="admin-layout">

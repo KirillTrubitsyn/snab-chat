@@ -339,6 +339,19 @@ router.patch("/api/conversations", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Missing id or title" });
     }
 
+    // Проверяем принадлежность диалога (если не админ)
+    if (!isAdminCode(invite.code)) {
+      const { data: conv } = await supabase
+        .from("conversations")
+        .select("invite_code_id")
+        .eq("id", id)
+        .single();
+
+      if (!conv || conv.invite_code_id !== invite.id) {
+        return notFound(res, "Диалог не найден");
+      }
+    }
+
     const { error } = await supabase
       .from("conversations")
       .update({ title: title.trim().slice(0, 200) })
