@@ -292,12 +292,51 @@ export async function graphScopedSearch(
         const connected = await traverseGraph(entityIds, DEFAULT_MAX_HOPS);
         const allIds = [...new Set([...entityIds, ...connected.map(c => c.entity_id)])];
 
-        // Get scoped chunks for this group
-        const chunkIds = await getScopedChunkIds(allIds);
+        // Get scoped chunks for this group (graph-derived)
+        const graphChunkIds = await getScopedChunkIds(allIds);
+
+        // Supplement with filename-based discovery:
+        // Query chunks whose source_filename contains the group name (case-insensitive).
+        // This catches documents like "Положение_о_закупках_НТСК_ред_12.docx" that may
+        // not be linked to the entity in the knowledge graph.
+        // Try multiple variants: raw name, underscored, hyphenated
+        const nameVariants = new Set<string>();
+        nameVariants.add(name.trim());
+        nameVariants.add(name.replace(/[\s-]+/g, "_"));
+        nameVariants.add(name.replace(/[_\s]+/g, "-"));
+        // For compound names like "СГК-Алтай", also try just the second part
+        const parts = name.split(/[\s_-]+/);
+        if (parts.length > 1) {
+          for (const part of parts) {
+            if (part.length >= 3) nameVariants.add(part);
+          }
+        }
+
+        const filenameChunkIdSet = new Set<number>();
+        for (const variant of nameVariants) {
+          const { data: fnChunks, error: fnErr } = await supabase
+            .from("chunks")
+            .select("id")
+            .ilike("source_filename", `%${variant}%`)
+            .limit(MAX_SCOPED_CHUNKS);
+          if (!fnErr && fnChunks) {
+            for (const c of fnChunks as { id: number }[]) {
+              filenameChunkIdSet.add(c.id);
+            }
+          }
+        }
+        const filenameChunkIds = [...filenameChunkIdSet];
+
+        // Merge all chunk sources, deduplicate
+        const chunkIdSet = new Set([...graphChunkIds, ...filenameChunkIds]);
+        const chunkIds = [...chunkIdSet];
 
         if (chunkIds.length > 0) {
           groups.push({ name, chunkIds });
-          console.log(`[kg] Group "${name}": ${nameEntities.length} entities, ${connected.length} connected, ${chunkIds.length} chunks`);
+          console.log(
+            `[kg] Group "${name}": ${nameEntities.length} entities, ${connected.length} connected, ` +
+            `${graphChunkIds.length} graph chunks + ${filenameChunkIds.length} filename chunks = ${chunkIds.length} total`
+          );
         }
       }
     }
