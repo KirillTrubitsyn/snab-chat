@@ -634,12 +634,20 @@ ${sanitizeUserInput(userMessage.content)}
     console.log(`[chat] Catalog lookup added ${newCatalogResults.length} new chunks from ${new Set(newCatalogResults.map((r) => r.source_filename)).size} sources`);
   }
 
-  // Merge graph-aware search results (entity-linked chunks with bonus)
+  // Merge graph-aware search results (entity-linked chunks with boosted similarity)
+  // Graph results already have +0.15 from graphAwareSearch; additionally boost to
+  // minimum 0.75 so they survive reranking alongside boosted doc/catalog results.
   if (graphResults.length > 0) {
-    const newGraphResults = graphResults.filter((r) => !existingIds.has(r.id));
-    for (const r of newGraphResults) existingIds.add(r.id);
-    combinedResults = [...combinedResults, ...newGraphResults];
-    console.log(`[chat] Graph search added ${newGraphResults.length} new chunks`);
+    const boostedGraphResults = graphResults
+      .filter((r) => !existingIds.has(r.id))
+      .map((r) => ({
+        ...r,
+        similarity: r.similarity >= 0.25 ? Math.max(r.similarity, 0.75) : r.similarity,
+      }));
+    for (const r of boostedGraphResults) existingIds.add(r.id);
+    // Prepend so graph results appear before generic search results
+    combinedResults = [...boostedGraphResults, ...combinedResults];
+    console.log(`[chat] Graph search added ${boostedGraphResults.length} new chunks (boosted to 0.75)`);
   }
 
   // ── Intent-aware supplementary search ──
