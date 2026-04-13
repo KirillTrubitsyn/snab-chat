@@ -360,6 +360,13 @@ router.post("/api/auth/send-otp", async (req: Request, res: Response) => {
 // POST /api/auth/verify-otp
 router.post("/api/auth/verify-otp", async (req: Request, res: Response) => {
   try {
+    // Rate limit OTP verification attempts before any DB operations
+    const clientIp = getClientIP(req);
+    const otpVerifyRL = await checkRateLimit(`otp-verify:${clientIp}`, 10, 60_000);
+    if (otpVerifyRL) {
+      return res.status(429).json({ error: "Слишком много попыток. Подождите минуту." });
+    }
+
     const parsed = parseBody(req.body, verifyOtpSchema, res);
     if (parsed.error) return;
 

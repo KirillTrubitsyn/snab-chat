@@ -474,14 +474,14 @@ router.post("/api/ingest-jsonl", async (req: Request, res: Response) => {
 
     return res.json({ sourceId, inserted, total: statements.length });
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
+    const errMsg = err instanceof Error ? err.message : "Unknown error";
     console.error("Ingest JSONL error:", err);
     logError({
       type: "ingest-jsonl",
       message: errMsg,
       endpoint: "/api/ingest-jsonl",
     }).catch(() => {});
-    return res.status(500).json({ error: errMsg });
+    return res.status(500).json({ error: "Ошибка загрузки документа" });
   }
 });
 
@@ -513,9 +513,8 @@ router.delete("/api/ingest-jsonl", async (req: Request, res: Response) => {
       errors: [delChunks?.message, delSources?.message].filter(Boolean),
     });
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
     console.error("Delete JSONL error:", err);
-    return res.status(500).json({ error: errMsg });
+    return res.status(500).json({ error: "Ошибка удаления документа" });
   }
 });
 

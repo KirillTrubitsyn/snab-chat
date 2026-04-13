@@ -377,9 +377,8 @@ export async function POST(request: NextRequest) {
         : 'Все чанки обработаны.',
     });
   } catch (error: unknown) {
-    const err = error as { message?: string };
-    console.error('Extract entities error:', err.message);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error('Extract entities error:', error instanceof Error ? error.message : error);
+    return NextResponse.json({ error: 'Ошибка извлечения сущностей' }, { status: 500 });
   }
 }
 
