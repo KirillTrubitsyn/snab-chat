@@ -869,10 +869,32 @@ export async function graphAwareSearch(
     // Balanced: equal slots per group, with group-focused queries
     const perGroup = Math.max(5, Math.ceil(matchCount / graphResult.groups.length));
 
+    // Extract the core topic by removing ALL entity names from the query.
+    // "Чем отличается порядок закупок в СГК-Алтай от порядка в НТСК?"
+    //  → "порядок закупок" (core topic)
+    // Then for each group: "порядок закупок СГК-Алтай", "порядок закупок НТСК"
+    const allGroupNames = graphResult.groups.map(g => g.name);
+    let coreTopic = query;
+    for (const name of allGroupNames) {
+      // Remove the group name and common surrounding words
+      coreTopic = coreTopic.replace(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "");
+    }
+    // Clean up: remove comparison phrases, extra spaces, trailing punctuation
+    coreTopic = coreTopic
+      .replace(/\b(чем|отличается|отличаются|различия|разница|между|сравни|сравнение|от|в чём|в чем)\b/gi, "")
+      .replace(/\s{2,}/g, " ")
+      .replace(/^\s*[?.,!:;]+|[?.,!:;]+\s*$/g, "")
+      .trim();
+
+    // If coreTopic is too short, fall back to original query
+    if (coreTopic.length < 5) coreTopic = query;
+
+    console.log(`[graphAwareSearch] Core topic: "${coreTopic}", groups: ${allGroupNames.join(", ")}`);
+
     const groupSearches = graphResult.groups.map(async (group) => {
       try {
-        // Create a group-focused query: "порядок закупок НТСК" instead of full query
-        const groupQuery = `${query} ${group.name}`;
+        // Create a clean group-focused query: "порядок закупок НТСК"
+        const groupQuery = `${coreTopic} ${group.name}`;
         const groupEmbedding = await embedQuery(groupQuery);
         const groupEmbStr = `[${groupEmbedding.join(",")}]`;
 
