@@ -900,53 +900,71 @@ export async function graphAwareSearch(
 
         // Two parallel searches for each group:
         // 1. Scoped semantic search (within graph-discovered chunks)
-        // 2. Direct filename-based search (primary docs only, not .md)
-        const [scopedRes, filenameRes] = await Promise.all([
-          supabase.rpc("hybrid_search_scoped", {
-            query_text: groupQuery,
-            query_embedding: groupEmbStr,
-            p_chunk_ids: group.chunkIds,
-            match_count: perGroup,
-          }),
-          // Search for primary documents (.docx/.pdf) containing the group name
-          supabase.rpc("hybrid_search", {
-            query_text: groupQuery,
-            query_embedding: groupEmbStr,
-            match_count: 6,
-            filter_tags: null,
-          }),
-        ]);
+        // 2. Targeted search within PRIMARY docs only (find chunk_ids by filename, then scoped search)
+        //
+        // Step 2a: find chunk_ids from primary documents (.docx/.pdf, not .md) for this group
+        const groupNameLc = group.name.toLowerCase();
+        const nameParts = groupNameLc.split(/[\s_-]+/).filter(p => p.length >= 3);
+
+        // Build OR filter for filename matching
+        let primaryChunkQuery = supabase
+          .from("chunks")
+          .select("id")
+          .not("source_filename", "like", "%.md");
+        // Filter by group name parts in filename
+        if (nameParts.length === 1) {
+          primaryChunkQuery = primaryChunkQuery.ilike("source_filename", `%${nameParts[0]}%`);
+        } else {
+          // For compound names like "СГК-Алтай", match any significant part
+          primaryChunkQuery = primaryChunkQuery.or(
+            nameParts.map(p => `source_filename.ilike.%${p}%`).join(",")
+          );
+        }
+        const { data: primaryChunkRows } = await primaryChunkQuery.limit(300);
+        const primaryChunkIds = primaryChunkRows?.map((c: { id: number }) => c.id) ?? [];
+
+        // Run both searches in parallel
+        const scopedPromise = supabase.rpc("hybrid_search_scoped", {
+          query_text: groupQuery,
+          query_embedding: groupEmbStr,
+          p_chunk_ids: group.chunkIds,
+          match_count: perGroup,
+        });
+
+        const primaryPromise = primaryChunkIds.length > 0
+          ? supabase.rpc("hybrid_search_scoped", {
+              query_text: groupQuery,
+              query_embedding: groupEmbStr,
+              p_chunk_ids: primaryChunkIds,
+              match_count: 6,
+            })
+          : Promise.resolve({ data: null, error: null });
+
+        const [scopedRes, primaryRes] = await Promise.all([scopedPromise, primaryPromise]);
 
         const scopedRaw = (!scopedRes.error && scopedRes.data)
           ? (scopedRes.data as SearchResult[]).map(r => ({ ...r, image_paths: r.image_paths ?? [] }))
           : [];
 
-        // From general hybrid_search, keep only results whose filename contains
-        // the group name AND are primary documents (not .md)
-        const groupNameLc = group.name.toLowerCase();
-        const nameParts = groupNameLc.split(/[\s_-]+/).filter(p => p.length >= 3);
-        const filenameRaw = (!filenameRes.error && filenameRes.data)
-          ? (filenameRes.data as SearchResult[])
-              .map(r => ({ ...r, image_paths: r.image_paths ?? [] }))
-              .filter(r => {
-                const fn = r.source_filename.toLowerCase();
-                if (fn.endsWith(".md")) return false;
-                return nameParts.some(p => fn.includes(p));
-              })
+        const primaryRaw = (primaryRes && !primaryRes.error && primaryRes.data)
+          ? (primaryRes.data as SearchResult[]).map(r => ({ ...r, image_paths: r.image_paths ?? [] }))
           : [];
 
-        // Merge: primary docs first, then scoped results (dedup by id)
+        // Merge: primary doc results first, then scoped results (dedup by id)
         const seen = new Set<string>();
         const merged: SearchResult[] = [];
 
-        // Add primary doc results first (these are the core documents)
-        for (const r of filenameRaw) {
+        for (const r of primaryRaw) {
           if (!seen.has(r.id)) { seen.add(r.id); merged.push(r); }
         }
-        // Add scoped results
         for (const r of scopedRaw) {
           if (!seen.has(r.id)) { seen.add(r.id); merged.push(r); }
         }
+
+        console.log(
+          `[graphAwareSearch] Group "${group.name}": primaryChunks=${primaryChunkIds.length}, ` +
+          `primaryResults=${primaryRaw.length}, scopedResults=${scopedRaw.length}`
+        );
 
         // Diversify: max 2 chunks per file, primary docs (.docx/.pdf) first
         const byFile = new Map<string, SearchResult[]>();
@@ -967,7 +985,7 @@ export async function graphAwareSearch(
         }
 
         console.log(
-          `[graphAwareSearch] Group "${group.name}": scoped=${scopedRaw.length}, filename=${filenameRaw.length}, ` +
+          `[graphAwareSearch] Group "${group.name}": scoped=${scopedRaw.length}, primary=${primaryRaw.length}, ` +
           `merged=${merged.length} → ${diversified.length} diversified (${byFile.size} files)`
         );
         return diversified;
