@@ -867,7 +867,8 @@ export async function graphAwareSearch(
 
   if (graphResult.groups.length >= 2) {
     // Balanced: equal slots per group, with group-focused queries
-    const perGroup = Math.max(5, Math.ceil(matchCount / graphResult.groups.length));
+    // Request more results per group to allow diversification (dedup by file)
+    const perGroup = Math.max(10, matchCount);
 
     // Extract the core topic by removing ALL entity names from the query.
     // "Чем отличается порядок закупок в СГК-Алтай от порядка в НТСК?"
@@ -905,11 +906,41 @@ export async function graphAwareSearch(
           match_count: perGroup,
         });
         if (!error && data) {
-          console.log(`[graphAwareSearch] Group "${group.name}": ${(data as any[]).length} results from ${group.chunkIds.length} chunks`);
-          return (data as SearchResult[]).map((r) => ({
+          const raw = (data as SearchResult[]).map((r) => ({
             ...r,
             image_paths: r.image_paths ?? [],
           }));
+
+          // Diversify: limit to max 2 chunks per source file, prefer primary
+          // documents (.docx/.pdf) over denormalized (.md) files
+          const byFile = new Map<string, SearchResult[]>();
+          for (const r of raw) {
+            const arr = byFile.get(r.source_filename) ?? [];
+            arr.push(r);
+            byFile.set(r.source_filename, arr);
+          }
+
+          // Sort files: primary docs first, then .md
+          const fileEntries = [...byFile.entries()].sort(([a], [b]) => {
+            const aIsMd = a.endsWith(".md");
+            const bIsMd = b.endsWith(".md");
+            if (aIsMd !== bIsMd) return aIsMd ? 1 : -1;
+            return 0;
+          });
+
+          const diversified: SearchResult[] = [];
+          const MAX_PER_FILE = 2;
+          for (const [, chunks] of fileEntries) {
+            for (const c of chunks.slice(0, MAX_PER_FILE)) {
+              diversified.push(c);
+            }
+          }
+
+          console.log(
+            `[graphAwareSearch] Group "${group.name}": ${raw.length} raw → ${diversified.length} diversified ` +
+            `(${byFile.size} files) from ${group.chunkIds.length} scoped chunks`
+          );
+          return diversified;
         }
       } catch (err) {
         console.error(`[graphAwareSearch] Group "${group.name}" error:`, err);
