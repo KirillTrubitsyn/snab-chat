@@ -911,14 +911,12 @@ export async function graphAwareSearch(
           .from("chunks")
           .select("id")
           .not("source_filename", "like", "%.md");
-        // Filter by group name parts in filename
-        if (nameParts.length === 1) {
-          primaryChunkQuery = primaryChunkQuery.ilike("source_filename", `%${nameParts[0]}%`);
-        } else {
-          // For compound names like "СГК-Алтай", match any significant part
-          primaryChunkQuery = primaryChunkQuery.or(
-            nameParts.map(p => `source_filename.ilike.%${p}%`).join(",")
-          );
+        // Filter by group name parts in filename.
+        // For compound names like "СГК-Алтай" require ALL parts to match
+        // (AND), not ANY (OR), to avoid pulling in unrelated files like
+        // "АО ФНПЦ АЛТАЙ.xlsx" or "Стандарт_закупок_ТРУ СГК.docx".
+        for (const p of nameParts) {
+          primaryChunkQuery = primaryChunkQuery.ilike("source_filename", `%${p}%`);
         }
         const { data: primaryChunkRows } = await primaryChunkQuery.limit(300);
         const primaryChunkIds = primaryChunkRows?.map((c: { id: number }) => c.id) ?? [];
