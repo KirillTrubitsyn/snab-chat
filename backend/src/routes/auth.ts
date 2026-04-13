@@ -701,7 +701,10 @@ router.post("/api/auth/change-password", async (req: Request, res: Response) => 
 function getClientIP(req: Request): string {
   const forwarded = req.headers["x-forwarded-for"];
   if (typeof forwarded === "string") {
-    return forwarded.split(",")[0]?.trim() || "unknown";
+    // Take the LAST IP — it's the one added by our trusted reverse proxy.
+    // The first IP can be spoofed by the client via header injection.
+    const ips = forwarded.split(",").map(s => s.trim()).filter(Boolean);
+    return ips[ips.length - 1] || "unknown";
   }
   const realIp = req.headers["x-real-ip"];
   if (typeof realIp === "string") return realIp;
