@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { apiUrl, getAuthHeaders } from "@/app/lib/api";
+import { apiUrl, getAuthHeaders, getAdminHeaders } from "@/app/lib/api";
 import DocumentViewer, { DocumentSource } from "../DocumentViewer";
 import KBSearchBar from "../KBSearchBar";
 import {
@@ -187,7 +187,7 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
 
         const res = await fetch(apiUrl("/api/parse"), {
           method: "POST",
-          headers: { "x-admin-code": encodeURIComponent(adminCode) },
+          headers: getAdminHeaders(adminCode),
           body: formData,
         });
         if (res.ok) {
@@ -219,8 +219,8 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
       const res = await fetch(apiUrl("/api/upload-url"), {
         method: "POST",
         headers: {
+          ...getAdminHeaders(adminCode),
           "Content-Type": "application/json",
-          "x-admin-code": encodeURIComponent(adminCode),
         },
         body: JSON.stringify({ filename: file.name, mimeType: file.type }),
       });
@@ -272,7 +272,7 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
       try {
         const ingestRes = await fetch(apiUrl("/api/ingest"), {
           method: "POST",
-          headers: { "x-admin-code": encodeURIComponent(adminCode) },
+          headers: getAdminHeaders(adminCode),
           body: formData,
         });
         if (!ingestRes.ok) {

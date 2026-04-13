@@ -923,7 +923,7 @@ export default function Chat() {
     try {
       const res = await fetch(apiUrl("/api/sources"), {
         method: "DELETE",
-        headers: { "Content-Type": "application/json", "x-admin-code": encodeURIComponent(inviteCodeRef.current) },
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json", "x-admin-code": encodeURIComponent(inviteCodeRef.current) },
         body: JSON.stringify({ ids }),
       });
       if (!res.ok) return;

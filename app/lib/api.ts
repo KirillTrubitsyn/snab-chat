@@ -30,3 +30,15 @@ export function getAuthHeaders(): Record<string, string> {
   if (BACKEND_API_KEY) headers["x-api-key"] = BACKEND_API_KEY;
   return headers;
 }
+
+/**
+ * Build headers for admin API requests.
+ * Includes x-admin-code and x-api-key.
+ */
+export function getAdminHeaders(adminCode: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    "x-admin-code": encodeURIComponent(adminCode),
+  };
+  if (BACKEND_API_KEY) headers["x-api-key"] = BACKEND_API_KEY;
+  return headers;
+}

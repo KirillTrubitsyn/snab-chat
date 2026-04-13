@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { apiUrl } from "@/app/lib/api";
+import { apiUrl, getAdminHeaders } from "@/app/lib/api";
 import { formatDateShort } from "@/app/lib/date-utils";
 import type { InviteCode } from "./types";
 
@@ -30,7 +30,7 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
   const [editInfographicLimit, setEditInfographicLimit] = useState("");
   const [editDeviceLimit, setEditDeviceLimit] = useState("");
 
-  const headers = { "x-admin-code": encodeURIComponent(adminCode) };
+  const headers = getAdminHeaders(adminCode);
 
   const loadCodes = useCallback(async () => {
     setCodesLoading(true);

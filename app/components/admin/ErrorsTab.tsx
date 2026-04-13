@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { apiUrl } from "@/app/lib/api";
+import { apiUrl, getAdminHeaders } from "@/app/lib/api";
 import { formatDateTime } from "@/app/lib/date-utils";
 import { ERROR_TYPE_LABELS } from "./constants";
 import type { ErrorItem } from "./types";
@@ -13,7 +13,7 @@ export default function ErrorsTab({ adminCode }: { adminCode: string }) {
   const [typeFilter, setTypeFilter] = useState("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const headers = { "x-admin-code": encodeURIComponent(adminCode) };
+  const headers = getAdminHeaders(adminCode);
 
   const load = useCallback(async () => {
     setLoading(true);

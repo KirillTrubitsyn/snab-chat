@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { apiUrl } from "@/app/lib/api";
+import { apiUrl, getAdminHeaders } from "@/app/lib/api";
 import { formatDateTime } from "@/app/lib/date-utils";
 import type { UserMessageItem } from "./types";
 
@@ -11,7 +11,7 @@ export default function MessagesTab({ adminCode }: { adminCode: string }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
 
-  const headers = { "x-admin-code": encodeURIComponent(adminCode) };
+  const headers = getAdminHeaders(adminCode);
 
   const load = useCallback(async () => {
     setLoading(true);
