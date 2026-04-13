@@ -4,6 +4,7 @@ import { createServiceClient } from "../lib/supabase.js";
 import { logAuditEvent } from "../lib/audit-log.js";
 import { notifySupportReply } from "../lib/telegram.js";
 import { supportReplySchema, parseBody } from "../lib/validation.js";
+import { getOnlineAdmins } from "../lib/admin-presence.js";
 
 const router = Router();
 
@@ -803,13 +804,9 @@ router.get("/api/admin/online-users", async (req: Request, res: Response) => {
       return res.status(500).json({ error: "Внутренняя ошибка сервера" });
     }
 
-    if (!recentDevices || recentDevices.length === 0) {
-      return res.json({ users: [], count: 0 });
-    }
-
     // Group by invite_code_id
-    const byUser: Record<string, { devices: typeof recentDevices; lastSeen: string }> = {};
-    for (const d of recentDevices) {
+    const byUser: Record<string, { devices: { invite_code_id: string; device_id: string; user_agent: string; last_seen_at: string }[]; lastSeen: string }> = {};
+    for (const d of recentDevices || []) {
       if (!d.invite_code_id) continue;
       if (!byUser[d.invite_code_id]) {
         byUser[d.invite_code_id] = { devices: [], lastSeen: d.last_seen_at };
@@ -823,14 +820,16 @@ router.get("/api/admin/online-users", async (req: Request, res: Response) => {
     const inviteCodeIds = Object.keys(byUser);
 
     // Get user info
-    const { data: codes } = await supabase
-      .from("invite_codes")
-      .select("id, code, name, organization")
-      .in("id", inviteCodeIds);
+    let codesMap: Record<string, { code: string; name: string; organization: string | null }> = {};
+    if (inviteCodeIds.length > 0) {
+      const { data: codes } = await supabase
+        .from("invite_codes")
+        .select("id, code, name, organization")
+        .in("id", inviteCodeIds);
 
-    const codesMap: Record<string, { code: string; name: string; organization: string | null }> = {};
-    for (const c of codes || []) {
-      codesMap[c.id] = { code: c.code, name: c.name, organization: c.organization };
+      for (const c of codes || []) {
+        codesMap[c.id] = { code: c.code, name: c.name, organization: c.organization };
+      }
     }
 
     const users = inviteCodeIds
@@ -842,8 +841,22 @@ router.get("/api/admin/online-users", async (req: Request, res: Response) => {
         organization: codesMap[id].organization,
         device_count: byUser[id].devices.length,
         last_seen_at: byUser[id].lastSeen,
-      }))
-      .sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at));
+      }));
+
+    // Include online admins (tracked in-memory since they have no device rows)
+    const onlineAdmins = getOnlineAdmins(cutoff);
+    for (const adm of onlineAdmins) {
+      users.push({
+        invite_code_id: `admin-${adm.code}`,
+        code: adm.code,
+        name: adm.name,
+        organization: "Админ",
+        device_count: 1,
+        last_seen_at: adm.lastSeenAt,
+      });
+    }
+
+    users.sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at));
 
     return res.json({ users, count: users.length });
   } catch (err) {
