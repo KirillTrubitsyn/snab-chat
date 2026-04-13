@@ -468,6 +468,47 @@ router.post("/api/chat", async (req: Request, res: Response) => {
       }
     }
 
+    // ── Pre-seed: graph-aware search results for multi-entity coverage ──
+    // The agentic LLM often fails to search for ALL entities independently.
+    // graphAwareSearch uses the knowledge graph to ensure balanced retrieval
+    // from each named entity group (e.g. both СГК-Алтай AND НТСК).
+    let graphPreSeededCount = 0;
+    try {
+      const graphResult = await graphAwareSearch(searchQuery, 15, searchHints);
+      if (graphResult.hasGraphResults && graphResult.results.length > 0) {
+        for (const r of graphResult.results) {
+          if (!agenticCtx.chunks.has(r.id)) {
+            const boostedSim = r.similarity >= 0.25
+              ? Math.max(r.similarity, 0.75)
+              : r.similarity;
+            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim });
+            graphPreSeededCount++;
+          }
+        }
+        // Ensure entity names from graph groups are included in preSeededEntities
+        if (graphResult.groupCount >= 2) {
+          // The graph found multiple named groups; make sure the entity block triggers
+          const graphEntityNames = graphResult.results
+            .map(r => r.source_filename)
+            .filter(f => !f.endsWith(".md"));
+          // Extract entity names that were in the original query
+          const queryLower = userMessage.content.toLowerCase();
+          for (const name of ["СГК-Алтай", "НТСК", "ЕТГК", "Кузбассэнерго", "СГК-Новосибирск"]) {
+            if (queryLower.includes(name.toLowerCase()) && !preSeededEntities.includes(name)) {
+              preSeededEntities.push(name);
+            }
+          }
+        }
+        console.log(
+          `[chat] Graph pre-seeded ${graphPreSeededCount} chunks ` +
+          `(${graphResult.groupCount} groups, ${graphResult.results.length} results, ` +
+          `files: ${[...new Set(graphResult.results.map(r => r.source_filename))].slice(0, 5).join(", ")})`
+        );
+      }
+    } catch (graphErr) {
+      console.error("[chat] Graph pre-seed failed (non-fatal):", graphErr);
+    }
+
     // Build entity-aware prompt section for comparative queries
     const entityBlock = preSeededEntities.length > 1
       ? `\nОБНАРУЖЕННЫЕ ОРГАНИЗАЦИИ В ЗАПРОСЕ: ${preSeededEntities.join(", ")}
