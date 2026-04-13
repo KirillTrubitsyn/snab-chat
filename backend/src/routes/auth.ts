@@ -33,6 +33,7 @@ import {
   adminVerifySetupTelegramSchema,
   adminVerify2FASchema,
   adminSendOtpSchema,
+  adminRequestLoginApprovalSchema,
   parseBody,
 } from "../lib/validation.js";
 import { createServiceClient } from "../lib/supabase.js";
@@ -1255,7 +1256,7 @@ router.post("/api/auth/admin/verify-setup-telegram", async (req: Request, res: R
   }
 });
 
-// POST /api/auth/admin/send-otp — send OTP for admin login
+// POST /api/auth/admin/send-otp — send OTP for admin login (kept for TOTP path)
 router.post("/api/auth/admin/send-otp", async (req: Request, res: Response) => {
   try {
     const parsed = parseBody(req.body, adminSendOtpSchema, res);
@@ -1266,39 +1267,204 @@ router.post("/api/auth/admin/send-otp", async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Неверный админ-код" });
     }
 
-    const adminNumber = getAdminNumber(upperCode)!;
-    const data = await getAdmin2FAData(adminNumber);
-
-    if (parsed.data.method === "telegram") {
-      if (!data?.telegram_chat_id) {
-        return res.status(400).json({ error: "Telegram не привязан" });
-      }
-
-      const withinLimit = await checkAdminOTPRateLimit(adminNumber, "login_telegram");
-      if (!withinLimit) {
-        return res.status(429).json({ error: "Слишком много попыток. Подождите." });
-      }
-
-      const otp = generateOTP();
-      await saveAdminOTP(adminNumber, otp, "login_telegram");
-
-      const sent = await send2FAMessage(
-        `🔐 Код для входа в админ-панель СнабЧат: <b>${otp}</b>\n\nКод действителен 5 минут.`,
-        data.telegram_chat_id
-      );
-
-      if (!sent) {
-        return res.status(500).json({ error: "Ошибка отправки в Telegram" });
-      }
-    }
-
-    return res.json({ sent: true });
+    // Telegram now uses push approval via /api/auth/admin/request-login-approval
+    return res.status(400).json({ error: "Для Telegram используйте push-подтверждение" });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });
   }
 });
 
-// POST /api/auth/admin/verify-2fa — verify 2FA and create admin session
+// POST /api/auth/admin/request-login-approval — push-уведомление в Telegram для админа
+router.post("/api/auth/admin/request-login-approval", async (req: Request, res: Response) => {
+  try {
+    const parsed = parseBody(req.body, adminRequestLoginApprovalSchema, res);
+    if (parsed.error) return;
+
+    const upperCode = parsed.data.adminCode.toUpperCase();
+    if (!isAdminCode(upperCode)) {
+      return res.status(401).json({ error: "Неверный админ-код" });
+    }
+
+    const adminNumber = getAdminNumber(upperCode)!;
+    const adminName = getAdminName(upperCode)!;
+    const data = await getAdmin2FAData(adminNumber);
+
+    if (!data?.telegram_chat_id) {
+      return res.status(400).json({ error: "Telegram не привязан" });
+    }
+
+    const supabase = createServiceClient();
+
+    // Expire old pending approvals for this admin
+    await supabase
+      .from("admin_login_approvals")
+      .update({ status: "denied", resolved_at: new Date().toISOString() })
+      .eq("admin_number", adminNumber)
+      .eq("status", "pending");
+
+    const ipAddress = getClientIP(req);
+    const userAgent = req.headers["user-agent"] || "";
+
+    // Geo lookup
+    let location = "";
+    if (ipAddress && ipAddress !== "unknown") {
+      try {
+        const geoRes = await fetch(`https://ipapi.co/${ipAddress}/json/`, {
+          headers: { "User-Agent": "snabchat/1.0" },
+          signal: AbortSignal.timeout(3000),
+        });
+        if (geoRes.ok) {
+          const geo = await geoRes.json() as { city?: string; country_name?: string; error?: boolean };
+          if (!geo.error && (geo.city || geo.country_name)) {
+            location = [geo.city, geo.country_name].filter(Boolean).join(", ");
+          }
+        }
+      } catch (e) {
+        console.log(`[geo] Failed for ${ipAddress}:`, e instanceof Error ? e.message : e);
+      }
+    }
+
+    // Create approval record
+    const { data: approval, error: insertError } = await supabase
+      .from("admin_login_approvals")
+      .insert({
+        admin_number: adminNumber,
+        ip_address: ipAddress,
+        user_agent: userAgent,
+      })
+      .select("id")
+      .single();
+
+    if (insertError || !approval) {
+      console.error("[admin/request-login-approval] DB error:", insertError?.message);
+      return res.status(500).json({ error: "Ошибка создания запроса" });
+    }
+
+    // Send push notification with inline buttons
+    const locationLine = location ? `\n📍 ${escapeHtml(location)}` : "";
+    const text =
+      `🔐 <b>Вход в админ-панель СнабЧат</b>\n\n` +
+      `Кто-то входит в аккаунт администратора:\n` +
+      `👤 <b>${escapeHtml(adminName)}</b>\n` +
+      `🌐 ${escapeHtml(ipAddress)}${locationLine}\n` +
+      `🕐 ${getMoscowTime()}\n\n` +
+      `Это вы?`;
+
+    const replyMarkup = {
+      inline_keyboard: [[
+        { text: "✅ Да, это я", callback_data: `admin_login_approve:${approval.id}` },
+        { text: "❌ Нет, не я", callback_data: `admin_login_deny:${approval.id}` },
+      ]],
+    };
+
+    const sent = await send2FAMessage(text, data.telegram_chat_id, replyMarkup);
+    if (!sent) {
+      return res.status(500).json({ error: "Ошибка отправки уведомления в Telegram" });
+    }
+
+    return res.json({ approval_id: approval.id });
+  } catch {
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// GET /api/auth/admin/check-login-approval — polling for admin push approval status
+const adminApprovalPollLimiter = new Map<string, number[]>();
+function checkAdminApprovalRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const window = 60_000;
+  const maxReqs = 45; // More generous than user (5) since max 3 admins
+  const timestamps = (adminApprovalPollLimiter.get(ip) || []).filter(t => now - t < window);
+  if (timestamps.length >= maxReqs) return false;
+  timestamps.push(now);
+  adminApprovalPollLimiter.set(ip, timestamps);
+  return true;
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, ts] of adminApprovalPollLimiter) {
+    const fresh = ts.filter(t => now - t < 60_000);
+    if (fresh.length === 0) adminApprovalPollLimiter.delete(ip);
+    else adminApprovalPollLimiter.set(ip, fresh);
+  }
+}, 300_000);
+
+router.get("/api/auth/admin/check-login-approval", async (req: Request, res: Response) => {
+  try {
+    const clientIp = getClientIP(req);
+    if (!checkAdminApprovalRateLimit(clientIp)) {
+      return res.status(429).json({ error: "Слишком много запросов" });
+    }
+
+    const id = req.query.id as string | undefined;
+    const adminCode = (req.query.adminCode as string || "").toUpperCase();
+
+    if (!id) {
+      return res.status(400).json({ error: "ID не указан" });
+    }
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(id)) {
+      return res.status(400).json({ error: "Неверный формат ID" });
+    }
+
+    if (!isAdminCode(adminCode)) {
+      return res.status(401).json({ error: "Неверный админ-код" });
+    }
+
+    const adminNumber = getAdminNumber(adminCode)!;
+    const supabase = createServiceClient();
+
+    const { data: approval, error } = await supabase
+      .from("admin_login_approvals")
+      .select("id, admin_number, status, expires_at")
+      .eq("id", id)
+      .single();
+
+    if (error || !approval) {
+      return res.status(404).json({ error: "Запрос не найден" });
+    }
+
+    // Verify approval belongs to this admin
+    if (approval.admin_number !== adminNumber) {
+      return res.status(403).json({ error: "Нет доступа" });
+    }
+
+    // Check timeout
+    if (approval.status === "pending" && new Date(approval.expires_at) < new Date()) {
+      return res.json({ status: "expired" });
+    }
+
+    if (approval.status === "approved") {
+      // Create session and return admin data
+      const adminName = getAdminName(adminCode)!;
+      const userAgent = req.headers["user-agent"] || "";
+      const adminSessionToken = await generateAdminSessionToken(adminNumber, clientIp, userAgent);
+
+      logSecurityEvent("auth.admin_session_created", {
+        ip: clientIp,
+        userAgent: userAgent,
+        details: { adminNumber, method: "telegram_push" },
+      });
+
+      return res.json({
+        status: "approved",
+        adminName,
+        code: adminCode,
+        adminSessionToken,
+        isDocumentAdmin: isDocumentAdmin(adminCode),
+        isPrimaryAdmin: adminNumber === 1,
+        canDeleteCodes: isCodeDeletionAdmin(adminCode),
+      });
+    }
+
+    return res.json({ status: approval.status });
+  } catch {
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// POST /api/auth/admin/verify-2fa — verify 2FA and create admin session (TOTP only)
 router.post("/api/auth/admin/verify-2fa", async (req: Request, res: Response) => {
   try {
     const clientIp = getClientIP(req);
@@ -1326,7 +1492,8 @@ router.post("/api/auth/admin/verify-2fa", async (req: Request, res: Response) =>
       }
       valid = verifyTOTP(parsed.data.otp, data.totp_secret);
     } else if (parsed.data.method === "telegram") {
-      valid = await verifyAdminOTP(adminNumber, parsed.data.otp, "login_telegram");
+      // Telegram now uses push approval, not OTP
+      return res.status(400).json({ error: "Для Telegram используйте push-подтверждение" });
     }
 
     if (!valid) {

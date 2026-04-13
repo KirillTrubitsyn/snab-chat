@@ -488,3 +488,23 @@ CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires ON admin_sessions (expires
 
 ALTER TABLE admin_sessions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "deny_anon_admin_sessions" ON admin_sessions FOR ALL TO anon USING (false);
+
+-- 4. Запросы на подтверждение входа админов (push-уведомления в Telegram)
+CREATE TABLE IF NOT EXISTS admin_login_approvals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  admin_number INTEGER NOT NULL,
+  ip_address TEXT,
+  user_agent TEXT,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'denied')),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  expires_at TIMESTAMPTZ DEFAULT (now() + interval '5 minutes'),
+  resolved_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_login_approvals_pending
+  ON admin_login_approvals (admin_number, status)
+  WHERE status = 'pending';
+
+ALTER TABLE admin_login_approvals ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "deny_anon_admin_login_approvals" ON admin_login_approvals FOR ALL TO anon USING (false);

@@ -542,6 +542,94 @@ router.post("/api/telegram/webhook-2fa", async (req: Request, res: Response) => 
       return res.json({ ok: true });
     }
 
+    // ── Admin login approval buttons ──
+    if (cbData.startsWith("admin_login_approve:") || cbData.startsWith("admin_login_deny:")) {
+      const approvalId = cbData.split(":")[1];
+      const approved = cbData.startsWith("admin_login_approve:");
+      const supabase = createServiceClient();
+
+      const { data: approval, error: fetchErr } = await supabase
+        .from("admin_login_approvals")
+        .select("id, admin_number, status, ip_address, expires_at")
+        .eq("id", approvalId)
+        .single();
+
+      if (fetchErr || !approval) {
+        await answer2FACallbackQuery(callbackQuery.id, "Запрос не найден");
+        return res.json({ ok: true });
+      }
+
+      // Verify the callback is from the correct admin's chat
+      const expectedChatId = process.env[`TELEGRAM_ADMIN_CHAT_ID_${approval.admin_number}`];
+      if (!expectedChatId || expectedChatId !== chatId) {
+        await answer2FACallbackQuery(callbackQuery.id, "Нет доступа");
+        return res.json({ ok: true });
+      }
+
+      if (approval.status !== "pending") {
+        await answer2FACallbackQuery(callbackQuery.id, "Запрос уже обработан");
+        return res.json({ ok: true });
+      }
+
+      if (new Date(approval.expires_at) < new Date()) {
+        await answer2FACallbackQuery(callbackQuery.id, "Время подтверждения истекло");
+        return res.json({ ok: true });
+      }
+
+      const newStatus = approved ? "approved" : "denied";
+      const { data: updated, error: updateErr } = await supabase
+        .from("admin_login_approvals")
+        .update({ status: newStatus, resolved_at: new Date().toISOString() })
+        .eq("id", approvalId)
+        .eq("status", "pending")
+        .select("id")
+        .maybeSingle();
+
+      if (updateErr || !updated) {
+        await answer2FACallbackQuery(callbackQuery.id, "Запрос уже обработан");
+        return res.json({ ok: true });
+      }
+
+      const adminLabel = `Админ #${approval.admin_number}`;
+
+      if (approved) {
+        await answer2FACallbackQuery(callbackQuery.id, "Вход подтверждён");
+        if (messageId) {
+          await edit2FAMessage(
+            chatId,
+            messageId,
+            `✅ <b>Вход в админ-панель подтверждён</b>\n\n` +
+            `👤 ${adminLabel}\n` +
+            `🕐 ${getMoscowTime()}`
+          );
+        }
+      } else {
+        await answer2FACallbackQuery(callbackQuery.id, "Вход отклонён");
+        if (messageId) {
+          await edit2FAMessage(
+            chatId,
+            messageId,
+            `❌ <b>Вход в админ-панель отклонён</b>\n\n` +
+            `👤 ${adminLabel}\n` +
+            `🌐 ${approval.ip_address || "unknown"}\n` +
+            `🕐 ${getMoscowTime()}`
+          );
+        }
+
+        // Notify all admins about suspicious admin login attempt
+        notifyAllAdmins(
+          `🚨 <b>Подозрительная попытка входа в админ-панель</b>\n\n` +
+          `${adminLabel} отклонил вход:\n` +
+          `🌐 IP: ${approval.ip_address || "unknown"}\n` +
+          `🕐 ${getMoscowTime()}\n\n` +
+          `Возможно, кто-то пытается получить доступ к админ-панели.`
+        ).catch(() => {});
+      }
+
+      console.log(`[2FA Webhook] Admin login ${newStatus} for admin #${approval.admin_number} (approval ${approvalId})`);
+      return res.json({ ok: true });
+    }
+
     await answer2FACallbackQuery(callbackQuery.id);
     return res.json({ ok: true });
   }
