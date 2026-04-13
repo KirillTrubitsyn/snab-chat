@@ -936,7 +936,7 @@ export async function graphAwareSearch(
               query_text: groupQuery,
               query_embedding: groupEmbStr,
               p_chunk_ids: primaryChunkIds,
-              match_count: 6,
+              match_count: 12,
             })
           : Promise.resolve({ data: null, error: null });
 
@@ -966,19 +966,22 @@ export async function graphAwareSearch(
           `primaryResults=${primaryRaw.length}, scopedResults=${scopedRaw.length}`
         );
 
-        // Diversify: max 2 chunks per file, primary docs (.docx/.pdf) first
+        // Diversify: max 2 chunks per file, prioritize .docx > .pdf > .md
         const byFile = new Map<string, SearchResult[]>();
         for (const r of merged) {
           const arr = byFile.get(r.source_filename) ?? [];
           arr.push(r);
           byFile.set(r.source_filename, arr);
         }
-        const fileEntries = [...byFile.entries()].sort(([a], [b]) => {
-          const aIsMd = a.endsWith(".md");
-          const bIsMd = b.endsWith(".md");
-          if (aIsMd !== bIsMd) return aIsMd ? 1 : -1;
-          return 0;
-        });
+        const filePriority = (name: string): number => {
+          const lc = name.toLowerCase();
+          if (lc.endsWith(".md")) return 2;
+          if (lc.endsWith(".pdf")) return 1;
+          return 0; // .docx gets highest priority
+        };
+        const fileEntries = [...byFile.entries()].sort(([a], [b]) =>
+          filePriority(a) - filePriority(b)
+        );
         const diversified: SearchResult[] = [];
         for (const [, chunks] of fileEntries) {
           for (const c of chunks.slice(0, 2)) diversified.push(c);
