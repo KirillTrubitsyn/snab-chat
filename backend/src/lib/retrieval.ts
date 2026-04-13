@@ -858,14 +858,19 @@ export async function graphAwareSearch(
   let graphChunkResults: SearchResult[] = [];
 
   if (graphResult.groups.length >= 2) {
-    // Balanced: equal slots per group
+    // Balanced: equal slots per group, with group-focused queries
     const perGroup = Math.max(5, Math.ceil(matchCount / graphResult.groups.length));
 
     const groupSearches = graphResult.groups.map(async (group) => {
       try {
+        // Create a group-focused query: "порядок закупок НТСК" instead of full query
+        const groupQuery = `${query} ${group.name}`;
+        const groupEmbedding = await embedQuery(groupQuery);
+        const groupEmbStr = `[${groupEmbedding.join(",")}]`;
+
         const { data, error } = await supabase.rpc("hybrid_search_scoped", {
-          query_text: query,
-          query_embedding: embeddingStr,
+          query_text: groupQuery,
+          query_embedding: groupEmbStr,
           p_chunk_ids: group.chunkIds,
           match_count: perGroup,
         });
