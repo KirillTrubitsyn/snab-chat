@@ -566,6 +566,18 @@ router.patch("/api/admin/invite-codes", async (req: Request, res: Response) => {
     if (body.device_limit !== undefined) updates.device_limit = body.device_limit;
     if (body.is_active !== undefined) updates.is_active = body.is_active;
 
+    // Reset password: clear password_hash so user can set a new one on next login
+    if (body.reset_password === true) {
+      updates.password_hash = null;
+    }
+
+    // Reset 2FA: clear all 2FA methods
+    if (body.reset_2fa === true) {
+      updates.telegram_chat_id = null;
+      updates.phone_number = null;
+      updates.totp_secret = null;
+    }
+
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: "Нечего обновлять" });
     }
@@ -578,6 +590,11 @@ router.patch("/api/admin/invite-codes", async (req: Request, res: Response) => {
       .eq("id", id)
       .select()
       .single();
+
+    // When resetting password, also clear devices so the user can log in fresh
+    if (body.reset_password === true && !error) {
+      await supabase.from("devices").delete().eq("invite_code_id", id);
+    }
 
     if (error) {
       console.error("DB error:", error.message);

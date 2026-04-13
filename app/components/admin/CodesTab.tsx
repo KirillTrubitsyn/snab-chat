@@ -122,11 +122,15 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
   const reset2FA = async (id: string) => {
     if (!confirm("Сбросить все методы 2FA у этого пользователя?")) return;
     try {
-      await fetch(apiUrl(`/api/admin/invite-codes?id=${id}`), {
+      const res = await fetch(apiUrl(`/api/admin/invite-codes?id=${id}`), {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ reset_2fa: true }),
       });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || "Ошибка сброса 2FA");
+      }
       loadCodes();
     } catch { /* ignore */ }
   };
@@ -134,11 +138,15 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
   const resetPassword = async (id: string) => {
     if (!confirm("Сбросить пароль? Пользователю придётся создать новый при следующем входе.")) return;
     try {
-      await fetch(apiUrl(`/api/admin/invite-codes?id=${id}`), {
+      const res = await fetch(apiUrl(`/api/admin/invite-codes?id=${id}`), {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ reset_password: true }),
       });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || "Ошибка сброса пароля");
+      }
       loadCodes();
     } catch { /* ignore */ }
   };
