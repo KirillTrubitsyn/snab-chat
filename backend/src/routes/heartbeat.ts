@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { createServiceClient } from "../lib/supabase.js";
 import { getInviteCodeFromHeader } from "../lib/auth.js";
+import { updateAdminPresence } from "../lib/admin-presence.js";
 
 const router = Router();
 
@@ -17,6 +18,13 @@ router.post("/api/heartbeat", async (req: Request, res: Response) => {
     const invite = await getInviteCodeFromHeader(req);
     if (!invite) {
       return res.status(401).json({ error: "Invalid code" });
+    }
+
+    // Admin codes have synthetic IDs ("admin-...") with no real device rows.
+    // Track their presence in memory instead.
+    if (invite.id.startsWith("admin-")) {
+      updateAdminPresence(invite.code, invite.name);
+      return res.json({ ok: true });
     }
 
     const supabase = createServiceClient();
