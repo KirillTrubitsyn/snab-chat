@@ -132,7 +132,7 @@ interface ExtractionResult {
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = requireAdmin(request);
+    const auth = await requireAdmin(request);
     if (auth instanceof NextResponse) return auth;
 
     const body = await request.json();
@@ -385,7 +385,7 @@ export async function POST(request: NextRequest) {
 // GET /api/admin/extract-entities — статистика графа
 export async function GET(request: NextRequest) {
   try {
-    const auth = requireAdmin(request);
+    const auth = await requireAdmin(request);
     if (auth instanceof NextResponse) return auth;
 
     const supabase = createServiceClient();

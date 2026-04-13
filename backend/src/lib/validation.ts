@@ -142,6 +142,38 @@ export const requestLoginApprovalSchema = z.object({
   code: trimmedString(1, 200),
 });
 
+// ── Admin 2FA schemas ──
+
+export const adminSetupTotpSchema = z.object({
+  adminCode: trimmedString(1, 200),
+});
+
+export const adminVerifySetupTotpSchema = z.object({
+  adminCode: trimmedString(1, 200),
+  otp: trimmedString(4, 8),
+  totpSecret: z.string().min(1),
+});
+
+export const adminSetupTelegramSchema = z.object({
+  adminCode: trimmedString(1, 200),
+});
+
+export const adminVerifySetupTelegramSchema = z.object({
+  adminCode: trimmedString(1, 200),
+  otp: trimmedString(4, 8),
+});
+
+export const adminVerify2FASchema = z.object({
+  adminCode: trimmedString(1, 200),
+  otp: trimmedString(4, 8),
+  method: z.enum(["telegram", "totp"]),
+});
+
+export const adminSendOtpSchema = z.object({
+  adminCode: trimmedString(1, 200),
+  method: z.enum(["telegram"]),
+});
+
 // ── Parse helper ──
 
 /**

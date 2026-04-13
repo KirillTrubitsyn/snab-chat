@@ -93,7 +93,7 @@ router.get("/api/chunk-image", async (req: Request, res: Response) => {
  */
 router.post("/api/migrate", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const supabase = createServiceClient();
@@ -175,7 +175,7 @@ router.post("/api/migrate", async (req: Request, res: Response) => {
  */
 router.get("/api/debug-chunks", async (req: Request, res: Response) => {
   try {
-    const adminCheck = requireAdmin(req, res);
+    const adminCheck = await requireAdmin(req, res);
     if (!adminCheck) return;
 
     const filename = (req.query.filename as string) || "SRM";

@@ -29,7 +29,7 @@ let documentsBucketReady = false;
 
 router.post("/api/upload-url", async (req: Request, res: Response) => {
   try {
-    const admin = requireDocumentAdmin(req, res);
+    const admin = await requireDocumentAdmin(req, res);
     if (!admin) return;
 
     const { filename } = req.body;

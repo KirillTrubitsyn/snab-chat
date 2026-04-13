@@ -5,6 +5,9 @@ export type SecurityEventType =
   | "auth.otp_fail"
   | "auth.invite_code_fail"
   | "auth.device_limit"
+  | "auth.admin_2fa_fail"
+  | "auth.admin_2fa_setup"
+  | "auth.admin_session_created"
   | "rate_limit.hit"
   | "admin.ip_blocked";
 

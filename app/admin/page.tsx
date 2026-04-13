@@ -17,8 +17,18 @@ export default function AdminPage() {
     const code = sessionStorage.getItem("snabchat_admin_code");
     const name = localStorage.getItem("snabchat_user_name");
     const isAdmin = sessionStorage.getItem("snabchat_is_admin");
+    const adminSession = sessionStorage.getItem("snabchat_admin_session");
 
     if (!code || isAdmin !== "true") {
+      router.push("/");
+      return;
+    }
+
+    // If no session token, redirect to login for 2FA
+    if (!adminSession) {
+      console.warn("[admin] No admin session token — redirecting to login");
+      sessionStorage.removeItem("snabchat_admin_code");
+      sessionStorage.removeItem("snabchat_is_admin");
       router.push("/");
       return;
     }
@@ -26,7 +36,7 @@ export default function AdminPage() {
     setAdminCode(code);
     setUserName(name || "Администратор");
 
-    // Verify admin code server-side and fetch permissions
+    // Verify admin code + session server-side and fetch permissions
     fetch(apiUrl("/api/auth/login"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -34,9 +44,9 @@ export default function AdminPage() {
     })
       .then((res) => {
         if (!res.ok) {
-          // Server rejected the admin code — clear session and redirect
           sessionStorage.removeItem("snabchat_admin_code");
           sessionStorage.removeItem("snabchat_is_admin");
+          sessionStorage.removeItem("snabchat_admin_session");
           router.push("/");
           return null;
         }
@@ -58,9 +68,9 @@ export default function AdminPage() {
         }
       })
       .catch(() => {
-        // Network error — clear session and redirect for safety
         sessionStorage.removeItem("snabchat_admin_code");
         sessionStorage.removeItem("snabchat_is_admin");
+        sessionStorage.removeItem("snabchat_admin_session");
         router.push("/");
       })
       .finally(() => setLoading(false));
@@ -87,10 +97,12 @@ export default function AdminPage() {
 
   const handleLogout = () => {
     sessionStorage.removeItem("snabchat_admin_code");
+    sessionStorage.removeItem("snabchat_admin_session");
     localStorage.removeItem("snabchat_user_name");
     sessionStorage.removeItem("snabchat_is_admin");
     localStorage.removeItem("snabchat_invite_code");
     sessionStorage.removeItem("snabchat_is_doc_admin");
+    sessionStorage.removeItem("snabchat_is_primary_admin");
     sessionStorage.removeItem("snabchat_auth_token");
     router.push("/");
   };

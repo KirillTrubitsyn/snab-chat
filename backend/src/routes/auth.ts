@@ -11,6 +11,9 @@ import {
   checkAndRegisterDevice,
   generateAuthToken,
   getInviteCodeFromHeader,
+  getAdmin2FAStatus,
+  getAdmin2FAData,
+  generateAdminSessionToken,
 } from "../lib/auth.js";
 import {
   loginSchema,
@@ -24,10 +27,21 @@ import {
   changePasswordSchema,
   twoFactorMethodSchema,
   requestLoginApprovalSchema,
+  adminSetupTotpSchema,
+  adminVerifySetupTotpSchema,
+  adminSetupTelegramSchema,
+  adminVerifySetupTelegramSchema,
+  adminVerify2FASchema,
+  adminSendOtpSchema,
   parseBody,
 } from "../lib/validation.js";
 import { createServiceClient } from "../lib/supabase.js";
 import { notifyNewUser, send2FAMessage } from "../lib/telegram.js";
+import {
+  saveAdminOTP,
+  verifyAdminOTP,
+  checkAdminOTPRateLimit,
+} from "../lib/admin-otp.js";
 import { getMoscowTime } from "../lib/date-utils.js";
 import {
   generateOTP,
@@ -66,12 +80,17 @@ router.post("/api/auth/login", async (req: Request, res: Response) => {
     // 1. Проверка админ-кодов
     if (isAdminCode(upperCode)) {
       const adminName = getAdminName(upperCode)!;
+      const adminNumber = getAdminNumber(upperCode)!;
+      const admin2fa = await getAdmin2FAStatus(adminNumber);
       return res.json({
         type: "admin",
         adminName,
+        adminNumber,
+        needs2FASetup: !admin2fa.hasAnyMethod,
+        twoFactorMethods: admin2fa.methods,
         code: upperCode,
         isDocumentAdmin: isDocumentAdmin(upperCode),
-        isPrimaryAdmin: getAdminNumber(upperCode) === 1,
+        isPrimaryAdmin: adminNumber === 1,
         canDeleteCodes: isCodeDeletionAdmin(upperCode),
       });
     }
@@ -1025,6 +1044,319 @@ router.patch("/api/auth/video-seen", async (req: Request, res: Response) => {
     }
 
     return res.json({ success: true });
+  } catch {
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// ============================================================
+// Admin 2FA routes
+// ============================================================
+
+function getAdminTelegramChatId(adminNumber: number): string | null {
+  return process.env[`TELEGRAM_ADMIN_CHAT_ID_${adminNumber}`] || null;
+}
+
+// GET /api/auth/admin/2fa-status
+router.get("/api/auth/admin/2fa-status", async (req: Request, res: Response) => {
+  try {
+    const adminCode = (req.query.adminCode as string || "").toUpperCase();
+    if (!isAdminCode(adminCode)) {
+      return res.status(401).json({ error: "Неверный админ-код" });
+    }
+
+    const adminNumber = getAdminNumber(adminCode)!;
+    const status = await getAdmin2FAStatus(adminNumber);
+    const hasTelegramEnv = !!getAdminTelegramChatId(adminNumber);
+
+    return res.json({
+      telegram: status.methods.includes("telegram"),
+      totp: status.methods.includes("totp"),
+      telegramAvailable: hasTelegramEnv,
+    });
+  } catch {
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// POST /api/auth/admin/setup-totp
+router.post("/api/auth/admin/setup-totp", async (req: Request, res: Response) => {
+  try {
+    const parsed = parseBody(req.body, adminSetupTotpSchema, res);
+    if (parsed.error) return;
+
+    const upperCode = parsed.data.adminCode.toUpperCase();
+    if (!isAdminCode(upperCode)) {
+      return res.status(401).json({ error: "Неверный админ-код" });
+    }
+
+    const adminName = getAdminName(upperCode)!;
+    const secret = generateTOTPSecret();
+    const otpauthUrl = generateTOTPUrl(secret, `Admin: ${adminName}`);
+
+    return res.json({ secret, otpauthUrl });
+  } catch {
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// POST /api/auth/admin/verify-setup-totp
+router.post("/api/auth/admin/verify-setup-totp", async (req: Request, res: Response) => {
+  try {
+    const clientIp = getClientIP(req);
+    const rl = await checkRateLimit(`admin-2fa-setup:${clientIp}`, 10, 60_000);
+    if (rl) {
+      return res.status(429).json({ error: "Слишком много попыток" });
+    }
+
+    const parsed = parseBody(req.body, adminVerifySetupTotpSchema, res);
+    if (parsed.error) return;
+
+    const upperCode = parsed.data.adminCode.toUpperCase();
+    if (!isAdminCode(upperCode)) {
+      return res.status(401).json({ error: "Неверный админ-код" });
+    }
+
+    const valid = verifyTOTP(parsed.data.otp, parsed.data.totpSecret);
+    if (!valid) {
+      return res.status(401).json({ error: "Неверный код" });
+    }
+
+    const adminNumber = getAdminNumber(upperCode)!;
+    const supabase = createServiceClient();
+
+    // Upsert admin_2fa row
+    const { data: existing } = await supabase
+      .from("admin_2fa")
+      .select("id")
+      .eq("admin_number", adminNumber)
+      .maybeSingle();
+
+    if (existing) {
+      await supabase
+        .from("admin_2fa")
+        .update({ totp_secret: parsed.data.totpSecret, updated_at: new Date().toISOString() })
+        .eq("admin_number", adminNumber);
+    } else {
+      await supabase
+        .from("admin_2fa")
+        .insert({ admin_number: adminNumber, totp_secret: parsed.data.totpSecret });
+    }
+
+    logSecurityEvent("auth.admin_2fa_setup", {
+      ip: clientIp,
+      userAgent: req.headers["user-agent"] as string,
+      details: { adminNumber, method: "totp" },
+    });
+
+    return res.json({ success: true });
+  } catch {
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// POST /api/auth/admin/setup-telegram
+router.post("/api/auth/admin/setup-telegram", async (req: Request, res: Response) => {
+  try {
+    const parsed = parseBody(req.body, adminSetupTelegramSchema, res);
+    if (parsed.error) return;
+
+    const upperCode = parsed.data.adminCode.toUpperCase();
+    if (!isAdminCode(upperCode)) {
+      return res.status(401).json({ error: "Неверный админ-код" });
+    }
+
+    const adminNumber = getAdminNumber(upperCode)!;
+    const chatId = getAdminTelegramChatId(adminNumber);
+    if (!chatId) {
+      return res.status(400).json({
+        error: `TELEGRAM_ADMIN_CHAT_ID_${adminNumber} не настроен. Обратитесь к главному администратору.`,
+      });
+    }
+
+    const withinLimit = await checkAdminOTPRateLimit(adminNumber, "setup_telegram");
+    if (!withinLimit) {
+      return res.status(429).json({ error: "Слишком много попыток. Подождите." });
+    }
+
+    const otp = generateOTP();
+    await saveAdminOTP(adminNumber, otp, "setup_telegram", 10);
+
+    const sent = await send2FAMessage(
+      `🔐 Код подтверждения для настройки 2FA в СнабЧат: <b>${otp}</b>\n\nКод действителен 10 минут.`,
+      chatId
+    );
+
+    if (!sent) {
+      return res.status(500).json({ error: "Ошибка отправки в Telegram" });
+    }
+
+    return res.json({ sent: true });
+  } catch {
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// POST /api/auth/admin/verify-setup-telegram
+router.post("/api/auth/admin/verify-setup-telegram", async (req: Request, res: Response) => {
+  try {
+    const clientIp = getClientIP(req);
+    const rl = await checkRateLimit(`admin-2fa-setup:${clientIp}`, 10, 60_000);
+    if (rl) {
+      return res.status(429).json({ error: "Слишком много попыток" });
+    }
+
+    const parsed = parseBody(req.body, adminVerifySetupTelegramSchema, res);
+    if (parsed.error) return;
+
+    const upperCode = parsed.data.adminCode.toUpperCase();
+    if (!isAdminCode(upperCode)) {
+      return res.status(401).json({ error: "Неверный админ-код" });
+    }
+
+    const adminNumber = getAdminNumber(upperCode)!;
+    const valid = await verifyAdminOTP(adminNumber, parsed.data.otp, "setup_telegram");
+    if (!valid) {
+      return res.status(401).json({ error: "Неверный код" });
+    }
+
+    const chatId = getAdminTelegramChatId(adminNumber);
+    if (!chatId) {
+      return res.status(400).json({ error: "Telegram chat ID не настроен" });
+    }
+
+    const supabase = createServiceClient();
+    const { data: existing } = await supabase
+      .from("admin_2fa")
+      .select("id")
+      .eq("admin_number", adminNumber)
+      .maybeSingle();
+
+    if (existing) {
+      await supabase
+        .from("admin_2fa")
+        .update({ telegram_chat_id: chatId, updated_at: new Date().toISOString() })
+        .eq("admin_number", adminNumber);
+    } else {
+      await supabase
+        .from("admin_2fa")
+        .insert({ admin_number: adminNumber, telegram_chat_id: chatId });
+    }
+
+    logSecurityEvent("auth.admin_2fa_setup", {
+      ip: clientIp,
+      userAgent: req.headers["user-agent"] as string,
+      details: { adminNumber, method: "telegram" },
+    });
+
+    return res.json({ success: true });
+  } catch {
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// POST /api/auth/admin/send-otp — send OTP for admin login
+router.post("/api/auth/admin/send-otp", async (req: Request, res: Response) => {
+  try {
+    const parsed = parseBody(req.body, adminSendOtpSchema, res);
+    if (parsed.error) return;
+
+    const upperCode = parsed.data.adminCode.toUpperCase();
+    if (!isAdminCode(upperCode)) {
+      return res.status(401).json({ error: "Неверный админ-код" });
+    }
+
+    const adminNumber = getAdminNumber(upperCode)!;
+    const data = await getAdmin2FAData(adminNumber);
+
+    if (parsed.data.method === "telegram") {
+      if (!data?.telegram_chat_id) {
+        return res.status(400).json({ error: "Telegram не привязан" });
+      }
+
+      const withinLimit = await checkAdminOTPRateLimit(adminNumber, "login_telegram");
+      if (!withinLimit) {
+        return res.status(429).json({ error: "Слишком много попыток. Подождите." });
+      }
+
+      const otp = generateOTP();
+      await saveAdminOTP(adminNumber, otp, "login_telegram");
+
+      const sent = await send2FAMessage(
+        `🔐 Код для входа в админ-панель СнабЧат: <b>${otp}</b>\n\nКод действителен 5 минут.`,
+        data.telegram_chat_id
+      );
+
+      if (!sent) {
+        return res.status(500).json({ error: "Ошибка отправки в Telegram" });
+      }
+    }
+
+    return res.json({ sent: true });
+  } catch {
+    return res.status(500).json({ error: "Ошибка сервера" });
+  }
+});
+
+// POST /api/auth/admin/verify-2fa — verify 2FA and create admin session
+router.post("/api/auth/admin/verify-2fa", async (req: Request, res: Response) => {
+  try {
+    const clientIp = getClientIP(req);
+    const rl = await checkRateLimit(`admin-2fa-verify:${clientIp}`, 10, 60_000);
+    if (rl) {
+      return res.status(429).json({ error: "Слишком много попыток. Подождите минуту." });
+    }
+
+    const parsed = parseBody(req.body, adminVerify2FASchema, res);
+    if (parsed.error) return;
+
+    const upperCode = parsed.data.adminCode.toUpperCase();
+    if (!isAdminCode(upperCode)) {
+      return res.status(401).json({ error: "Неверный админ-код" });
+    }
+
+    const adminNumber = getAdminNumber(upperCode)!;
+    const adminName = getAdminName(upperCode)!;
+    let valid = false;
+
+    if (parsed.data.method === "totp") {
+      const data = await getAdmin2FAData(adminNumber);
+      if (!data?.totp_secret) {
+        return res.status(400).json({ error: "TOTP не настроен" });
+      }
+      valid = verifyTOTP(parsed.data.otp, data.totp_secret);
+    } else if (parsed.data.method === "telegram") {
+      valid = await verifyAdminOTP(adminNumber, parsed.data.otp, "login_telegram");
+    }
+
+    if (!valid) {
+      logSecurityEvent("auth.admin_2fa_fail", {
+        ip: clientIp,
+        userAgent: req.headers["user-agent"] as string,
+        details: { adminNumber, method: parsed.data.method },
+      });
+      return res.status(401).json({ error: "Неверный код" });
+    }
+
+    // Create admin session
+    const userAgent = req.headers["user-agent"] || "";
+    const adminSessionToken = await generateAdminSessionToken(adminNumber, clientIp, userAgent);
+
+    logSecurityEvent("auth.admin_session_created", {
+      ip: clientIp,
+      userAgent: userAgent,
+      details: { adminNumber },
+    });
+
+    return res.json({
+      success: true,
+      adminName,
+      code: upperCode,
+      adminSessionToken,
+      isDocumentAdmin: isDocumentAdmin(upperCode),
+      isPrimaryAdmin: adminNumber === 1,
+      canDeleteCodes: isCodeDeletionAdmin(upperCode),
+    });
   } catch {
     return res.status(500).json({ error: "Ошибка сервера" });
   }

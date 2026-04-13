@@ -32,7 +32,7 @@ router.post(
   upload.single("file"),
   async (req: Request, res: Response) => {
     try {
-      const adminCheck = requireDocumentAdmin(req, res);
+      const adminCheck = await requireDocumentAdmin(req, res);
       if (!adminCheck) return;
 
       const file = req.file ?? null;
@@ -381,7 +381,7 @@ function generateParentGroupKey(stmt: JsonlStatement): string {
 
 router.post("/api/ingest-jsonl", async (req: Request, res: Response) => {
   try {
-    const adminCheck = requireDocumentAdmin(req, res);
+    const adminCheck = await requireDocumentAdmin(req, res);
     if (!adminCheck) return;
 
     const body = req.body;
@@ -491,7 +491,7 @@ router.post("/api/ingest-jsonl", async (req: Request, res: Response) => {
 
 router.delete("/api/ingest-jsonl", async (req: Request, res: Response) => {
   try {
-    const adminCheck = requireDocumentAdmin(req, res);
+    const adminCheck = await requireDocumentAdmin(req, res);
     if (!adminCheck) return;
 
     const supabase = createServiceClient();

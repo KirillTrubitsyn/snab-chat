@@ -14,7 +14,10 @@ type Step =
   | "setup-2fa"
   | "2fa-choose"
   | "2fa-verify"
-  | "2fa-telegram-push";
+  | "2fa-telegram-push"
+  | "admin-2fa-setup"
+  | "admin-2fa-choose"
+  | "admin-2fa-verify";
 
 interface InviteGateProps {
   onSuccess: (data: {
@@ -69,6 +72,20 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
   // Auth token from server (stored after password/2FA verification)
   const [pendingAuthToken, setPendingAuthToken] = useState("");
   const [isFirstSetup, setIsFirstSetup] = useState(false);
+
+  // Admin 2FA state
+  const [adminPendingCode, setAdminPendingCode] = useState("");
+  const [adminNumber, setAdminNumber] = useState(0);
+  const [adminTwoFactorMethods, setAdminTwoFactorMethods] = useState<string[]>([]);
+  const [adminChosen2FAMethod, setAdminChosen2FAMethod] = useState("");
+  const [admin2FAStatus, setAdmin2FAStatus] = useState({ telegram: false, totp: false, telegramAvailable: false });
+  const [adminTotpSecret, setAdminTotpSecret] = useState("");
+  const [adminTotpUrl, setAdminTotpUrl] = useState("");
+  const [adminSetupMethod, setAdminSetupMethod] = useState<"" | "telegram" | "totp">("");
+  const [adminSetupSubStep, setAdminSetupSubStep] = useState<"choose" | "configure" | "verify">("choose");
+  const [adminPendingData, setAdminPendingData] = useState<{
+    adminName: string; isDocumentAdmin: boolean; isPrimaryAdmin: boolean; canDeleteCodes: boolean;
+  } | null>(null);
 
   const getOrCreateDeviceId = (): string => {
     const key = "snabchat_device_id";
@@ -126,6 +143,188 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
       inviteCodeId: data.inviteCodeId,
     });
   }, [onSuccess, pendingAuthToken, isFirstSetup]);
+
+  /* ── Admin 2FA: завершение входа ── */
+  const completeAdminLogin = useCallback((data: {
+    code: string;
+    adminName: string;
+    adminSessionToken: string;
+    isDocumentAdmin: boolean;
+    isPrimaryAdmin: boolean;
+    canDeleteCodes: boolean;
+  }) => {
+    sessionStorage.setItem("snabchat_admin_code", data.code);
+    sessionStorage.setItem("snabchat_admin_session", data.adminSessionToken);
+    localStorage.setItem("snabchat_user_name", data.adminName);
+    sessionStorage.setItem("snabchat_is_admin", "true");
+    localStorage.setItem("snabchat_invite_code", data.code);
+    if (data.isDocumentAdmin) sessionStorage.setItem("snabchat_is_doc_admin", "true");
+    else sessionStorage.removeItem("snabchat_is_doc_admin");
+    if (data.isPrimaryAdmin) sessionStorage.setItem("snabchat_is_primary_admin", "true");
+    else sessionStorage.removeItem("snabchat_is_primary_admin");
+    getOrAssignAvatarColor();
+    router.push("/admin");
+  }, [router]);
+
+  /* ── Admin 2FA: загрузка статуса ── */
+  const loadAdmin2FAStatus = useCallback(async () => {
+    try {
+      const res = await fetch(apiUrl(`/api/auth/admin/2fa-status?adminCode=${encodeURIComponent(adminPendingCode)}`), { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setAdmin2FAStatus(data);
+        return data;
+      }
+    } catch { /* ignore */ }
+    return null;
+  }, [adminPendingCode]);
+
+  /* ── Admin 2FA setup: TOTP ── */
+  const handleAdminSetupTotp = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch(apiUrl("/api/auth/admin/setup-totp"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ adminCode: adminPendingCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Ошибка"); return; }
+      setAdminTotpSecret(data.secret);
+      setAdminTotpUrl(data.otpauthUrl);
+      setAdminSetupSubStep("configure");
+    } catch { setError("Ошибка подключения к серверу"); }
+    finally { setLoading(false); }
+  };
+
+  /* ── Admin 2FA setup: verify TOTP ── */
+  const handleAdminVerifySetupTotp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch(apiUrl("/api/auth/admin/verify-setup-totp"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ adminCode: adminPendingCode, otp: otp, totpSecret: adminTotpSecret }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Неверный код"); return; }
+      // Успех — обновить статус и вернуться к выбору
+      await loadAdmin2FAStatus();
+      setOtp("");
+      setAdminSetupSubStep("choose");
+      setAdminSetupMethod("");
+      setAdminTotpSecret("");
+      setAdminTotpUrl("");
+    } catch { setError("Ошибка подключения к серверу"); }
+    finally { setLoading(false); }
+  };
+
+  /* ── Admin 2FA setup: Telegram ── */
+  const handleAdminSetupTelegram = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch(apiUrl("/api/auth/admin/setup-telegram"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ adminCode: adminPendingCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Ошибка"); return; }
+      setAdminSetupSubStep("verify");
+    } catch { setError("Ошибка подключения к серверу"); }
+    finally { setLoading(false); }
+  };
+
+  /* ── Admin 2FA setup: verify Telegram ── */
+  const handleAdminVerifySetupTelegram = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch(apiUrl("/api/auth/admin/verify-setup-telegram"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ adminCode: adminPendingCode, otp: otp }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Неверный код"); return; }
+      await loadAdmin2FAStatus();
+      setOtp("");
+      setAdminSetupSubStep("choose");
+      setAdminSetupMethod("");
+    } catch { setError("Ошибка подключения к серверу"); }
+    finally { setLoading(false); }
+  };
+
+  /* ── Admin 2FA: отправка OTP для входа ── */
+  const handleAdminSendLoginOTP = async (method: string) => {
+    setError("");
+    setLoading(true);
+    setAdminChosen2FAMethod(method);
+
+    if (method === "totp") {
+      setStep("admin-2fa-verify");
+      setLoading(false);
+      return;
+    }
+
+    // Telegram
+    try {
+      const res = await fetch(apiUrl("/api/auth/admin/send-otp"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ adminCode: adminPendingCode, method: "telegram" }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Ошибка отправки"); return; }
+      setStep("admin-2fa-verify");
+    } catch { setError("Ошибка подключения к серверу"); }
+    finally { setLoading(false); }
+  };
+
+  /* ── Admin 2FA: проверка кода при входе ── */
+  const handleAdminVerify2FA = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch(apiUrl("/api/auth/admin/verify-2fa"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ adminCode: adminPendingCode, otp: otp, method: adminChosen2FAMethod }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Неверный код"); return; }
+      completeAdminLogin({
+        code: data.code,
+        adminName: data.adminName,
+        adminSessionToken: data.adminSessionToken,
+        isDocumentAdmin: data.isDocumentAdmin,
+        isPrimaryAdmin: data.isPrimaryAdmin,
+        canDeleteCodes: data.canDeleteCodes,
+      });
+    } catch { setError("Ошибка подключения к серверу"); }
+    finally { setLoading(false); setOtp(""); }
+  };
+
+  /* ── Admin 2FA setup: завершить настройку и перейти к входу ── */
+  const handleAdminSetupComplete = async () => {
+    // Загрузить свежий статус и перейти к выбору метода
+    const status = await loadAdmin2FAStatus();
+    if (status && (status.telegram || status.totp)) {
+      const methods: string[] = [];
+      if (status.totp) methods.push("totp");
+      if (status.telegram) methods.push("telegram");
+      setAdminTwoFactorMethods(methods);
+      setStep("admin-2fa-choose");
+    } else {
+      setError("Необходимо настроить хотя бы один метод 2FA");
+    }
+  };
 
   /* ── Единый ввод: пароль или инвайт-код ── */
   const handleUnifiedSubmit = async (e: React.FormEvent) => {
@@ -185,18 +384,28 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
         return;
       }
 
-      // Админ
+      // Админ — требуется 2FA
       if (codeData.type === "admin") {
-        sessionStorage.setItem("snabchat_admin_code", codeData.code);
-        localStorage.setItem("snabchat_user_name", codeData.adminName);
-        getOrAssignAvatarColor();
-        sessionStorage.setItem("snabchat_is_admin", "true");
-        localStorage.setItem("snabchat_invite_code", codeData.code);
-        if (codeData.isDocumentAdmin) sessionStorage.setItem("snabchat_is_doc_admin", "true");
-        else sessionStorage.removeItem("snabchat_is_doc_admin");
-        if (codeData.isPrimaryAdmin) sessionStorage.setItem("snabchat_is_primary_admin", "true");
-        else sessionStorage.removeItem("snabchat_is_primary_admin");
-        router.push("/admin");
+        setAdminPendingCode(codeData.code);
+        setAdminNumber(codeData.adminNumber);
+        setUserName(codeData.adminName);
+        setAdminPendingData({
+          adminName: codeData.adminName,
+          isDocumentAdmin: codeData.isDocumentAdmin,
+          isPrimaryAdmin: codeData.isPrimaryAdmin,
+          canDeleteCodes: codeData.canDeleteCodes,
+        });
+        setCode("");
+
+        if (codeData.needs2FASetup) {
+          // Первый вход: обязательная настройка 2FA
+          setStep("admin-2fa-setup");
+          setAdminSetupSubStep("choose");
+        } else if (codeData.twoFactorMethods && codeData.twoFactorMethods.length > 0) {
+          // 2FA настроена — выбрать метод
+          setAdminTwoFactorMethods(codeData.twoFactorMethods);
+          setStep("admin-2fa-choose");
+        }
         return;
       }
 
@@ -995,6 +1204,205 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
               </form>
             )}
           </div>
+        )}
+
+        {/* ══ Admin 2FA: Настройка (первый вход) ══ */}
+        {step === "admin-2fa-setup" && (
+          <div className="invite-gate-form">
+            {adminSetupSubStep === "choose" && (
+              <>
+                <p className="invite-gate-register-hint" style={{ marginBottom: 4 }}>
+                  <strong>Обязательная настройка 2FA</strong>
+                </p>
+                <p className="invite-gate-register-hint" style={{ marginBottom: 12, fontSize: 13 }}>
+                  Для доступа к админ-панели необходимо настроить двухфакторную аутентификацию
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <button
+                    className="invite-gate-submit"
+                    style={{ margin: 0, background: admin2FAStatus.totp ? "var(--success, #4caf50)" : undefined }}
+                    onClick={() => { if (!admin2FAStatus.totp) { setAdminSetupMethod("totp"); handleAdminSetupTotp(); } }}
+                    disabled={admin2FAStatus.totp || loading}
+                  >
+                    {admin2FAStatus.totp ? "Authenticator (настроен) ✓" : "Настроить Authenticator"}
+                  </button>
+                  {admin2FAStatus.telegramAvailable && (
+                    <button
+                      className="invite-gate-submit"
+                      style={{ margin: 0, background: admin2FAStatus.telegram ? "var(--success, #4caf50)" : undefined }}
+                      onClick={() => { if (!admin2FAStatus.telegram) { setAdminSetupMethod("telegram"); handleAdminSetupTelegram(); } }}
+                      disabled={admin2FAStatus.telegram || loading}
+                    >
+                      {admin2FAStatus.telegram ? "Telegram (привязан) ✓" : "Привязать Telegram"}
+                    </button>
+                  )}
+                </div>
+                {error && <p className="invite-gate-error">{error}</p>}
+                {(admin2FAStatus.telegram || admin2FAStatus.totp) && (
+                  <button
+                    className="invite-gate-submit"
+                    style={{ marginTop: 12 }}
+                    onClick={handleAdminSetupComplete}
+                  >
+                    Готово — войти
+                  </button>
+                )}
+              </>
+            )}
+
+            {/* TOTP configure: показать QR */}
+            {adminSetupSubStep === "configure" && adminSetupMethod === "totp" && (
+              <>
+                <p className="invite-gate-register-hint" style={{ marginBottom: 8 }}>
+                  Отсканируйте QR-код в Google Authenticator или Яндекс Ключ
+                </p>
+                <div style={{ display: "flex", justifyContent: "center", margin: "12px 0" }}>
+                  <QRCodeSVG value={adminTotpUrl} size={180} />
+                </div>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", wordBreak: "break-all", marginBottom: 8 }}>
+                  Или введите секрет вручную: {adminTotpSecret}
+                </p>
+                <form onSubmit={handleAdminVerifySetupTotp}>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                    placeholder="Введите 6-значный код"
+                    className="invite-gate-input invite-gate-input-text"
+                    style={{ textAlign: "center", letterSpacing: 8, fontSize: 24 }}
+                    disabled={loading}
+                    autoFocus
+                    autoComplete="one-time-code"
+                  />
+                  {error && <p className="invite-gate-error">{error}</p>}
+                  <button type="submit" disabled={otp.length !== 6 || loading} className="invite-gate-submit">
+                    {loading ? "Проверка..." : "Подтвердить"}
+                  </button>
+                  <button
+                    type="button"
+                    className="invite-gate-back"
+                    onClick={() => { setAdminSetupSubStep("choose"); setAdminSetupMethod(""); setError(""); setOtp(""); }}
+                  >
+                    Назад
+                  </button>
+                </form>
+              </>
+            )}
+
+            {/* Telegram verify: ввод OTP из Telegram */}
+            {adminSetupSubStep === "verify" && adminSetupMethod === "telegram" && (
+              <form onSubmit={handleAdminVerifySetupTelegram}>
+                <p className="invite-gate-register-hint" style={{ marginBottom: 8 }}>
+                  Код подтверждения отправлен в ваш Telegram. Введите его ниже.
+                </p>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                  placeholder="Введите 6-значный код"
+                  className="invite-gate-input invite-gate-input-text"
+                  style={{ textAlign: "center", letterSpacing: 8, fontSize: 24 }}
+                  disabled={loading}
+                  autoFocus
+                  autoComplete="one-time-code"
+                />
+                {error && <p className="invite-gate-error">{error}</p>}
+                <button type="submit" disabled={otp.length !== 6 || loading} className="invite-gate-submit">
+                  {loading ? "Проверка..." : "Подтвердить"}
+                </button>
+                <button
+                  type="button"
+                  className="invite-gate-back"
+                  onClick={() => { setAdminSetupSubStep("choose"); setAdminSetupMethod(""); setError(""); setOtp(""); }}
+                >
+                  Назад
+                </button>
+              </form>
+            )}
+          </div>
+        )}
+
+        {/* ══ Admin 2FA: Выбор метода при входе ══ */}
+        {step === "admin-2fa-choose" && (
+          <div className="invite-gate-form">
+            <p className="invite-gate-register-hint" style={{ marginBottom: 12 }}>
+              Подтвердите вход с помощью 2FA
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {adminTwoFactorMethods.includes("totp") && (
+                <button
+                  className="invite-gate-submit"
+                  style={{ margin: 0 }}
+                  onClick={() => handleAdminSendLoginOTP("totp")}
+                  disabled={loading}
+                >
+                  Authenticator
+                </button>
+              )}
+              {adminTwoFactorMethods.includes("telegram") && (
+                <button
+                  className="invite-gate-submit"
+                  style={{ margin: 0 }}
+                  onClick={() => handleAdminSendLoginOTP("telegram")}
+                  disabled={loading}
+                >
+                  {loading ? "Отправка..." : "Telegram"}
+                </button>
+              )}
+            </div>
+            {error && <p className="invite-gate-error">{error}</p>}
+            <button
+              type="button"
+              className="invite-gate-back"
+              onClick={() => { setStep("code"); setError(""); setAdminPendingCode(""); }}
+              style={{ marginTop: 12 }}
+            >
+              Назад
+            </button>
+          </div>
+        )}
+
+        {/* ══ Admin 2FA: Проверка кода при входе ══ */}
+        {step === "admin-2fa-verify" && (
+          <form onSubmit={handleAdminVerify2FA} className="invite-gate-form">
+            <p className="invite-gate-register-hint" style={{ marginBottom: 8 }}>
+              {adminChosen2FAMethod === "totp"
+                ? "Введите код из приложения Authenticator"
+                : "Код отправлен в Telegram"}
+            </p>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+              placeholder="Введите 6-значный код"
+              className="invite-gate-input invite-gate-input-text"
+              style={{ textAlign: "center", letterSpacing: 8, fontSize: 24 }}
+              disabled={loading}
+              autoFocus
+              autoComplete="one-time-code"
+            />
+            {error && <p className="invite-gate-error">{error}</p>}
+            <button type="submit" disabled={otp.length !== 6 || loading} className="invite-gate-submit">
+              {loading ? "Проверка..." : "Подтвердить"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setStep("admin-2fa-choose"); setError(""); setOtp(""); }}
+              className="invite-gate-back"
+              disabled={loading}
+            >
+              Другой метод
+            </button>
+          </form>
         )}
       </div>
     </div>

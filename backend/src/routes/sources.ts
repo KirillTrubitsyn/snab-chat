@@ -58,7 +58,7 @@ router.get("/api/sources", async (req: Request, res: Response) => {
 // PATCH /api/sources — update source metadata
 router.patch("/api/sources", async (req: Request, res: Response) => {
   try {
-    const adminCheck = requireAdmin(req, res);
+    const adminCheck = await requireAdmin(req, res);
     if (!adminCheck) return;
 
     const id = req.query.id as string;
@@ -115,7 +115,7 @@ router.patch("/api/sources", async (req: Request, res: Response) => {
 // DELETE /api/sources — delete source(s)
 router.delete("/api/sources", async (req: Request, res: Response) => {
   try {
-    const docAdmin = requireDocumentAdmin(req, res);
+    const docAdmin = await requireDocumentAdmin(req, res);
     if (!docAdmin) return;
 
     const id = req.query.id as string;
@@ -595,7 +595,7 @@ router.get("/api/sources/resolve", async (req: Request, res: Response) => {
 
 router.post("/api/sources/upload-original", upload.single("file"), async (req: Request, res: Response) => {
   try {
-    const docAdmin = requireDocumentAdmin(req, res);
+    const docAdmin = await requireDocumentAdmin(req, res);
     if (!docAdmin) return;
 
     const file = req.file;

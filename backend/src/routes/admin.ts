@@ -90,7 +90,7 @@ function resolveUser(
 
 router.get("/api/admin/activity", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const supabase = createServiceClient();
@@ -341,7 +341,7 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
 
 router.delete("/api/admin/activity", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const supabase = createServiceClient();
@@ -406,7 +406,7 @@ router.delete("/api/admin/activity", async (req: Request, res: Response) => {
 
 router.get("/api/admin/invite-codes", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const supabase = createServiceClient();
@@ -467,7 +467,7 @@ router.get("/api/admin/invite-codes", async (req: Request, res: Response) => {
 
 router.post("/api/admin/invite-codes", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const { code, name, organization, chat_limit, infographic_limit, device_limit } = req.body;
@@ -516,7 +516,7 @@ router.post("/api/admin/invite-codes", async (req: Request, res: Response) => {
 
 router.delete("/api/admin/invite-codes", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const id = req.query.id as string | undefined;
@@ -547,7 +547,7 @@ router.delete("/api/admin/invite-codes", async (req: Request, res: Response) => 
 
 router.patch("/api/admin/invite-codes", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const id = req.query.id as string | undefined;
@@ -620,7 +620,7 @@ router.patch("/api/admin/invite-codes", async (req: Request, res: Response) => {
 
 router.get("/api/admin/errors", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const supabase = createServiceClient();
@@ -652,7 +652,7 @@ router.get("/api/admin/errors", async (req: Request, res: Response) => {
 
 router.delete("/api/admin/errors", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const id = req.query.id as string | undefined;
@@ -678,7 +678,7 @@ router.delete("/api/admin/errors", async (req: Request, res: Response) => {
 
 router.get("/api/admin/support", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const supabase = createServiceClient();
@@ -715,7 +715,7 @@ router.get("/api/admin/support", async (req: Request, res: Response) => {
 
 router.patch("/api/admin/support", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const rawCode = decodeURIComponent((req.headers["x-admin-code"] as string) ?? "");
@@ -773,7 +773,7 @@ router.patch("/api/admin/support", async (req: Request, res: Response) => {
 
 router.delete("/api/admin/support", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const id = req.query.id as string | undefined;
@@ -800,7 +800,7 @@ router.delete("/api/admin/support", async (req: Request, res: Response) => {
 
 router.get("/api/admin/online-users", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const supabase = createServiceClient();
@@ -886,7 +886,7 @@ router.get("/api/admin/online-users", async (req: Request, res: Response) => {
 
 router.post("/api/admin/disconnect-user", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const { invite_code_id } = req.body;
@@ -934,7 +934,7 @@ router.post("/api/admin/disconnect-user", async (req: Request, res: Response) =>
 
 router.get("/api/admin/off-topic", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const supabase = createServiceClient();
@@ -977,7 +977,7 @@ router.get("/api/admin/off-topic", async (req: Request, res: Response) => {
 
 router.delete("/api/admin/off-topic", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const id = req.query.id as string | undefined;
@@ -1004,7 +1004,7 @@ router.delete("/api/admin/off-topic", async (req: Request, res: Response) => {
 
 router.post("/api/admin/kg-embeddings", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const supabase = createServiceClient();
@@ -1090,7 +1090,7 @@ router.post("/api/admin/kg-embeddings", async (req: Request, res: Response) => {
 
 router.post("/api/admin/kg-debug", async (req: Request, res: Response) => {
   try {
-    const admin = requireAdmin(req, res);
+    const admin = await requireAdmin(req, res);
     if (!admin) return;
 
     const query = req.body?.query;
