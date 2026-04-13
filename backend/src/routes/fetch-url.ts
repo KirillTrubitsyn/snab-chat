@@ -148,21 +148,57 @@ router.post("/api/fetch-url", async (req: Request, res: Response) => {
       return res.status(403).json({ error: "Обращение к внутренним адресам запрещено" });
     }
 
-    // Fetch the page
+    // Fetch the page with manual redirect handling to prevent SSRF via redirect chains
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+    const MAX_REDIRECTS = 5;
+    const fetchHeaders = {
+      "User-Agent": "Mozilla/5.0 (compatible; SnabChat/1.0; +https://snabchat.ru)",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.5",
+    };
 
     let response: globalThis.Response;
+    let currentUrl = url;
     try {
-      response = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (compatible; SnabChat/1.0; +https://snabchat.ru)",
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.5",
-        },
-        redirect: "follow",
-      });
+      for (let i = 0; i <= MAX_REDIRECTS; i++) {
+        response = await fetch(currentUrl, {
+          signal: controller.signal,
+          headers: fetchHeaders,
+          redirect: "manual",
+        });
+
+        const status = response.status;
+        if (status >= 300 && status < 400) {
+          const location = response.headers.get("location");
+          if (!location) break;
+
+          let redirectUrl: URL;
+          try {
+            redirectUrl = new URL(location, currentUrl);
+          } catch {
+            return res.status(400).json({ error: "Некорректный редирект" });
+          }
+
+          if (!["http:", "https:"].includes(redirectUrl.protocol)) {
+            return res.status(400).json({ error: "Некорректный редирект" });
+          }
+
+          // Re-check SSRF blocklist on redirect target
+          const redirectHost = redirectUrl.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+          if (BLOCKED_HOST_PATTERNS.some((p) => p.test(redirectHost))) {
+            return res.status(403).json({ error: "Обращение к внутренним адресам запрещено" });
+          }
+
+          currentUrl = redirectUrl.href;
+          if (i === MAX_REDIRECTS) {
+            return res.status(400).json({ error: "Слишком много редиректов" });
+          }
+          continue;
+        }
+
+        break;
+      }
     } catch (err) {
       clearTimeout(timeout);
       if (err instanceof DOMException && err.name === "AbortError") {

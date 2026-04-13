@@ -41,6 +41,7 @@ import {
 } from "../lib/otp.js";
 import { sendSMS } from "../lib/sms.js";
 import { logSecurityEvent } from "../lib/security-log.js";
+import { checkRateLimit } from "../middleware/rate-limit.js";
 
 const router = Router();
 
@@ -49,6 +50,14 @@ const BOT_USERNAME = process.env.TELEGRAM_2FA_BOT_USERNAME || process.env.TELEGR
 // POST /api/auth/login
 router.post("/api/auth/login", async (req: Request, res: Response) => {
   try {
+    const clientIp = getClientIP(req);
+
+    // Rate limit login attempts to prevent brute force on admin/invite codes
+    const loginRL = await checkRateLimit(`login:${clientIp}`, 10, 60_000);
+    if (loginRL) {
+      return res.status(429).json({ error: "Слишком много попыток входа. Подождите минуту." });
+    }
+
     const parsed = parseBody(req.body, loginSchema, res);
     if (parsed.error) return;
 
@@ -146,32 +155,18 @@ router.post("/api/auth/register", async (_req: Request, res: Response) => {
   }
 });
 
-// R5 fix: shared rate limiter for password operations (10 req/min per IP)
-const passwordOpsLimiter = new Map<string, number[]>();
-function checkPasswordOpsRate(ip: string): boolean {
-  const now = Date.now();
-  const window = 60_000;
-  const maxReqs = 10;
-  const timestamps = (passwordOpsLimiter.get(ip) || []).filter(t => now - t < window);
-  if (timestamps.length >= maxReqs) return false;
-  timestamps.push(now);
-  passwordOpsLimiter.set(ip, timestamps);
-  return true;
+// R5 fix: distributed rate limiter for password operations (10 req/min per IP)
+// Uses Redis when available, falls back to in-memory
+async function checkPasswordOpsRate(ip: string): Promise<boolean> {
+  const result = await checkRateLimit(`pwd:${ip}`, 10, 60_000);
+  return result === null;
 }
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, ts] of passwordOpsLimiter) {
-    const fresh = ts.filter(t => now - t < 60_000);
-    if (fresh.length === 0) passwordOpsLimiter.delete(ip);
-    else passwordOpsLimiter.set(ip, fresh);
-  }
-}, 300_000);
 
 // POST /api/auth/set-password
 router.post("/api/auth/set-password", async (req: Request, res: Response) => {
   try {
     const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",").pop()?.trim() || req.ip || "unknown";
-    if (!checkPasswordOpsRate(clientIp)) {
+    if (!(await checkPasswordOpsRate(clientIp))) {
       return res.status(429).json({ error: "Слишком много запросов" });
     }
     const parsed = parseBody(req.body, setPasswordSchema, res);
@@ -224,7 +219,7 @@ router.post("/api/auth/set-password", async (req: Request, res: Response) => {
 router.post("/api/auth/verify-password", async (req: Request, res: Response) => {
   try {
     const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",").pop()?.trim() || req.ip || "unknown";
-    if (!checkPasswordOpsRate(clientIp)) {
+    if (!(await checkPasswordOpsRate(clientIp))) {
       return res.status(429).json({ error: "Слишком много запросов" });
     }
     const parsed = parseBody(req.body, verifyPasswordSchema, res);
@@ -650,7 +645,7 @@ router.get("/api/auth/2fa-status", async (req: Request, res: Response) => {
 router.post("/api/auth/change-password", async (req: Request, res: Response) => {
   try {
     const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",").pop()?.trim() || req.ip || "unknown";
-    if (!checkPasswordOpsRate(clientIp)) {
+    if (!(await checkPasswordOpsRate(clientIp))) {
       return res.status(429).json({ error: "Слишком много запросов" });
     }
     const parsed = parseBody(req.body, changePasswordSchema, res);

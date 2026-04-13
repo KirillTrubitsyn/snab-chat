@@ -2,12 +2,13 @@
  * OTP utilities -- generation, storage and verification of one-time codes.
  */
 
+import { randomInt } from "crypto";
 import { createServiceClient } from "./supabase.js";
 import { generateSecret, generateURI, verifySync } from "otplib";
 
-/** Generate a 6-digit numeric OTP code */
+/** Generate a 6-digit numeric OTP code using cryptographically secure randomness */
 export function generateOTP(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(randomInt(100000, 1000000));
 }
 
 /** Save OTP to the database */

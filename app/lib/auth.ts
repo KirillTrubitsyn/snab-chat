@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { createServiceClient } from "./supabase";
 import { adminRequiredResponse, unauthorizedResponse } from "./api-helpers";
 
@@ -101,7 +102,17 @@ export function isCodeDeletionAdmin(code: string): boolean {
 }
 
 export function getAdminName(code: string): string | null {
-  return getAdminCodesMap()[code.toUpperCase()] ?? null;
+  const upperCode = code.toUpperCase();
+  let found: string | null = null;
+  // Iterate all entries to prevent timing leaks on code existence
+  for (const entry of getAdminEntries()) {
+    const a = Buffer.from(entry.code);
+    const b = Buffer.from(upperCode);
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) {
+      found = entry.name;
+    }
+  }
+  return found;
 }
 
 export function getAdminNumber(code: string): number | null {
