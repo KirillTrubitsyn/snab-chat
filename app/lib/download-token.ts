@@ -49,7 +49,9 @@ export function verifyDownloadToken(
       .update(`${inviteCodeId}:${expiresStr}`)
       .digest("hex");
 
-    if (sig !== expected) return null;
+    const sigBuf = Buffer.from(sig);
+    const expectedBuf = Buffer.from(expected);
+    if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) return null;
     return { inviteCodeId };
   } catch {
     return null;

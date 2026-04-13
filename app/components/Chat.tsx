@@ -62,8 +62,8 @@ export default function Chat() {
   const userMenuRef = useRef<HTMLDivElement>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
-  const isAdmin = typeof window !== "undefined" && localStorage.getItem("snabchat_is_admin") === "true";
-  const isDocAdmin = typeof window !== "undefined" && localStorage.getItem("snabchat_is_doc_admin") === "true";
+  const isAdmin = typeof window !== "undefined" && sessionStorage.getItem("snabchat_is_admin") === "true";
+  const isDocAdmin = typeof window !== "undefined" && sessionStorage.getItem("snabchat_is_doc_admin") === "true";
 
   /* ── Keep inviteCodeRef in sync ── */
   useEffect(() => {
@@ -74,8 +74,8 @@ export default function Chat() {
   useEffect(() => {
     const code = localStorage.getItem("snabchat_invite_code");
     const name = localStorage.getItem("snabchat_user_name");
-    const token = localStorage.getItem("snabchat_auth_token");
-    const isAdmin = localStorage.getItem("snabchat_is_admin");
+    const token = sessionStorage.getItem("snabchat_auth_token");
+    const isAdmin = sessionStorage.getItem("snabchat_is_admin");
     // Require auth token for regular users (admins use admin code directly)
     if (code && name && (token || isAdmin)) {
       setInviteCode(code);
@@ -129,10 +129,10 @@ export default function Chat() {
     localStorage.removeItem("snabchat_invite_code");
     localStorage.removeItem("snabchat_invite_code_id");
     localStorage.removeItem("snabchat_user_name");
-    localStorage.removeItem("snabchat_is_admin");
-    localStorage.removeItem("snabchat_admin_code");
-    localStorage.removeItem("snabchat_is_doc_admin");
-    localStorage.removeItem("snabchat_auth_token");
+    sessionStorage.removeItem("snabchat_is_admin");
+    sessionStorage.removeItem("snabchat_admin_code");
+    sessionStorage.removeItem("snabchat_is_doc_admin");
+    sessionStorage.removeItem("snabchat_auth_token");
     // snabchat_video_seen intentionally preserved — user already watched the onboarding video
     setIsAuthenticated(false);
     setInviteCode("");

@@ -43,8 +43,8 @@ export default function InfographicPage() {
   // Auth guard: redirect to login if not authenticated (need both code and token, or admin)
   useEffect(() => {
     const code = localStorage.getItem("snabchat_invite_code");
-    const token = localStorage.getItem("snabchat_auth_token");
-    const isAdmin = localStorage.getItem("snabchat_is_admin");
+    const token = sessionStorage.getItem("snabchat_auth_token");
+    const isAdmin = sessionStorage.getItem("snabchat_is_admin");
     if (!code || (!token && !isAdmin)) {
       router.replace("/");
     }

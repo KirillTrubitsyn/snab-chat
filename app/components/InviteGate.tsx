@@ -109,15 +109,15 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
     // Store auth token for subsequent API requests
     const token = data.authToken || pendingAuthToken;
     if (token) {
-      localStorage.setItem("snabchat_auth_token", token);
+      sessionStorage.setItem("snabchat_auth_token", token);
     }
     // Video onboarding: show only when user just created their password (first setup).
     // isFirstSetup is set in handleSetPassword — the only path for new users.
     if (isFirstSetup) {
       sessionStorage.setItem("snabchat_show_video", "1");
     }
-    localStorage.removeItem("snabchat_is_admin");
-    localStorage.removeItem("snabchat_admin_code");
+    sessionStorage.removeItem("snabchat_is_admin");
+    sessionStorage.removeItem("snabchat_admin_code");
     getOrAssignAvatarColor();
     onSuccess({
       type: "user",
@@ -187,15 +187,15 @@ export default function InviteGate({ onSuccess }: InviteGateProps) {
 
       // Админ
       if (codeData.type === "admin") {
-        localStorage.setItem("snabchat_admin_code", codeData.code);
+        sessionStorage.setItem("snabchat_admin_code", codeData.code);
         localStorage.setItem("snabchat_user_name", codeData.adminName);
         getOrAssignAvatarColor();
-        localStorage.setItem("snabchat_is_admin", "true");
+        sessionStorage.setItem("snabchat_is_admin", "true");
         localStorage.setItem("snabchat_invite_code", codeData.code);
-        if (codeData.isDocumentAdmin) localStorage.setItem("snabchat_is_doc_admin", "true");
-        else localStorage.removeItem("snabchat_is_doc_admin");
-        if (codeData.isPrimaryAdmin) localStorage.setItem("snabchat_is_primary_admin", "true");
-        else localStorage.removeItem("snabchat_is_primary_admin");
+        if (codeData.isDocumentAdmin) sessionStorage.setItem("snabchat_is_doc_admin", "true");
+        else sessionStorage.removeItem("snabchat_is_doc_admin");
+        if (codeData.isPrimaryAdmin) sessionStorage.setItem("snabchat_is_primary_admin", "true");
+        else sessionStorage.removeItem("snabchat_is_primary_admin");
         router.push("/admin");
         return;
       }

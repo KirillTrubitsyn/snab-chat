@@ -424,8 +424,19 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
               const src = sources.find(s => String(s.id) === String(sourceId));
               if (src) setViewingSource(src);
             }}
-            onDownload={(sourceId) => {
-              window.open(apiUrl("/api/sources/download?id=" + sourceId + "&action=download&token=" + encodeURIComponent(adminCode)), "_blank");
+            onDownload={async (sourceId) => {
+              try {
+                const res = await fetch(apiUrl("/api/sources/download?id=" + sourceId + "&action=download"), { headers: authHeaders });
+                if (!res.ok) return;
+                const blob = await res.blob();
+                const disposition = res.headers.get("content-disposition");
+                const match = disposition?.match(/filename\*?=(?:UTF-8'')?([^;\n]+)/i);
+                const filename = match ? decodeURIComponent(match[1]) : "download";
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+                setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+              } catch (e) { console.error("Download error:", e); }
             }}
           />
           <div className="admin-doc-list-view">
@@ -506,9 +517,23 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
                     <button className="admin-doc-action-btn" title="Просмотр" onClick={(e) => { e.stopPropagation(); setViewingSource(doc); }}>
                       <span className="material-symbols-outlined">visibility</span>
                     </button>
-                    <a href={apiUrl(`/api/sources/download?id=${doc.id}&action=download&token=${encodeURIComponent(adminCode)}`)} className="admin-doc-action-btn" title="Скачать" onClick={(e) => e.stopPropagation()}>
+                    <button className="admin-doc-action-btn" title="Скачать" onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        const res = await fetch(apiUrl(`/api/sources/download?id=${doc.id}&action=download`), { headers: authHeaders });
+                        if (!res.ok) return;
+                        const blob = await res.blob();
+                        const disposition = res.headers.get("content-disposition");
+                        const match = disposition?.match(/filename\*?=(?:UTF-8'')?([^;\n]+)/i);
+                        const filename = match ? decodeURIComponent(match[1]) : doc.filename || "download";
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+                        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+                      } catch (err) { console.error("Download error:", err); }
+                    }}>
                       <span className="material-symbols-outlined">download</span>
-                    </a>
+                    </button>
                     {isDocAdmin && <div style={{ position: "relative" }}>
                       <button className="admin-doc-action-btn" onClick={(e) => { e.stopPropagation(); setOpenMenuId(isMenuOpen ? null : doc.id); }} title="Действия">
                         <span className="material-symbols-outlined">more_vert</span>

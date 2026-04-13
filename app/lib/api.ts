@@ -23,7 +23,7 @@ const BACKEND_API_KEY = process.env.NEXT_PUBLIC_BACKEND_API_KEY || "";
 export function getAuthHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};
   const code = localStorage.getItem("snabchat_invite_code") || "";
-  const token = localStorage.getItem("snabchat_auth_token") || "";
+  const token = sessionStorage.getItem("snabchat_auth_token") || "";
   const headers: Record<string, string> = {};
   if (code) headers["x-invite-code"] = encodeURIComponent(code);
   if (token) headers["x-auth-token"] = token;
