@@ -154,7 +154,7 @@ export async function graphScopedSearch(
     );
 
     return {
-      chunkIds: result.scopedChunkIds.slice(0, matchCount),
+      chunkIds: result.scopedChunkIds,
       hasGraphResults: true,
     };
   } catch (error) {

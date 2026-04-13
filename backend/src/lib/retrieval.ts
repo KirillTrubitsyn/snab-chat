@@ -846,8 +846,11 @@ export async function graphAwareSearch(
   ]);
 
   if (!graphResult.hasGraphResults || graphResult.chunkIds.length === 0) {
+    console.log(`[graphAwareSearch] No graph results, falling back to standard (${standardResults.length} results)`);
     return standardResults;
   }
+
+  console.log(`[graphAwareSearch] Graph returned ${graphResult.chunkIds.length} scoped chunk_ids`);
 
   // Scoped search по чанкам из графа
   let graphChunkResults: SearchResult[] = [];
@@ -859,7 +862,7 @@ export async function graphAwareSearch(
       query_text: query,
       query_embedding: embeddingStr,
       p_chunk_ids: graphResult.chunkIds,
-      match_count: Math.min(matchCount, 15),
+      match_count: matchCount,
     });
 
     if (!error && data) {
