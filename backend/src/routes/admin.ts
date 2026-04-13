@@ -1068,23 +1068,25 @@ router.post("/api/admin/kg-debug", async (req: Request, res: Response) => {
     const query = req.body?.query;
     if (!query) return res.status(400).json({ error: "query required" });
 
-    const { graphQuery, findEntitiesByName } = await import("../lib/kg-search.js");
+    const { graphQuery, findEntitiesByName, graphScopedSearch } = await import("../lib/kg-search.js");
     const { graphAwareSearch } = await import("../lib/retrieval.js");
 
     // Step 1: named entity extraction
     const namedEntities = await findEntitiesByName(query);
 
-    // Step 2: full graph query
-    const graphResult = await graphQuery(query);
+    // Step 2: graphScopedSearch (shows groups with chunk counts)
+    const scopedResult = await graphScopedSearch(query, 15);
 
     // Step 3: graph-aware search (actual results with scores)
     const searchResults = await graphAwareSearch(query, 15, null);
 
     return res.json({
       namedEntities: namedEntities.map(e => ({ id: e.entity_id, name: e.name, type: e.entity_type })),
-      startEntities: graphResult.startEntities.map(e => ({ id: e.entity_id, name: e.name, type: e.entity_type })),
-      connectedCount: graphResult.connectedEntities.length,
-      scopedChunkCount: graphResult.scopedChunkIds.length,
+      graphScoped: {
+        hasGraphResults: scopedResult.hasGraphResults,
+        totalChunks: scopedResult.chunkIds.length,
+        groups: scopedResult.groups.map(g => ({ name: g.name, chunkCount: g.chunkIds.length })),
+      },
       searchResults: searchResults.map(r => ({
         id: r.id,
         filename: r.source_filename,
