@@ -1108,6 +1108,63 @@ router.post("/api/admin/kg-debug", async (req: Request, res: Response) => {
     // Step 3: graph-aware search (actual results with scores)
     const searchResults = await graphAwareSearch(query, 15, null);
 
+    // Step 4: simulate chat pipeline (reranker bypass check)
+    const { hybridSearch, filterByRelevance, intentAwareRerank } = await import("../lib/retrieval.js");
+    const { rerank } = await import("../lib/reranker.js");
+    const { classifyIntent } = await import("../lib/intent-classifier.js");
+
+    const intentResult = await classifyIntent(query);
+    const standardHybrid = await hybridSearch(query, 20, null);
+
+    // Build combinedResults the way chat.ts does
+    const existingIds = new Set(standardHybrid.map((r: any) => r.id));
+    const graphChunkIdSet = new Set<string>();
+    const boostedGraph = searchResults.results
+      .filter((r: any) => !existingIds.has(r.id))
+      .map((r: any) => ({
+        ...r,
+        similarity: r.similarity >= 0.25 ? Math.max(r.similarity, 0.75) : r.similarity,
+      }));
+    for (const r of boostedGraph) {
+      existingIds.add(r.id);
+      graphChunkIdSet.add(r.id);
+    }
+    for (const r of searchResults.results) graphChunkIdSet.add(r.id);
+    const combinedResults = [...boostedGraph, ...standardHybrid];
+
+    const graphGroupCount = searchResults.groupCount;
+
+    // Simulate reranker bypass
+    let finalChunks: any[];
+    let debugPath: string;
+    if (graphGroupCount >= 2 && graphChunkIdSet.size > 0) {
+      debugPath = "BYPASS";
+      const graphChunks = combinedResults.filter((r: any) => graphChunkIdSet.has(r.id));
+      const nonGraphChunks = combinedResults.filter((r: any) => !graphChunkIdSet.has(r.id));
+
+      let rerankedNonGraph: any[] = [];
+      if (nonGraphChunks.length > 0) {
+        const rerankedNGResults = intentAwareRerank(nonGraphChunks, intentResult);
+        const rerankNGResult = await rerank(query, rerankedNGResults);
+        const filteredNG = filterByRelevance(rerankNGResult);
+        rerankedNonGraph = filteredNG.results;
+      }
+
+      const topGraph = graphChunks.sort((a: any, b: any) => b.similarity - a.similarity).slice(0, 10);
+      const seen = new Set(topGraph.map((r: any) => r.id));
+      finalChunks = [...topGraph];
+      for (const r of rerankedNonGraph) {
+        if (!seen.has(r.id)) { seen.add(r.id); finalChunks.push(r); }
+      }
+      finalChunks = finalChunks.slice(0, 15);
+    } else {
+      debugPath = "RERANKER";
+      const rerankedResults = intentAwareRerank(combinedResults, intentResult);
+      const rerankResult = await rerank(query, rerankedResults);
+      const filtered = filterByRelevance(rerankResult);
+      finalChunks = filtered.results;
+    }
+
     return res.json({
       namedEntities: namedEntities.map(e => ({ id: e.entity_id, name: e.name, type: e.entity_type })),
       graphScoped: {
@@ -1115,12 +1172,24 @@ router.post("/api/admin/kg-debug", async (req: Request, res: Response) => {
         totalChunks: scopedResult.chunkIds.length,
         groups: scopedResult.groups.map(g => ({ name: g.name, chunkCount: g.chunkIds.length })),
       },
-      searchResults: searchResults.results.map((r: any) => ({
+      graphAwareResults: searchResults.results.map((r: any) => ({
         id: r.id,
         filename: r.source_filename,
         similarity: r.similarity,
-        contentPreview: r.content?.substring(0, 100),
       })),
+      chatSimulation: {
+        intent: intentResult,
+        graphGroupCount,
+        graphChunkIdSetSize: graphChunkIdSet.size,
+        path: debugPath,
+        combinedCount: combinedResults.length,
+        finalChunks: finalChunks.map((r: any) => ({
+          id: r.id,
+          filename: r.source_filename,
+          similarity: r.similarity,
+          isGraph: graphChunkIdSet.has(r.id),
+        })),
+      },
     });
   } catch (err: any) {
     console.error("[kg-debug] Error:", err);
