@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { apiUrl } from "@/app/lib/api";
+import { apiUrl, getAdminHeaders } from "@/app/lib/api";
 import { formatDateTime } from "@/app/lib/date-utils";
 import type { SupportItem } from "./types";
 
@@ -14,7 +14,7 @@ export default function SupportTab({ adminCode }: { adminCode: string }) {
   const [replyText, setReplyText] = useState("");
   const [replySending, setReplySending] = useState(false);
 
-  const headers = { "x-admin-code": encodeURIComponent(adminCode) };
+  const headers = getAdminHeaders(adminCode);
 
   const load = useCallback(async () => {
     setLoading(true);

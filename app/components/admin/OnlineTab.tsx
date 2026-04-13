@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { apiUrl } from "@/app/lib/api";
+import { apiUrl, getAdminHeaders } from "@/app/lib/api";
 
 interface OnlineUser {
   invite_code_id: string;
@@ -29,7 +29,7 @@ export default function OnlineTab({ adminCode }: { adminCode: string }) {
   const [search, setSearch] = useState("");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const headers = { "x-admin-code": encodeURIComponent(adminCode) };
+  const headers = getAdminHeaders(adminCode);
 
   const loadOnlineUsers = useCallback(async () => {
     setLoading(true);

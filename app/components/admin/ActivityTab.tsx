@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { apiUrl } from "@/app/lib/api";
+import { apiUrl, getAdminHeaders } from "@/app/lib/api";
 import { formatDateTime } from "@/app/lib/date-utils";
 import type { ActivityItem } from "./types";
 
@@ -32,7 +32,7 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
   const [dateFilter, setDateFilter] = useState<DateFilter>("today");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const headers = { "x-admin-code": encodeURIComponent(adminCode) };
+  const headers = getAdminHeaders(adminCode);
 
   const loadActivity = useCallback(async () => {
     setActivityLoading(true);

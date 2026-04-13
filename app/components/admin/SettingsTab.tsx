@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { apiUrl } from "@/app/lib/api";
+import { apiUrl, getAdminHeaders } from "@/app/lib/api";
 
 export default function SettingsTab({ adminCode }: { adminCode: string }) {
   const [webhookStatus, setWebhookStatus] = useState<string | null>(null);
@@ -11,7 +11,7 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
   const [test2FAStatus, setTest2FAStatus] = useState<string | null>(null);
   const [test2FALoading, setTest2FALoading] = useState(false);
 
-  const headers = { "x-admin-code": encodeURIComponent(adminCode) };
+  const headers = getAdminHeaders(adminCode);
 
   const registerWebhook = async () => {
     setWebhookLoading(true);
