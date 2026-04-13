@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/app/lib/supabase';
 import { embedQuery } from '@/app/lib/embeddings';
 import { GoogleGenAI } from '@google/genai';
+import { requireAdmin } from '@/app/lib/auth';
 
 // ============================================================
 // POST /api/admin/extract-entities
@@ -131,6 +132,9 @@ interface ExtractionResult {
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = requireAdmin(request);
+    if (auth instanceof NextResponse) return auth;
+
     const body = await request.json();
     const filterTags: string[] = body.filterTags || ['стандарт', 'положения'];
     const batchSize: number = Math.min(body.batchSize || 5, 10);
@@ -380,8 +384,11 @@ export async function POST(request: NextRequest) {
 }
 
 // GET /api/admin/extract-entities — статистика графа
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const auth = requireAdmin(request);
+    if (auth instanceof NextResponse) return auth;
+
     const supabase = createServiceClient();
     const { data } = await supabase.rpc('kg_stats');
     return NextResponse.json(data?.[0] || data || {});
