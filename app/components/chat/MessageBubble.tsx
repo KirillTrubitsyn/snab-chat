@@ -135,6 +135,21 @@ function normalizeDashes(text: string): string {
   return text.replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-");
 }
 
+/**
+ * Normalize Latin homoglyphs to Cyrillic equivalents.
+ * LLMs (Gemini) often output Latin C/K/B/A/E/H/M/O/P/T/X instead of
+ * their visually identical Cyrillic counterparts in document codes like
+ * С-КЭ-В5-01. This breaks regex patterns that expect [А-Яа-я].
+ */
+const LATIN_TO_CYRILLIC: Record<string, string> = {
+  A: "А", B: "В", C: "С", E: "Е", H: "Н", K: "К", M: "М",
+  O: "О", P: "Р", T: "Т", X: "Х",
+  a: "а", c: "с", e: "е", o: "о", p: "р", x: "х",
+};
+function normalizeCyrillicHomoglyphs(text: string): string {
+  return text.replace(/[ABCEHKMOPTXaceopx]/g, (ch) => LATIN_TO_CYRILLIC[ch] ?? ch);
+}
+
 /** Check if offset is already inside a markdown link — avoid double-linkifying */
 function isInsideLink(text: string, offset: number): boolean {
   const before = text.substring(Math.max(0, offset - 300), offset);
@@ -226,23 +241,48 @@ function linkifyContent(text: string, allSources: Source[]): string {
 
   // ── Phase 1: Find ALL cipher codes in the text with a generic regex ──
   // Matches patterns like: С-ЕТГК-В5-01, Пл-КЭ-В5-01, С-ГК-В5-03, С-СГК-А-В5-01
-  const cipherRegex = /[А-Яа-я]{1,3}-[А-Яа-я][\wА-Яа-я-]{0,14}-[ВвБб]\d+-\d{1,3}/g;
+  // Accept BOTH Cyrillic and Latin homoglyphs (С/C, К/K, В/B, etc.) because
+  // Gemini often outputs Latin lookalikes that are visually identical
+  const CYR_OR_LAT = "[А-Яа-яABCEHKMOPTXaceopx]";
+  const cipherRegex = new RegExp(
+    `${CYR_OR_LAT}{1,3}-${CYR_OR_LAT}[\\wА-Яа-яABCEHKMOPTXaceopx-]{0,14}-[ВвБбBb]\\d+-\\d{1,3}`,
+    "g"
+  );
   const codeMap = new Map<string, number>(); // normalized code → sourceId
 
   let m;
   while ((m = cipherRegex.exec(result)) !== null) {
     const code = m[0];
-    const codeLower = code.toLowerCase();
+    // Normalize Latin homoglyphs to Cyrillic before resolving
+    const codeNorm = normalizeCyrillicHomoglyphs(code);
+    const codeLower = codeNorm.toLowerCase();
     if (codeMap.has(codeLower)) continue;
-    const src = resolveCodeToSource(code, allSources);
+    const src = resolveCodeToSource(codeNorm, allSources);
     if (src) codeMap.set(codeLower, src.id);
   }
 
   // Replace codes with links (longest first)
+  // Build a regex that matches both the Cyrillic-normalized form AND the
+  // original text (which may contain Latin homoglyphs)
   const sortedCodes = [...codeMap.entries()].sort((a, b) => b[0].length - a[0].length);
   for (const [codeLower, sourceId] of sortedCodes) {
-    const escaped = codeLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(escaped, "gi");
+    // Build a char-by-char regex that matches either Cyrillic or Latin variant
+    const CYRILLIC_TO_LATIN: Record<string, string> = {
+      "а": "a", "в": "b", "с": "c", "е": "e", "н": "h", "к": "k", "м": "m",
+      "о": "o", "р": "p", "т": "t", "х": "x",
+    };
+    let pattern = "";
+    for (const ch of codeLower) {
+      const escaped = ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const latinAlt = CYRILLIC_TO_LATIN[ch];
+      if (latinAlt) {
+        // Match either Cyrillic or its Latin lookalike (case-insensitive via flag)
+        pattern += `[${escaped}${latinAlt}${latinAlt.toUpperCase()}${ch.toUpperCase()}]`;
+      } else {
+        pattern += escaped;
+      }
+    }
+    const regex = new RegExp(pattern, "gi");
     result = result.replace(regex, (match, offset) => {
       if (isInsideLink(result, offset)) return match;
       return `[${match}](source:${sourceId})`;
