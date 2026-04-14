@@ -711,6 +711,7 @@ const STOP_WORDS = new Set([
 ]);
 
 function generateDocxFilename(question: string): string {
+  const date = new Date().toISOString().slice(0, 10);
   const words = question
     .replace(/[^\wа-яА-ЯёЁ\s-]/g, "")
     .split(/\s+/)
@@ -720,11 +721,11 @@ function generateDocxFilename(question: string): string {
   const selected = words.slice(0, 4);
 
   if (selected.length === 0) {
-    return `СнабЧат-${new Date().toISOString().slice(0, 10)}.docx`;
+    return `СнабЧат ${date}.docx`;
   }
 
   selected[0] = selected[0].charAt(0).toUpperCase() + selected[0].slice(1);
-  return `${selected.join(" ")}.docx`;
+  return `${selected.join(" ")} ${date}.docx`;
 }
 
 const XLSX_STOP_WORDS = new Set(
@@ -735,6 +736,7 @@ const XLSX_STOP_WORDS = new Set(
 );
 
 function generateXlsxFilename(question: string): string {
+  const date = new Date().toISOString().slice(0, 10);
   const words = question
     .replace(/[^\wа-яА-ЯёЁ\s-]/g, "")
     .split(/\s+/)
@@ -744,11 +746,25 @@ function generateXlsxFilename(question: string): string {
   const selected = words.slice(0, 4);
 
   if (selected.length === 0) {
-    return `СнабЧат-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    return `СнабЧат ${date}.xlsx`;
   }
 
   selected[0] = selected[0].charAt(0).toUpperCase() + selected[0].slice(1);
-  return `${selected.join(" ")}.xlsx`;
+  return `${selected.join(" ")} ${date}.xlsx`;
+}
+
+/* ── Strip markdown formatting from cell text ── */
+
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\[doc:\d+\]/g, "")                          // [doc:N] references
+    .replace(/\[[\w\s.\-]+\.(docx?|pdf|xlsx?)\]/gi, "")   // [file.docx] references
+    .replace(/\*\*\*(.+?)\*\*\*/g, "$1")                  // ***bold italic***
+    .replace(/\*\*(.+?)\*\*/g, "$1")                      // **bold**
+    .replace(/\*(.+?)\*/g, "$1")                           // *italic*
+    .replace(/~~(.+?)~~/g, "$1")                           // ~~strikethrough~~
+    .replace(/`(.+?)`/g, "$1")                             // `code`
+    .trim();
 }
 
 /* ── Try to parse a cell value as a number ── */
@@ -820,11 +836,12 @@ router.post("/api/export-excel", async (req: Request, res: Response) => {
 
       for (const row of table.rows) {
         const typedRow = row.map((cell) => {
-          if (typeof cell === "string" && cell.startsWith("=")) {
-            return { formula: cell.slice(1) };
+          const clean = stripMarkdown(cell);
+          if (clean.startsWith("=")) {
+            return { formula: clean.slice(1) };
           }
-          const num = parseNumericValue(cell);
-          return num !== null ? num : cell;
+          const num = parseNumericValue(clean);
+          return num !== null ? num : clean;
         });
         worksheet.addRow(typedRow);
       }
