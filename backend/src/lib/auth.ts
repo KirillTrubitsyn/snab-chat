@@ -393,9 +393,8 @@ export async function requireAdmin(
   const sessionToken = getHeader(req, "x-admin-session");
 
   if (!sessionToken) {
-    // Grace period: allow code-only access with warning
-    console.warn(`[auth] Admin ${name} (${adminNumber}) accessing without 2FA session — grace period`);
-    return { adminName: name, adminNumber };
+    res.status(401).json({ error: "Требуется 2FA авторизация" });
+    return null;
   }
 
   const session = await verifyAdminSessionToken(sessionToken);
@@ -423,14 +422,15 @@ export async function requireDocumentAdmin(
   }
 
   const sessionToken = getHeader(req, "x-admin-session");
-  if (sessionToken) {
-    const session = await verifyAdminSessionToken(sessionToken);
-    if (!session) {
-      res.status(401).json({ error: "Сессия истекла, войдите заново" });
-      return null;
-    }
-  } else {
-    console.warn(`[auth] Doc admin ${getAdminName(code)} accessing without 2FA session — grace period`);
+  if (!sessionToken) {
+    res.status(401).json({ error: "Требуется 2FA авторизация" });
+    return null;
+  }
+
+  const session = await verifyAdminSessionToken(sessionToken);
+  if (!session) {
+    res.status(401).json({ error: "Сессия истекла, войдите заново" });
+    return null;
   }
 
   return { adminName: getAdminName(code)! };

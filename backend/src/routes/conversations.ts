@@ -204,18 +204,28 @@ router.delete("/api/conversations", async (req: Request, res: Response) => {
     // Delete all conversations
     if (all === "true") {
       if (isAdminCode(invite.code)) {
-        // Админ может удалить всё
-        await supabase
-          .from("messages")
-          .delete()
-          .neq("id", "00000000-0000-0000-0000-000000000000");
-        const { error } = await supabase
+        // Админ удаляет только свои диалоги (по admin_name)
+        const { data: ownedConvs } = await supabase
           .from("conversations")
-          .delete()
-          .neq("id", "00000000-0000-0000-0000-000000000000");
-        if (error) {
-          console.error("DB error:", error.message);
-          return serverError(res);
+          .select("id")
+          .eq("admin_name", invite.name);
+
+        const ownedIds = (ownedConvs || []).map(
+          (c: { id: string }) => c.id
+        );
+        if (ownedIds.length > 0) {
+          await supabase
+            .from("messages")
+            .delete()
+            .in("conversation_id", ownedIds);
+          const { error } = await supabase
+            .from("conversations")
+            .delete()
+            .in("id", ownedIds);
+          if (error) {
+            console.error("DB error:", error.message);
+            return serverError(res);
+          }
         }
       } else {
         // Обычный пользователь удаляет только свои диалоги

@@ -362,8 +362,7 @@ export async function requireAdmin(
       return adminRequiredResponse();
     }
   } else {
-    // Grace period: allow code-only access
-    console.warn(`[auth] Admin ${name} accessing Next.js route without 2FA session — grace period`);
+    return NextResponse.json({ error: "Требуется 2FA авторизация" }, { status: 401 });
   }
 
   return { adminName: name };
@@ -390,7 +389,7 @@ export async function requirePrimaryAdmin(
       return NextResponse.json({ error: "Сессия истекла, войдите заново" }, { status: 401 });
     }
   } else {
-    console.warn(`[auth] Primary admin ${name} accessing without 2FA session — grace period`);
+    return NextResponse.json({ error: "Требуется 2FA авторизация" }, { status: 401 });
   }
 
   return { adminName: name };
@@ -415,7 +414,7 @@ export async function requireDocumentAdmin(
       return NextResponse.json({ error: "Сессия истекла, войдите заново" }, { status: 401 });
     }
   } else {
-    console.warn(`[auth] Doc admin ${getAdminName(code)} accessing without 2FA session — grace period`);
+    return NextResponse.json({ error: "Требуется 2FA авторизация" }, { status: 401 });
   }
 
   return { adminName: getAdminName(code)! };

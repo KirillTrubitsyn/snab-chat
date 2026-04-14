@@ -85,7 +85,7 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
   const cleanupOrphaned = async () => {
     if (!confirm("Удалить все диалоги без привязки к инвайт-коду?")) return;
     try {
-      const res = await fetch(apiUrl("/api/admin/activity"), { method: "DELETE", headers });
+      const res = await fetch(apiUrl("/api/admin/activity?type=orphaned"), { method: "DELETE", headers });
       const data = await res.json();
       alert(`Удалено диалогов: ${data.deleted || 0}`);
       loadActivity();
