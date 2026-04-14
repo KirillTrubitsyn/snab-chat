@@ -75,7 +75,14 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
   const deleteCode = async (id: string) => {
     if (!confirm("Удалить этот инвайт-код?")) return;
     try {
-      await fetch(apiUrl(`/api/admin/invite-codes?id=${id}`), { method: "DELETE", headers });
+      const res = await fetch(apiUrl(`/api/admin/invite-codes?id=${id}`), { method: "DELETE", headers });
+      if (res.status === 409) {
+        const data = await res.json();
+        if (data.requireForce) {
+          if (!confirm(`У этого кода ${data.conversation_count} диалогов. Они станут осиротевшими. Удалить?`)) return;
+          await fetch(apiUrl(`/api/admin/invite-codes?id=${id}&force=true`), { method: "DELETE", headers });
+        }
+      }
       loadCodes();
     } catch { /* ignore */ }
   };

@@ -380,7 +380,11 @@ router.delete("/api/admin/activity", async (req: Request, res: Response) => {
       return res.json({ deleted: ids.length });
     }
 
-    // ── Default: delete orphaned conversations ──
+    // ── Delete orphaned conversations (explicit type=orphaned required) ──
+
+    if (type !== "orphaned") {
+      return res.status(400).json({ error: "Требуется параметр type" });
+    }
 
     const orphanedQuery = supabase
       .from("conversations")
@@ -393,7 +397,8 @@ router.delete("/api/admin/activity", async (req: Request, res: Response) => {
       const { data: fallback } = await supabase
         .from("conversations")
         .select("id")
-        .is("invite_code_id", null);
+        .is("invite_code_id", null)
+        .is("admin_name", null);
       finalOrphaned = fallback;
     }
 
@@ -538,12 +543,29 @@ router.delete("/api/admin/invite-codes", async (req: Request, res: Response) => 
     if (!admin) return;
 
     const id = req.query.id as string | undefined;
+    const force = req.query.force === "true";
 
     if (!id) {
       return res.status(400).json({ error: "id обязателен" });
     }
 
     const supabase = createServiceClient();
+
+    // Проверить связанные диалоги перед удалением
+    if (!force) {
+      const { count } = await supabase
+        .from("conversations")
+        .select("id", { count: "exact", head: true })
+        .eq("invite_code_id", id);
+
+      if (count && count > 0) {
+        return res.status(409).json({
+          error: "Код имеет связанные диалоги",
+          conversation_count: count,
+          requireForce: true,
+        });
+      }
+    }
 
     const { error } = await supabase
       .from("invite_codes")
