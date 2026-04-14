@@ -115,6 +115,20 @@ function findSource(name: string, allSources: Source[]): Source | undefined {
   return src;
 }
 
+// Static map: document cipher codes → partial filename matches (for codes not in filenames)
+const DOC_CODE_TO_FILE: Record<string, string> = {
+  "с-кэ-в5-01": "Стандарт_закупок_товаров_РиУ_Кузбассэнерго",
+  "пл-кэ-в5-01": "Положение_о_закупках_Кузбассэнерго",
+  "с-нтск-в5-01": "Стандарт_закупок_товаров_РиУ_НТСК",
+  "пл-нтск-в5-01": "Положение_о_закупках_НТСК",
+  "с-етгк-в5-01": "Стандарт_закупок_товаров_РиУ_ЕТГК",
+  "пл-етгк-в5-01": "Положение_о_закупках_ЕТГК",
+  "пл-сгк-а-в5-01": "Положение_о_закупках_СГК-Алтай",
+  "с-сгк-а-в5-01": "Стандарт_закупок_СГК-Алтай",
+  "пл-сгк-н-в5-01": "Положение_о_закупках_СГК-Новосибирск",
+  "с-сгк-н-в5-01": "Стандарт_закупок_товаров_РиУ_СГК-Новосибирск",
+};
+
 function linkifyContent(text: string, allSources: Source[]): string {
   if (allSources.length === 0) return text;
 
@@ -125,6 +139,16 @@ function linkifyContent(text: string, allSources: Source[]): string {
       for (const code of codes) {
         codePatterns.push({ code, sourceId: src.id });
       }
+    }
+  }
+
+  // Add codes from static map if matching source exists
+  for (const [code, partialFilename] of Object.entries(DOC_CODE_TO_FILE)) {
+    if (codePatterns.some((p) => p.code.toLowerCase() === code)) continue; // already matched from filename
+    const partialLower = partialFilename.toLowerCase();
+    const src = allSources.find((s) => s.filename.toLowerCase().includes(partialLower));
+    if (src) {
+      codePatterns.push({ code, sourceId: src.id });
     }
   }
 
