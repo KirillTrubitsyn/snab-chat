@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Source } from "./types";
@@ -233,101 +233,96 @@ function resolveCodeToSource(code: string, allSources: Source[]): Source | undef
   return src;
 }
 
+/**
+ * Cipher code regex: matches codes like С-КЭ-В5-01, Пл-ЕТГК-В5-01, С-ГК-Б5-02, etc.
+ * Works on already dash-normalized and homoglyph-normalized text.
+ */
+const CIPHER_CODE_RE = /(?:[А-Яа-яA-Za-z]{1,3})-(?:[А-Яа-яA-Za-z]{1,6}(?:-[А-Яа-яA-Za-z]{1,6})?)-[ВвБбBb]\d+(?:-\d+)?/g;
+
+/**
+ * Process React children at the component level: find cipher codes in text
+ * strings and replace them with clickable <button> elements.
+ * This bypasses the ReactMarkdown parsing issue where markdown link syntax
+ * [text](source:ID) is silently dropped inside GFM tables.
+ */
+function linkifyTextNode(
+  children: ReactNode,
+  allSources: Source[],
+  onViewSource: (source: Source) => void,
+): ReactNode {
+  return React.Children.map(children, (child) => {
+    // Only process string children
+    if (typeof child !== "string") {
+      // If it's a React element with its own children, recurse into it
+      // but skip elements that are already buttons/links (avoid double-linkification)
+      if (React.isValidElement(child)) {
+        const el = child as React.ReactElement<{ children?: ReactNode; className?: string }>;
+        if (
+          el.type === "button" ||
+          el.type === "a" ||
+          (typeof el.props?.className === "string" && el.props.className.includes("source-link-btn"))
+        ) {
+          return child;
+        }
+        if (el.props?.children != null) {
+          return React.cloneElement(el, {}, linkifyTextNode(el.props.children, allSources, onViewSource));
+        }
+      }
+      return child;
+    }
+
+    // Normalize dashes and homoglyphs in the text fragment
+    const text = normalizeCyrillicHomoglyphs(normalizeDashes(child));
+
+    // Find all cipher codes
+    const parts: ReactNode[] = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    CIPHER_CODE_RE.lastIndex = 0;
+
+    while ((match = CIPHER_CODE_RE.exec(text)) !== null) {
+      const code = match[0];
+      const src = resolveCodeToSource(code, allSources);
+      if (!src) continue;
+
+      // Add preceding text
+      if (match.index > lastIndex) {
+        parts.push(text.slice(lastIndex, match.index));
+      }
+      // Add clickable button
+      parts.push(
+        <button
+          key={`clink-${match.index}`}
+          className="source-link-btn"
+          onClick={() => onViewSource(src)}
+          title={`Открыть: ${src.filename}`}
+        >
+          {code}
+        </button>,
+      );
+      lastIndex = match.index + code.length;
+    }
+
+    // No matches — return normalized text as-is
+    if (parts.length === 0) return text;
+
+    // Add trailing text
+    if (lastIndex < text.length) {
+      parts.push(text.slice(lastIndex));
+    }
+    return <>{parts}</>;
+  });
+}
+
 function linkifyContent(text: string, allSources: Source[]): string {
   if (allSources.length === 0) return text;
 
   // Normalize dashes so all cipher codes use ASCII hyphen
   let result = normalizeDashes(text);
 
-  // ── Phase 1: Find ALL cipher codes in the text with a generic regex ──
-  // Matches patterns like: С-ЕТГК-В5-01, Пл-КЭ-В5-01, С-ГК-В5-03, С-СГК-А-В5-01
-  // Accept BOTH Cyrillic and Latin homoglyphs (С/C, К/K, В/B, etc.) because
-  // Gemini often outputs Latin lookalikes that are visually identical
-  const CYR_OR_LAT = "[А-Яа-яABCEHKMOPTXaceopx]";
-  const cipherRegex = new RegExp(
-    `${CYR_OR_LAT}{1,3}-${CYR_OR_LAT}[\\wА-Яа-яABCEHKMOPTXaceopx-]{0,14}-[ВвБбBb]\\d+-\\d{1,3}`,
-    "g"
-  );
-  const codeMap = new Map<string, number>(); // normalized code → sourceId
-
-  const allMatches: string[] = []; // DEBUG
-  let m;
-  while ((m = cipherRegex.exec(result)) !== null) {
-    const code = m[0];
-    allMatches.push(code); // DEBUG
-    // Normalize Latin homoglyphs to Cyrillic before resolving
-    const codeNorm = normalizeCyrillicHomoglyphs(code);
-    const codeLower = codeNorm.toLowerCase();
-    if (codeMap.has(codeLower)) continue;
-    const src = resolveCodeToSource(codeNorm, allSources);
-    if (src) codeMap.set(codeLower, src.id);
-    else {
-      // DEBUG: log why resolution failed
-      const parts = codeLower.split("-");
-      const prefix = parts[0];
-      const versionIdx = parts.findIndex((p: string) => /^[вб]\d/.test(p));
-      const companyKey = versionIdx > 1 ? parts.slice(1, versionIdx).join("-") : "N/A";
-      console.warn(`[linkify] Code "${code}" → norm "${codeNorm}" → lower "${codeLower}" NOT RESOLVED. prefix="${prefix}" companyKey="${companyKey}" DOC_TYPE_PREFIX[prefix]="${DOC_TYPE_PREFIX[prefix]}" COMPANY_ABBR[companyKey]="${COMPANY_ABBR[companyKey]}"`);
-    }
-  }
-  // DEBUG: summary
-  if (allMatches.length > 0) {
-    console.log(`[linkify] Sources count: ${allSources.length}. Regex found ${allMatches.length} codes: ${allMatches.join(", ")}. Resolved ${codeMap.size}: ${[...codeMap.entries()].map(([k,v]) => `${k}→${v}`).join(", ")}`);
-    // Show char codes for first few matches to detect homoglyphs
-    for (const code of allMatches.slice(0, 6)) {
-      const charCodes = [...code].map(c => `${c}(U+${c.charCodeAt(0).toString(16).padStart(4,"0")})`).join("");
-      console.log(`[linkify] CharCodes: ${charCodes}`);
-    }
-  }
-
-  // Replace codes with links (longest first)
-  // Build a regex that matches both the Cyrillic-normalized form AND the
-  // original text (which may contain Latin homoglyphs)
-  const sortedCodes = [...codeMap.entries()].sort((a, b) => b[0].length - a[0].length);
-  for (const [codeLower, sourceId] of sortedCodes) {
-    // Build a char-by-char regex that matches either Cyrillic or Latin variant
-    const CYRILLIC_TO_LATIN: Record<string, string> = {
-      "а": "a", "в": "b", "с": "c", "е": "e", "н": "h", "к": "k", "м": "m",
-      "о": "o", "р": "p", "т": "t", "х": "x",
-    };
-    let pattern = "";
-    for (const ch of codeLower) {
-      const escaped = ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const latinAlt = CYRILLIC_TO_LATIN[ch];
-      if (latinAlt) {
-        // Match either Cyrillic or its Latin lookalike (case-insensitive via flag)
-        pattern += `[${escaped}${latinAlt}${latinAlt.toUpperCase()}${ch.toUpperCase()}]`;
-      } else {
-        pattern += escaped;
-      }
-    }
-    const regex = new RegExp(pattern, "gi");
-    console.log(`[linkify-replace] Code="${codeLower}" pattern=/${pattern}/gi sourceId=${sourceId}`);
-    let replaceCount = 0;
-    let skipCount = 0;
-    result = result.replace(regex, (match, offset) => {
-      const inside = isInsideLink(result, offset);
-      if (inside) {
-        skipCount++;
-        const ctx = result.substring(Math.max(0, offset - 30), offset + match.length + 30);
-        console.log(`[linkify-replace] SKIPPED "${match}" at offset ${offset} (isInsideLink=true). Context: ...${ctx}...`);
-        return match;
-      }
-      replaceCount++;
-      console.log(`[linkify-replace] LINKED "${match}" at offset ${offset}`);
-      return `[${match}](source:${sourceId})`;
-    });
-    console.log(`[linkify-replace] Code="${codeLower}": ${replaceCount} linked, ${skipCount} skipped. regex.test on result: ${regex.test(result)}`);
-  }
-
-  // DEBUG: check if КЭ codes survived in result
-  if (result.includes("КЭ") || result.includes("кэ")) {
-    const keIdx = result.indexOf("КЭ");
-    if (keIdx !== -1) {
-      const keCtx = result.substring(Math.max(0, keIdx - 40), keIdx + 40);
-      console.log(`[linkify-post] КЭ still in result at ${keIdx}. Context: ...${keCtx}...`);
-    }
-  }
+  // NOTE: Cipher code linkification (С-КЭ-В5-01 etc.) is handled at the
+  // React component level via linkifyTextNode(), not here. Markdown link
+  // syntax [text](source:ID) is unreliable inside GFM tables.
 
   // ── Phase 2: Human-readable document name matching ──
   const namePatterns: { name: string; sourceId: number }[] = [];
@@ -500,20 +495,6 @@ export default function MessageBubble({
   const linkedContent = linkifyContent(mainContent, allSources);
   const processedContent = linkedContent.replace(/([^\n])\n(#{1,4}\s)/g, "$1\n\n$2");
 
-  // DEBUG: verify processedContent has КЭ links before ReactMarkdown
-  if (processedContent.includes("КЭ") && processedContent.includes("source:")) {
-    const keLink = processedContent.match(/\[[^\]]*КЭ[^\]]*\]\(source:\d+\)/g);
-    const etgkLink = processedContent.match(/\[[^\]]*ЕТГК[^\]]*\]\(source:\d+\)/g);
-    console.log(`[pre-render] КЭ links in processedContent: ${keLink ? keLink.join(" | ") : "NONE"}. ЕТГК links: ${etgkLink ? etgkLink.join(" | ") : "NONE"}`);
-    // Dump the table portion to see raw markdown
-    const tableStart = processedContent.indexOf("|");
-    if (tableStart !== -1) {
-      const tableEnd = processedContent.indexOf("\n\n", tableStart);
-      const tableMd = processedContent.substring(tableStart, tableEnd !== -1 ? tableEnd : tableStart + 800);
-      console.log(`[pre-render] Table markdown:\n${tableMd}`);
-    }
-  }
-
   const [expandedImg, setExpandedImg] = useState<string | null>(null);
 
   return (
@@ -524,6 +505,18 @@ export default function MessageBubble({
           components={{
             table: ({ children, ...props }) => (
               <TableWrapper {...props}>{children}</TableWrapper>
+            ),
+            td: ({ children, ...props }) => (
+              <td {...props}>{linkifyTextNode(children, allSources, onViewSource)}</td>
+            ),
+            th: ({ children, ...props }) => (
+              <th {...props}>{linkifyTextNode(children, allSources, onViewSource)}</th>
+            ),
+            p: ({ children, ...props }) => (
+              <p {...props}>{linkifyTextNode(children, allSources, onViewSource)}</p>
+            ),
+            li: ({ children, ...props }) => (
+              <li {...props}>{linkifyTextNode(children, allSources, onViewSource)}</li>
             ),
             a: ({ children, href }) => {
               if (href?.startsWith("source:")) {
