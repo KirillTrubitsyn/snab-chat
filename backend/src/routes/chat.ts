@@ -14,6 +14,7 @@ import { extractSearchHints, detectSectionReference, detectDocumentReference, de
 import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgenticResults } from "../lib/agentic-rag.js";
 import { expandByRelationships } from "../lib/relationships.js";
 import { getMatchingDirectives, generateDirectivesPromptBlock } from "../lib/directives-registry.js";
+import { shouldInjectStandardsRegistry, generateStandardsRegistryBlock } from "../lib/standards-registry.js";
 import { classifyDocumentIntent, getDocumentIntentPrompt } from "../lib/document-intent.js";
 
 const router = Router();
@@ -1214,6 +1215,14 @@ ${sanitizeUserInput(userMessage.content)}
   const matchedDirectives = getMatchingDirectives(userMessage.content, intentResult.intent);
   const directivesBlock = generateDirectivesPromptBlock(matchedDirectives);
 
+  // ── Standards registry: inject full list of standards/regulations when relevant ──
+  const standardsRegistryBlock = shouldInjectStandardsRegistry(userMessage.content, intentResult.intent)
+    ? generateStandardsRegistryBlock()
+    : "";
+  if (standardsRegistryBlock) {
+    console.log("[chat] Injected standards registry block into system prompt");
+  }
+
   // ── SPU contractor search prompt (adaptive by sub-intent) ──
   const spuPromptBlock = intentResult.intent === "entity_lookup"
     ? `\n\n=== ПОИСК КОНТРАГЕНТОВ (СПУ) ===\n${generateSpuPrompt(intentResult.spu_sub_intent)}`
@@ -1344,7 +1353,7 @@ ${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФО
 
 ПРИМЕР ОТКАЗА (когда информации нет):
 Вопрос: Какова средняя зарплата в отделе закупок?
-Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${directivesBlock}${spuPromptBlock}
+Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${directivesBlock}${standardsRegistryBlock}${spuPromptBlock}
 
 === СТАВКА НДС ===
 
