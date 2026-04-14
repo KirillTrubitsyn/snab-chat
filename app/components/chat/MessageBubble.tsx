@@ -499,6 +499,21 @@ export default function MessageBubble({
   // Ensure blank lines before markdown headings (## / ###) so ReactMarkdown parses them correctly
   const linkedContent = linkifyContent(mainContent, allSources);
   const processedContent = linkedContent.replace(/([^\n])\n(#{1,4}\s)/g, "$1\n\n$2");
+
+  // DEBUG: verify processedContent has КЭ links before ReactMarkdown
+  if (processedContent.includes("КЭ") && processedContent.includes("source:")) {
+    const keLink = processedContent.match(/\[[^\]]*КЭ[^\]]*\]\(source:\d+\)/g);
+    const etgkLink = processedContent.match(/\[[^\]]*ЕТГК[^\]]*\]\(source:\d+\)/g);
+    console.log(`[pre-render] КЭ links in processedContent: ${keLink ? keLink.join(" | ") : "NONE"}. ЕТГК links: ${etgkLink ? etgkLink.join(" | ") : "NONE"}`);
+    // Dump the table portion to see raw markdown
+    const tableStart = processedContent.indexOf("|");
+    if (tableStart !== -1) {
+      const tableEnd = processedContent.indexOf("\n\n", tableStart);
+      const tableMd = processedContent.substring(tableStart, tableEnd !== -1 ? tableEnd : tableStart + 800);
+      console.log(`[pre-render] Table markdown:\n${tableMd}`);
+    }
+  }
+
   const [expandedImg, setExpandedImg] = useState<string | null>(null);
 
   return (
