@@ -129,9 +129,51 @@ const DOC_CODE_TO_FILE: Record<string, string> = {
   "с-сгк-н-в5-01": "Стандарт_закупок_товаров_РиУ_СГК-Новосибирск",
 };
 
+/** Check if offset is already inside a markdown link — avoid double-linkifying */
+function isInsideLink(text: string, offset: number): boolean {
+  const before = text.substring(Math.max(0, offset - 300), offset);
+  const lastOpen = before.lastIndexOf("[");
+  const lastClose = before.lastIndexOf("]");
+  if (lastOpen > lastClose) return true; // inside [...]
+  const justBefore = text.substring(Math.max(0, offset - 10), offset);
+  if (justBefore.includes("](")) return true; // inside (url) part
+  return false;
+}
+
+/**
+ * Generate human-readable name variants from a source filename for text matching.
+ * Produces multiple variants to catch how the LLM might reference a document.
+ */
+function generateNameVariants(filename: string): string[] {
+  const variants = new Set<string>();
+  // Strip extension
+  const base = filename.replace(/\.\w+$/, "");
+  // Replace underscores with spaces
+  const readable = base.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+  if (readable.length >= 12) variants.add(readable);
+
+  // Without "compressed", "ред N", trailing numbers
+  const cleaned = readable
+    .replace(/\s*compressed$/i, "")
+    .replace(/\s*ред\s*[\d.]+$/i, "")
+    .trim();
+  if (cleaned.length >= 12) variants.add(cleaned);
+
+  // Strip leading prefixes like "Приложение 1 к ", "Приказ КЭ-229 от ... "
+  const withoutPrefix = cleaned
+    .replace(/^Приложение\s+\d+\s+к\s+/i, "")
+    .replace(/^Приказ\s+[\wА-Яа-я-]+\s+от\s+[\d.]+\s+/i, "")
+    .replace(/^Прил\s+\d+[\w.]*\s+к\s+Стандарту\s+[\wА-Яа-я-]+\s+/i, "")
+    .trim();
+  if (withoutPrefix !== cleaned && withoutPrefix.length >= 12) variants.add(withoutPrefix);
+
+  return [...variants];
+}
+
 function linkifyContent(text: string, allSources: Source[]): string {
   if (allSources.length === 0) return text;
 
+  // ── Phase 1: Cipher code patterns (С-КЭ-В5-01 etc.) ──
   const codePatterns: { code: string; sourceId: number }[] = [];
   for (const src of allSources) {
     const codes = src.filename.match(/[А-ЯA-Zа-яa-z]{1,4}-[А-ЯA-Zа-яa-z/]{1,15}-[А-ЯA-Zа-яa-z0-9/]{1,6}-\d{1,3}/gi);
@@ -144,7 +186,7 @@ function linkifyContent(text: string, allSources: Source[]): string {
 
   // Add codes from static map if matching source exists
   for (const [code, partialFilename] of Object.entries(DOC_CODE_TO_FILE)) {
-    if (codePatterns.some((p) => p.code.toLowerCase() === code)) continue; // already matched from filename
+    if (codePatterns.some((p) => p.code.toLowerCase() === code)) continue;
     const partialLower = partialFilename.toLowerCase();
     const src = allSources.find((s) => s.filename.toLowerCase().includes(partialLower));
     if (src) {
@@ -152,30 +194,51 @@ function linkifyContent(text: string, allSources: Source[]): string {
     }
   }
 
-  if (codePatterns.length === 0) return text;
+  let result = text;
 
-  codePatterns.sort((a, b) => b.code.length - a.code.length);
+  if (codePatterns.length > 0) {
+    codePatterns.sort((a, b) => b.code.length - a.code.length);
+    const combinedPattern = codePatterns
+      .map(({ code }) => code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("|");
+    const regex = new RegExp(combinedPattern, "gi");
 
-  const combinedPattern = codePatterns
-    .map(({ code }) => code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("|");
-  const regex = new RegExp(combinedPattern, "gi");
+    result = result.replace(regex, (match, offset) => {
+      if (isInsideLink(result, offset)) return match;
+      const matchLower = match.toLowerCase();
+      const pattern = codePatterns.find((p) => p.code.toLowerCase() === matchLower);
+      if (!pattern) return match;
+      return `[${match}](source:${pattern.sourceId})`;
+    });
+  }
 
-  return text.replace(regex, (match, offset) => {
-    const before = text.substring(Math.max(0, offset - 200), offset);
-    const lastOpen = before.lastIndexOf("[");
-    const lastClose = before.lastIndexOf("]");
-    if (lastOpen > lastClose) return match;
+  // ── Phase 2: Human-readable document name matching ──
+  // Build name → sourceId pairs from source filenames, then match in text
+  const namePatterns: { name: string; sourceId: number }[] = [];
+  for (const src of allSources) {
+    for (const variant of generateNameVariants(src.filename)) {
+      namePatterns.push({ name: variant, sourceId: src.id });
+    }
+  }
 
-    const justBefore = text.substring(Math.max(0, offset - 10), offset);
-    if (justBefore.includes("](")) return match;
+  // Sort longest first to avoid partial matches overwriting longer ones
+  namePatterns.sort((a, b) => b.name.length - a.name.length);
 
-    const matchLower = match.toLowerCase();
-    const pattern = codePatterns.find((p) => p.code.toLowerCase() === matchLower);
-    if (!pattern) return match;
+  // Track which ranges are already linkified (from phase 1)
+  for (const { name, sourceId } of namePatterns) {
+    if (name.length < 12) continue; // skip very short names to avoid false positives
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Case-insensitive match with word-ish boundaries
+    const nameRegex = new RegExp(escaped, "gi");
+    result = result.replace(nameRegex, (match, offset) => {
+      if (isInsideLink(result, offset)) return match;
+      // Check the match isn't already wrapped in []
+      if (offset > 0 && result[offset - 1] === "[") return match;
+      return `[${match}](source:${sourceId})`;
+    });
+  }
 
-    return `[${match}](source:${pattern.sourceId})`;
-  });
+  return result;
 }
 
 function SourcesAccordion({
