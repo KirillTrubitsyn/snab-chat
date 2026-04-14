@@ -14,53 +14,69 @@ const router = Router();
 
 type ConvInfo = { invite_code_id: string | null; admin_name: string | null };
 
+/** Max IDs per `.in()` call to stay within PostgREST URL-length limits */
+const IN_BATCH_SIZE = 100;
+
 async function buildConvsAndCodesMap(
   supabase: ReturnType<typeof createServiceClient>,
   convIds: string[]
 ) {
   const convsMap: Record<string, ConvInfo> = {};
   const codesMap: Record<string, { name: string; organization: string | null }> = {};
+  let lookupOk = true;
 
-  if (convIds.length === 0) return { convsMap, codesMap };
+  if (convIds.length === 0) return { convsMap, codesMap, lookupOk };
 
-  // Conversations
-  let convs: { id: string; invite_code_id: string | null; admin_name?: string | null }[] | null = null;
-  const { data: convsWithAdmin, error: convErr } = await supabase
-    .from("conversations")
-    .select("id, invite_code_id, admin_name")
-    .in("id", convIds);
-
-  if (convErr) {
-    const { data: convsBasic } = await supabase
+  // Conversations — batch to avoid PostgREST URL-length limits
+  for (let i = 0; i < convIds.length; i += IN_BATCH_SIZE) {
+    const batch = convIds.slice(i, i + IN_BATCH_SIZE);
+    const { data: convsWithAdmin, error: convErr } = await supabase
       .from("conversations")
-      .select("id, invite_code_id")
-      .in("id", convIds);
-    convs = convsBasic;
-  } else {
-    convs = convsWithAdmin;
+      .select("id, invite_code_id, admin_name")
+      .in("id", batch);
+
+    let convs = convsWithAdmin;
+    if (convErr) {
+      console.error("[admin/activity] conversations query error:", convErr.message);
+      const { data: convsBasic, error: basicErr } = await supabase
+        .from("conversations")
+        .select("id, invite_code_id")
+        .in("id", batch);
+      if (basicErr) {
+        console.error("[admin/activity] conversations fallback also failed:", basicErr.message);
+        lookupOk = false;
+        continue;
+      }
+      convs = convsBasic;
+    }
+
+    (convs || []).forEach((c: { id: string; invite_code_id: string | null; admin_name?: string | null }) => {
+      convsMap[c.id] = { invite_code_id: c.invite_code_id, admin_name: c.admin_name ?? null };
+    });
   }
 
-  (convs || []).forEach((c) => {
-    convsMap[c.id] = { invite_code_id: c.invite_code_id, admin_name: c.admin_name ?? null };
-  });
+  if (!lookupOk) {
+    console.warn(`[admin/activity] partial conversations lookup: resolved ${Object.keys(convsMap).length} of ${convIds.length}`);
+  }
 
-  // Invite codes
+  // Invite codes — also batch
   const inviteCodeIds = [
     ...new Set(Object.values(convsMap).map((c) => c.invite_code_id).filter(Boolean)),
   ] as string[];
 
-  if (inviteCodeIds.length > 0) {
+  for (let i = 0; i < inviteCodeIds.length; i += IN_BATCH_SIZE) {
+    const batch = inviteCodeIds.slice(i, i + IN_BATCH_SIZE);
     const { data: codes } = await supabase
       .from("invite_codes")
       .select("id, name, organization")
-      .in("id", inviteCodeIds);
+      .in("id", batch);
 
-    (codes || []).forEach((c) => {
+    (codes || []).forEach((c: { id: string; name: string; organization: string | null }) => {
       codesMap[c.id] = { name: c.name, organization: c.organization };
     });
   }
 
-  return { convsMap, codesMap };
+  return { convsMap, codesMap, lookupOk };
 }
 
 function resolveUser(
@@ -265,7 +281,7 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
       ]),
     ].filter(Boolean);
 
-    const { convsMap, codesMap } = await buildConvsAndCodesMap(supabase, allConvIds);
+    const { convsMap, codesMap, lookupOk } = await buildConvsAndCodesMap(supabase, allConvIds);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const igCodeIds = [...new Set((infographicRows || []).map((ig: any) => ig.invite_code_id).filter(Boolean) as string[])]
@@ -282,7 +298,9 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
 
     const chatItems = (messages || [])
       .filter((m) => {
-        if (!(m.conversation_id in convsMap)) return false;
+        // Only drop messages with missing conversations if the lookup succeeded;
+        // when the lookup failed, show them with "Неизвестный" instead of hiding.
+        if (lookupOk && !(m.conversation_id in convsMap)) return false;
         if (offTopicTexts.has(m.content.slice(0, 5000))) return false;
         return true;
       })
