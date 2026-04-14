@@ -178,8 +178,9 @@ const STANDARDS_TRIGGER_KEYWORDS = [
 ];
 
 const STANDARDS_TRIGGER_INTENTS: QueryIntent[] = [
-  "document_lookup",
+  "regulation",
   "authority",
+  "procedure",
 ];
 
 /* ── Matching logic ── */
