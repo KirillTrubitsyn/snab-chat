@@ -302,10 +302,31 @@ function linkifyContent(text: string, allSources: Source[]): string {
       }
     }
     const regex = new RegExp(pattern, "gi");
+    console.log(`[linkify-replace] Code="${codeLower}" pattern=/${pattern}/gi sourceId=${sourceId}`);
+    let replaceCount = 0;
+    let skipCount = 0;
     result = result.replace(regex, (match, offset) => {
-      if (isInsideLink(result, offset)) return match;
+      const inside = isInsideLink(result, offset);
+      if (inside) {
+        skipCount++;
+        const ctx = result.substring(Math.max(0, offset - 30), offset + match.length + 30);
+        console.log(`[linkify-replace] SKIPPED "${match}" at offset ${offset} (isInsideLink=true). Context: ...${ctx}...`);
+        return match;
+      }
+      replaceCount++;
+      console.log(`[linkify-replace] LINKED "${match}" at offset ${offset}`);
       return `[${match}](source:${sourceId})`;
     });
+    console.log(`[linkify-replace] Code="${codeLower}": ${replaceCount} linked, ${skipCount} skipped. regex.test on result: ${regex.test(result)}`);
+  }
+
+  // DEBUG: check if КЭ codes survived in result
+  if (result.includes("КЭ") || result.includes("кэ")) {
+    const keIdx = result.indexOf("КЭ");
+    if (keIdx !== -1) {
+      const keCtx = result.substring(Math.max(0, keIdx - 40), keIdx + 40);
+      console.log(`[linkify-post] КЭ still in result at ${keIdx}. Context: ...${keCtx}...`);
+    }
   }
 
   // ── Phase 2: Human-readable document name matching ──
