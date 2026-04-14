@@ -179,6 +179,22 @@ export async function notifyOffTopic(
   await notifyAllAdmins(text);
 }
 
+/** Уведомление о нецелевом / бессмысленном вводе (gibberish) */
+export async function notifyInvalidInput(
+  userName: string,
+  query: string,
+  organization?: string | null
+): Promise<void> {
+  const truncated = query.length > 500 ? query.slice(0, 500) + "..." : query;
+  const orgLine = organization ? `\n🏢 <b>Организация:</b> ${escapeHtml(organization)}` : "";
+  const text =
+    `🔤 <b>Нецелевой запрос: бессмысленный ввод</b>\n\n` +
+    `👤 <b>Пользователь:</b> ${escapeHtml(userName)}${orgLine}\n\n` +
+    `💬 <b>Запрос:</b>\n${escapeHtml(truncated)}\n\n` +
+    `🕐 ${getMoscowTime()}`;
+  await notifyAllAdmins(text);
+}
+
 /** Уведомление об ошибке */
 export async function notifyError(
   errorType: string,

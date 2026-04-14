@@ -7,8 +7,8 @@ import { classifyIntent, type SpuSubIntent } from "../lib/intent-classifier.js";
 import { loadConversationContext, saveMessage } from "../lib/memory.js";
 import { getInviteCodeFromHeader, isAdminCode } from "../lib/auth.js";
 import { createServiceClient } from "../lib/supabase.js";
-import { classifyOffTopic, CATEGORY_LABELS, type OffTopicCategory } from "../lib/off-topic-classifier.js";
-import { notifyOffTopic } from "../lib/telegram.js";
+import { classifyOffTopic, detectGibberish, CATEGORY_LABELS, type OffTopicCategory } from "../lib/off-topic-classifier.js";
+import { notifyOffTopic, notifyInvalidInput } from "../lib/telegram.js";
 import { logError } from "../lib/error-logger.js";
 import { extractSearchHints, detectSectionReference, detectDocumentReference, detectCatalogQuery } from "../lib/query-analyzer.js";
 import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgenticResults } from "../lib/agentic-rag.js";
@@ -265,6 +265,59 @@ router.post("/api/chat", async (req: Request, res: Response) => {
     console.log(`[chat] Phase 2: Merged ${sessionDocuments.length} session document(s) for follow-up context`);
   }
   const effectiveHasAttachments = allAttachedDocuments.length > 0;
+
+  // ── Gibberish / invalid input detection ──
+  // Fast algorithmic check — runs before expensive LLM calls.
+  // Skip when user uploaded documents (gibberish may be a filename/code snippet).
+  if (!effectiveHasAttachments && detectGibberish(userMessage.content) && !isAdminCode(invite.code)) {
+    console.log(`[InvalidInput] Gibberish detected from "${invite.name}": "${userMessage.content.slice(0, 60)}"`);
+
+    const clarificationMsg =
+      "Не удалось распознать ваш запрос. Пожалуйста, уточните вопрос — " +
+      "подобный текст в базе знаний отсутствует. " +
+      "Если у вас есть вопрос по закупкам или снабжению, я готов помочь.";
+
+    // Fire-and-forget: persist messages + log + notify admin
+    {
+      const supabase = createServiceClient();
+      const inviteCodeId = invite.id.startsWith("admin-") ? null : invite.id;
+      const msgSaves = conversationId
+        ? saveMessage(conversationId, "user", userMessage.content)
+            .then(() => saveMessage(conversationId, "assistant", clarificationMsg))
+            .catch(() => {})
+        : Promise.resolve();
+      Promise.all([
+        msgSaves,
+        supabase
+          .from("off_topic_queries")
+          .insert({
+            invite_code_id: inviteCodeId,
+            user_name: invite.name,
+            organization: invite.organization ?? null,
+            category: "invalid_input",
+            query_text: userMessage.content.slice(0, 5000),
+          })
+          .then(({ error }) => {
+            if (error) console.error("[InvalidInput] DB insert error:", error.message);
+          }),
+        notifyInvalidInput(invite.name, userMessage.content, invite.organization),
+      ]).catch((e) => console.error("[InvalidInput] async error:", e));
+    }
+
+    // Return streaming response in the same protocol the frontend expects
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("X-Sources", encodeURIComponent(JSON.stringify([])));
+    res.write(`0:${JSON.stringify(clarificationMsg)}\n`);
+    const finish = JSON.stringify({
+      finishReason: "stop",
+      usage: { promptTokens: 0, completionTokens: 0 },
+      isContinued: false,
+    });
+    res.write(`e:${finish}\n`);
+    res.write(`d:${finish}\n`);
+    res.end();
+    return;
+  }
 
   // ── Classify document intent (Phase 1) ──
   const docIntent = classifyDocumentIntent(userMessage.content, effectiveHasAttachments);
