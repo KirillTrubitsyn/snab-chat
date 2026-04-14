@@ -200,6 +200,45 @@ function keywordClassify(text: string): OffTopicCategory {
   return "procurement";
 }
 
+/**
+ * Detects gibberish / meaningless random text input.
+ *
+ * Algorithm: checks "words" of 5+ lowercase letters for vowel density.
+ * Real Russian/English words always contain some vowels; random character
+ * strings typically have none. Uppercase-heavy tokens are skipped because
+ * they are likely abbreviations (НМЦК, ТРУ, СМР, …).
+ *
+ * Returns true when the text looks like a meaningless random keystroke sequence.
+ */
+export function detectGibberish(text: string): boolean {
+  if (!text || text.trim().length === 0) return false;
+
+  const allLetters = text.match(/[а-яёА-ЯЁa-zA-Z]/g) ?? [];
+  if (allLetters.length < 6) return false; // too short to judge reliably
+
+  const ruVowel = /[аеёийоуыэюяАЕЁИЙОУЫЭЮЯ]/;
+  const enVowel = /[aeiouAEIOU]/;
+
+  const words = text.split(/[\s\-_.,!?;:()\[\]{}<>]+/);
+  let checkable = 0;
+  let gibberish = 0;
+
+  for (const word of words) {
+    const letters = word.match(/[а-яёА-ЯЁa-zA-Z]/g) ?? [];
+    if (letters.length < 5) continue; // skip short tokens / abbreviations
+
+    // Skip mostly-uppercase tokens (abbreviations like НМЦК, ОКПД2, ЭТП)
+    const upperCount = letters.filter((c) => c === c.toUpperCase() && c !== c.toLowerCase()).length;
+    if (upperCount / letters.length > 0.6) continue;
+
+    checkable++;
+    const vowels = letters.filter((c) => ruVowel.test(c) || enVowel.test(c)).length;
+    if (vowels / letters.length < 0.10) gibberish++;
+  }
+
+  return checkable > 0 && gibberish / checkable > 0.5;
+}
+
 export async function classifyOffTopic(
   userMessage: string,
   conversationHistory?: { role: string; content: string }[]
