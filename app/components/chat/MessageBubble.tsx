@@ -129,6 +129,11 @@ const DOC_CODE_TO_FILE: Record<string, string> = {
   "с-сгк-н-в5-01": "Стандарт_закупок_товаров_РиУ_СГК-Новосибирск",
 };
 
+/** Normalize all dash-like characters (en-dash, em-dash, Unicode hyphen, minus) to ASCII hyphen */
+function normalizeDashes(text: string): string {
+  return text.replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-");
+}
+
 /** Check if offset is already inside a markdown link — avoid double-linkifying */
 function isInsideLink(text: string, offset: number): boolean {
   const before = text.substring(Math.max(0, offset - 300), offset);
@@ -173,6 +178,9 @@ function generateNameVariants(filename: string): string[] {
 function linkifyContent(text: string, allSources: Source[]): string {
   if (allSources.length === 0) return text;
 
+  // Normalize dashes in the entire text first so regex matches regardless of dash type
+  let result = normalizeDashes(text);
+
   // ── Phase 1: Cipher code patterns (С-КЭ-В5-01 etc.) ──
   const codePatterns: { code: string; sourceId: number }[] = [];
   for (const src of allSources) {
@@ -194,8 +202,6 @@ function linkifyContent(text: string, allSources: Source[]): string {
     }
   }
 
-  let result = text;
-
   if (codePatterns.length > 0) {
     codePatterns.sort((a, b) => b.code.length - a.code.length);
     const combinedPattern = codePatterns
@@ -213,7 +219,6 @@ function linkifyContent(text: string, allSources: Source[]): string {
   }
 
   // ── Phase 2: Human-readable document name matching ──
-  // Build name → sourceId pairs from source filenames, then match in text
   const namePatterns: { name: string; sourceId: number }[] = [];
   for (const src of allSources) {
     for (const variant of generateNameVariants(src.filename)) {
@@ -224,15 +229,12 @@ function linkifyContent(text: string, allSources: Source[]): string {
   // Sort longest first to avoid partial matches overwriting longer ones
   namePatterns.sort((a, b) => b.name.length - a.name.length);
 
-  // Track which ranges are already linkified (from phase 1)
   for (const { name, sourceId } of namePatterns) {
-    if (name.length < 12) continue; // skip very short names to avoid false positives
+    if (name.length < 12) continue;
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // Case-insensitive match with word-ish boundaries
     const nameRegex = new RegExp(escaped, "gi");
     result = result.replace(nameRegex, (match, offset) => {
       if (isInsideLink(result, offset)) return match;
-      // Check the match isn't already wrapped in []
       if (offset > 0 && result[offset - 1] === "[") return match;
       return `[${match}](source:${sourceId})`;
     });
