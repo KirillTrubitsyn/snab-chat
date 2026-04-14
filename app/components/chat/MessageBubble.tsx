@@ -115,18 +115,19 @@ function findSource(name: string, allSources: Source[]): Source | undefined {
   return src;
 }
 
-// Static map: document cipher codes → partial filename matches (for codes not in filenames)
-const DOC_CODE_TO_FILE: Record<string, string> = {
-  "с-кэ-в5-01": "Стандарт_закупок_товаров_РиУ_Кузбассэнерго",
-  "пл-кэ-в5-01": "Положение_о_закупках_Кузбассэнерго",
-  "с-нтск-в5-01": "Стандарт_закупок_товаров_РиУ_НТСК",
-  "пл-нтск-в5-01": "Положение_о_закупках_НТСК",
-  "с-етгк-в5-01": "Стандарт_закупок_товаров_РиУ_ЕТГК",
-  "пл-етгк-в5-01": "Положение_о_закупках_ЕТГК",
-  "пл-сгк-а-в5-01": "Положение_о_закупках_СГК-Алтай",
-  "с-сгк-а-в5-01": "Стандарт_закупок_СГК-Алтай",
-  "пл-сгк-н-в5-01": "Положение_о_закупках_СГК-Новосибирск",
-  "с-сгк-н-в5-01": "Стандарт_закупок_товаров_РиУ_СГК-Новосибирск",
+// Company abbreviation → filename search terms mapping
+const COMPANY_ABBR: Record<string, string[]> = {
+  "кэ": ["кузбассэнерго"],
+  "нтск": ["нтск"],
+  "етгк": ["етгк"],
+  "сгк-а": ["сгк-алтай", "сгк_алтай"],
+  "сгк-н": ["сгк-новосибирск", "сгк_новосибирск"],
+  "гк": ["сгк", "с-гк"],
+};
+// Document type prefix → filename keyword
+const DOC_TYPE_PREFIX: Record<string, string> = {
+  "с": "стандарт",
+  "пл": "положение",
 };
 
 /** Normalize all dash-like characters (en-dash, em-dash, Unicode hyphen, minus) to ASCII hyphen */
@@ -175,46 +176,76 @@ function generateNameVariants(filename: string): string[] {
   return [...variants];
 }
 
+/**
+ * Dynamically resolve a cipher code (e.g. С-КЭ-В5-01) to a source.
+ * First checks if the code appears directly in any source filename.
+ * If not, decomposes the code into doc-type + company and searches by keywords.
+ */
+function resolveCodeToSource(code: string, allSources: Source[]): Source | undefined {
+  const codeLower = code.toLowerCase();
+  // Direct match: code appears in a source filename
+  let src = allSources.find((s) => s.filename.toLowerCase().includes(codeLower));
+  if (src) return src;
+
+  // Decompose: "С-КЭ-В5-01" → prefix="с", company="кэ"
+  const parts = codeLower.split("-");
+  if (parts.length < 3) return undefined;
+  const prefix = parts[0]; // "с" or "пл"
+  // Company = everything between prefix and the version part (В5, Б5, etc.)
+  const versionIdx = parts.findIndex((p) => /^[вб]\d/.test(p));
+  if (versionIdx <= 1) return undefined;
+  const companyParts = parts.slice(1, versionIdx);
+  const companyKey = companyParts.join("-"); // "кэ", "нтск", "сгк-а", etc.
+
+  const docTypeKeyword = DOC_TYPE_PREFIX[prefix];
+  const companyTerms = COMPANY_ABBR[companyKey];
+  if (!docTypeKeyword || !companyTerms) return undefined;
+
+  // Search allSources for filename containing BOTH doc type and company
+  src = allSources.find((s) => {
+    const fn = s.filename.toLowerCase();
+    if (!fn.includes(docTypeKeyword)) return false;
+    return companyTerms.some((term) => fn.includes(term));
+  });
+  // Prefer .docx over .pdf
+  if (src) {
+    const betterSrc = allSources.find((s) => {
+      const fn = s.filename.toLowerCase();
+      return fn.endsWith(".docx") && fn.includes(docTypeKeyword) && companyTerms.some((term) => fn.includes(term));
+    });
+    if (betterSrc) return betterSrc;
+  }
+  return src;
+}
+
 function linkifyContent(text: string, allSources: Source[]): string {
   if (allSources.length === 0) return text;
 
-  // Normalize dashes in the entire text first so regex matches regardless of dash type
+  // Normalize dashes so all cipher codes use ASCII hyphen
   let result = normalizeDashes(text);
 
-  // ── Phase 1: Cipher code patterns (С-КЭ-В5-01 etc.) ──
-  const codePatterns: { code: string; sourceId: number }[] = [];
-  for (const src of allSources) {
-    const codes = src.filename.match(/[А-ЯA-Zа-яa-z]{1,4}-[А-ЯA-Zа-яa-z/]{1,15}-[А-ЯA-Zа-яa-z0-9/]{1,6}-\d{1,3}/gi);
-    if (codes) {
-      for (const code of codes) {
-        codePatterns.push({ code, sourceId: src.id });
-      }
-    }
+  // ── Phase 1: Find ALL cipher codes in the text with a generic regex ──
+  // Matches patterns like: С-ЕТГК-В5-01, Пл-КЭ-В5-01, С-ГК-В5-03, С-СГК-А-В5-01
+  const cipherRegex = /[А-Яа-я]{1,3}-[А-Яа-я][\wА-Яа-я-]{0,14}-[ВвБб]\d+-\d{1,3}/g;
+  const codeMap = new Map<string, number>(); // normalized code → sourceId
+
+  let m;
+  while ((m = cipherRegex.exec(result)) !== null) {
+    const code = m[0];
+    const codeLower = code.toLowerCase();
+    if (codeMap.has(codeLower)) continue;
+    const src = resolveCodeToSource(code, allSources);
+    if (src) codeMap.set(codeLower, src.id);
   }
 
-  // Add codes from static map if matching source exists
-  for (const [code, partialFilename] of Object.entries(DOC_CODE_TO_FILE)) {
-    if (codePatterns.some((p) => p.code.toLowerCase() === code)) continue;
-    const partialLower = partialFilename.toLowerCase();
-    const src = allSources.find((s) => s.filename.toLowerCase().includes(partialLower));
-    if (src) {
-      codePatterns.push({ code, sourceId: src.id });
-    }
-  }
-
-  if (codePatterns.length > 0) {
-    codePatterns.sort((a, b) => b.code.length - a.code.length);
-    const combinedPattern = codePatterns
-      .map(({ code }) => code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-      .join("|");
-    const regex = new RegExp(combinedPattern, "gi");
-
+  // Replace codes with links (longest first)
+  const sortedCodes = [...codeMap.entries()].sort((a, b) => b[0].length - a[0].length);
+  for (const [codeLower, sourceId] of sortedCodes) {
+    const escaped = codeLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(escaped, "gi");
     result = result.replace(regex, (match, offset) => {
       if (isInsideLink(result, offset)) return match;
-      const matchLower = match.toLowerCase();
-      const pattern = codePatterns.find((p) => p.code.toLowerCase() === matchLower);
-      if (!pattern) return match;
-      return `[${match}](source:${pattern.sourceId})`;
+      return `[${match}](source:${sourceId})`;
     });
   }
 
@@ -225,8 +256,6 @@ function linkifyContent(text: string, allSources: Source[]): string {
       namePatterns.push({ name: variant, sourceId: src.id });
     }
   }
-
-  // Sort longest first to avoid partial matches overwriting longer ones
   namePatterns.sort((a, b) => b.name.length - a.name.length);
 
   for (const { name, sourceId } of namePatterns) {
