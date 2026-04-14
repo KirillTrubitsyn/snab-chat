@@ -269,7 +269,7 @@ export default function Chat() {
     try {
       const res = await fetch(apiUrl("/api/export"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ question: questionContent, answer: answerContent }),
       });
       if (!res.ok) throw new Error("Export failed");
@@ -300,7 +300,7 @@ export default function Chat() {
     try {
       const res = await fetch(apiUrl("/api/export-excel"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ question: questionContent, answer: answerContent }),
       });
       if (!res.ok) throw new Error("Excel export failed");
