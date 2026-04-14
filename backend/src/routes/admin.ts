@@ -35,7 +35,7 @@ async function buildConvsAndCodesMap(
       .select("id, invite_code_id, admin_name")
       .in("id", batch);
 
-    let convs = convsWithAdmin;
+    let convs: { id: string; invite_code_id: string | null; admin_name?: string | null }[] | null = convsWithAdmin;
     if (convErr) {
       console.error("[admin/activity] conversations query error:", convErr.message);
       const { data: convsBasic, error: basicErr } = await supabase
