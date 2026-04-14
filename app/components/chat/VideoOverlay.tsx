@@ -21,8 +21,11 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
   const [controlsVisible, setControlsVisible] = useState(true);
   const [ready, setReady] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const loadTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const autoPlayFired = useRef(false);
   const playPromise = useRef<Promise<void> | null>(null);
+
+  const LOAD_TIMEOUT_MS = 20_000;
 
   /* ── Auto-hide controls ── */
   const scheduleHide = useCallback(() => {
@@ -66,7 +69,13 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
     const p = videoRef.current.play();
     playPromise.current = p;
     p.then(() => { setPlaying(true); scheduleHide(); })
-      .catch(() => {});
+      .catch((e) => {
+        // AbortError is harmless (play interrupted by pause); NotAllowedError means
+        // the browser blocked autoplay — user will see the play button and can click.
+        if (e.name !== "AbortError") {
+          setPlaying(false);
+        }
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, ready]);
 
@@ -91,9 +100,28 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
     }
   }, [open]);
 
+  /* ── Loading timeout: avoid infinite spinner on slow/blocked networks ── */
+  useEffect(() => {
+    if (!open) return;
+    if (ready || error) {
+      if (loadTimer.current) { clearTimeout(loadTimer.current); loadTimer.current = undefined; }
+      return;
+    }
+    loadTimer.current = setTimeout(() => {
+      if (!ready && !error) {
+        setError("Не удалось загрузить видео. Проверьте подключение к сети.");
+        setLoading(false);
+      }
+    }, LOAD_TIMEOUT_MS);
+    return () => { if (loadTimer.current) { clearTimeout(loadTimer.current); loadTimer.current = undefined; } };
+  }, [open, ready, error]);
+
   /* ── Cleanup hide timer ── */
   useEffect(() => {
-    return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
+    return () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      if (loadTimer.current) clearTimeout(loadTimer.current);
+    };
   }, []);
 
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -158,6 +186,7 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
       >
         <video
           ref={videoRef}
+          src={VIDEO_URL}
           playsInline
           preload="auto"
           style={{
@@ -170,20 +199,23 @@ export default function VideoOverlay({ open, onClose }: VideoOverlayProps) {
           onTimeUpdate={(e) => setProgress(e.currentTarget.currentTime)}
           onEnded={() => { setPlaying(false); setControlsVisible(true); }}
           onWaiting={() => setLoading(true)}
-          onPlaying={() => setLoading(false)}
+          onPlaying={() => { setLoading(false); setError(null); }}
+          onStalled={() => {
+            // Video data transfer stalled — start showing spinner so user gets feedback
+            if (!error) setLoading(true);
+          }}
           onError={(e) => {
             const v = e.currentTarget;
             const code = v.error?.code;
-            const msg = code === 2 ? "Сетевая ошибка загрузки видео"
-              : code === 3 ? "Формат видео не поддерживается"
+            const msg = code === 1 ? "Загрузка видео была прервана"
+              : code === 2 ? "Сетевая ошибка загрузки видео"
+              : code === 3 ? "Формат видео не поддерживается браузером"
               : code === 4 ? "Видео недоступно"
               : "Ошибка воспроизведения";
             setError(msg);
             setLoading(false);
           }}
-        >
-          <source src={VIDEO_URL} type="video/mp4" />
-        </video>
+        />
 
         {/* Loading spinner */}
         {loading && !error && (
