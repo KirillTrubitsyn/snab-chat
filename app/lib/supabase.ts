@@ -35,9 +35,3 @@ export function createServiceClient(): SupabaseClient<any> {
   return serviceClientInstance;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function createBrowserClient(): SupabaseClient<any> {
-  const url = validateSupabaseUrl(getEnvOrThrow("NEXT_PUBLIC_SUPABASE_URL"));
-  const key = getEnvOrThrow("NEXT_PUBLIC_SUPABASE_ANON_KEY");
-  return createClient(url, key);
-}
