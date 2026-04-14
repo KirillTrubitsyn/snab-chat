@@ -250,15 +250,34 @@ function linkifyContent(text: string, allSources: Source[]): string {
   );
   const codeMap = new Map<string, number>(); // normalized code → sourceId
 
+  const allMatches: string[] = []; // DEBUG
   let m;
   while ((m = cipherRegex.exec(result)) !== null) {
     const code = m[0];
+    allMatches.push(code); // DEBUG
     // Normalize Latin homoglyphs to Cyrillic before resolving
     const codeNorm = normalizeCyrillicHomoglyphs(code);
     const codeLower = codeNorm.toLowerCase();
     if (codeMap.has(codeLower)) continue;
     const src = resolveCodeToSource(codeNorm, allSources);
     if (src) codeMap.set(codeLower, src.id);
+    else {
+      // DEBUG: log why resolution failed
+      const parts = codeLower.split("-");
+      const prefix = parts[0];
+      const versionIdx = parts.findIndex((p: string) => /^[вб]\d/.test(p));
+      const companyKey = versionIdx > 1 ? parts.slice(1, versionIdx).join("-") : "N/A";
+      console.warn(`[linkify] Code "${code}" → norm "${codeNorm}" → lower "${codeLower}" NOT RESOLVED. prefix="${prefix}" companyKey="${companyKey}" DOC_TYPE_PREFIX[prefix]="${DOC_TYPE_PREFIX[prefix]}" COMPANY_ABBR[companyKey]="${COMPANY_ABBR[companyKey]}"`);
+    }
+  }
+  // DEBUG: summary
+  if (allMatches.length > 0) {
+    console.log(`[linkify] Sources count: ${allSources.length}. Regex found ${allMatches.length} codes: ${allMatches.join(", ")}. Resolved ${codeMap.size}: ${[...codeMap.entries()].map(([k,v]) => `${k}→${v}`).join(", ")}`);
+    // Show char codes for first few matches to detect homoglyphs
+    for (const code of allMatches.slice(0, 6)) {
+      const charCodes = [...code].map(c => `${c}(U+${c.charCodeAt(0).toString(16).padStart(4,"0")})`).join("");
+      console.log(`[linkify] CharCodes: ${charCodes}`);
+    }
   }
 
   // Replace codes with links (longest first)
