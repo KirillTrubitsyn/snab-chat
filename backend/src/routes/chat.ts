@@ -474,10 +474,19 @@ router.post("/api/chat", async (req: Request, res: Response) => {
 
     const agenticCtx = createAgenticContext();
 
+    // ── Detect entity display names from query (for agentic prompt and balancing) ──
+    const queryLowerForEntities = userMessage.content.toLowerCase();
+    const detectedEntityNames: string[] = [];
+    for (const name of ["СГК-Алтай", "НТСК", "ЕТГК", "Кузбассэнерго", "СГК-Новосибирск"]) {
+      if (queryLowerForEntities.includes(name.toLowerCase())) {
+        detectedEntityNames.push(name);
+      }
+    }
+
     // ── Pre-seed: fetch targeted documents for ALL detected entities ──
     // This guarantees coverage regardless of what the LLM agent decides to search.
     // Without this, the agent often finds documents for only one organization in comparative queries.
-    let preSeededEntities: string[] = [];
+    let preSeededFileHints: string[] = [];
     if (docRef && docRef.filenameHints.length > 0) {
       console.log(`[chat] Pre-seeding agentic context: hints=${docRef.filenameHints.join(",")} docType=${docRef.documentTypeHint ?? "none"}`);
       try {
@@ -496,7 +505,7 @@ router.post("/api/chat", async (req: Request, res: Response) => {
             preAdded++;
           }
         }
-        preSeededEntities = docRef.filenameHints;
+        preSeededFileHints = docRef.filenameHints;
         console.log(`[chat] Pre-seeded ${preAdded} chunks from targeted document lookup (${[...new Set(preResults.map(r => r.source_filename))].join(", ")})`);
       } catch (preError) {
         console.error("[chat] Pre-seed failed (non-fatal):", preError);
@@ -567,20 +576,8 @@ router.post("/api/chat", async (req: Request, res: Response) => {
             graphPreSeededCount++;
           }
         }
-        // Ensure entity names from graph groups are included in preSeededEntities
-        if (graphResult.groupCount >= 2) {
-          // The graph found multiple named groups; make sure the entity block triggers
-          const graphEntityNames = graphResult.results
-            .map(r => r.source_filename)
-            .filter(f => !f.endsWith(".md"));
-          // Extract entity names that were in the original query
-          const queryLower = userMessage.content.toLowerCase();
-          for (const name of ["СГК-Алтай", "НТСК", "ЕТГК", "Кузбассэнерго", "СГК-Новосибирск"]) {
-            if (queryLower.includes(name.toLowerCase()) && !preSeededEntities.includes(name)) {
-              preSeededEntities.push(name);
-            }
-          }
-        }
+        // Entity names are now detected upfront (detectedEntityNames), no need
+        // to extract them again from graph results.
         console.log(
           `[chat] Graph pre-seeded ${graphPreSeededCount} chunks ` +
           `(${graphResult.groupCount} groups, ${graphResult.results.length} results, ` +
@@ -592,8 +589,8 @@ router.post("/api/chat", async (req: Request, res: Response) => {
     }
 
     // Build entity-aware prompt section for comparative queries
-    const entityBlock = preSeededEntities.length > 1
-      ? `\nОБНАРУЖЕННЫЕ ОРГАНИЗАЦИИ В ЗАПРОСЕ: ${preSeededEntities.join(", ")}
+    const entityBlock = detectedEntityNames.length > 1
+      ? `\nОБНАРУЖЕННЫЕ ОРГАНИЗАЦИИ В ЗАПРОСЕ: ${detectedEntityNames.join(", ")}
 ВАЖНО: Вопрос пользователя касается НЕСКОЛЬКИХ организаций. Ты ОБЯЗАН найти документы по КАЖДОЙ из них отдельно.
 Для каждой организации вызови lookup_document или search_knowledge_base с названием этой организации.
 НЕ делай выводов об одной организации на основе документов другой. Если документ по организации не найден — скажи об этом.\n`
@@ -627,7 +624,7 @@ ${sanitizeUserInput(userMessage.content)}
 
       console.log(`[chat][timing] Agentic search: ${Date.now() - tAgentic}ms (${agenticCtx.searchCount} searches, ${agenticCtx.chunks.size} chunks)`);
 
-      const filtered = await finalizeAgenticResults(agenticCtx, userMessage.content, preSeededEntities.length >= 2 ? preSeededEntities : undefined, intentResult);
+      const filtered = await finalizeAgenticResults(agenticCtx, userMessage.content, preSeededFileHints.length >= 2 ? preSeededFileHints : undefined, intentResult);
       relevantChunks = filtered.results;
       lowConfidence = filtered.lowConfidence;
     } catch (agenticError) {
