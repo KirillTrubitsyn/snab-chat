@@ -9,10 +9,14 @@ import { voyageRerank } from "./voyage-reranker.js";
  * Set RERANKER_MODEL env var to switch:
  *   "voyage"  → Voyage AI rerank-2.5 (cross-encoder, requires VOYAGE_API_KEY)
  *   "gemini"  → Gemini Flash LLM reranker (default)
+ *
+ * @param entityNames - for comparative queries, pass the list of entity names
+ *   so the reranker doesn't penalize chunks about "another" organization.
  */
 export async function rerank(
   query: string,
-  results: SearchResult[]
+  results: SearchResult[],
+  entityNames?: string[]
 ): Promise<SearchResult[]> {
   const model = (process.env.RERANKER_MODEL ?? "gemini").toLowerCase();
 
@@ -20,7 +24,7 @@ export async function rerank(
     return voyageRerank(query, results);
   }
 
-  return llmRerank(query, results);
+  return llmRerank(query, results, entityNames);
 }
 
 const RERANK_MODEL = "gemini-3.1-flash-lite-preview";
@@ -42,7 +46,8 @@ function tokenize(text: string): string[] {
  */
 export async function llmRerank(
   query: string,
-  results: SearchResult[]
+  results: SearchResult[],
+  entityNames?: string[]
 ): Promise<SearchResult[]> {
   if (results.length <= 1) return results;
 
@@ -77,7 +82,9 @@ export async function llmRerank(
         prompt: `Ты — система СТРОГОЙ оценки релевантности документов.
 Оцени каждый фрагмент по шкале от 0 до 10 — насколько он полезен для ответа на вопрос пользователя.
 Если фрагмент только тематически похож, но НЕ помогает ответить на конкретный вопрос — ставь 0-3.
-Если фрагмент относится к другому объекту/организации/режиму закупок — ставь 0-2.
+${entityNames && entityNames.length >= 2
+  ? `ВНИМАНИЕ: Вопрос касается НЕСКОЛЬКИХ организаций: ${entityNames.join(", ")}. Фрагменты по ЛЮБОЙ из этих организаций РЕЛЕВАНТНЫ — НЕ штрафуй их как «другая организация». Штрафуй только фрагменты про организации, которые НЕ упомянуты в вопросе.`
+  : `Если фрагмент относится к другому объекту/организации/режиму закупок — ставь 0-2.`}
 
 ШКАЛА ОЦЕНКИ (будь строгим — большинство фрагментов должны получить 0-3):
 10 = напрямую и полностью отвечает на вопрос, содержит конкретные данные/процедуры/цифры
@@ -90,8 +97,8 @@ export async function llmRerank(
 КРИТЕРИИ ОТСЕВА (ставь 0-3):
 - Фрагмент из ДРУГОГО режима закупки, чем спрашивает пользователь (223-ФЗ vs вне 223-ФЗ)
 - Фрагмент описывает ДРУГУЮ процедуру/этап, чем спрашивают
-- Фрагмент о ДРУГОЙ организации, когда вопрос про конкретную
-- Фрагмент содержит только оглавление, нумерацию пунктов или служебную разметку
+${entityNames && entityNames.length >= 2 ? "" : `- Фрагмент о ДРУГОЙ организации, когда вопрос про конкретную
+`}- Фрагмент содержит только оглавление, нумерацию пунктов или служебную разметку
 - Фрагмент из учебного курса, когда вопрос о конкретном нормативном пункте
 
 ВОПРОС ПОЛЬЗОВАТЕЛЯ:

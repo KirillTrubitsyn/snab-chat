@@ -468,20 +468,20 @@ router.post("/api/chat", async (req: Request, res: Response) => {
   let relevantChunks: SearchResult[];
   let lowConfidence: boolean = false;
 
+  // ── Detect entity display names from query (for multi-entity awareness) ──
+  const queryLowerForEntities = userMessage.content.toLowerCase();
+  const detectedEntityNames: string[] = [];
+  for (const name of ["СГК-Алтай", "НТСК", "ЕТГК", "Кузбассэнерго", "СГК-Новосибирск"]) {
+    if (queryLowerForEntities.includes(name.toLowerCase())) {
+      detectedEntityNames.push(name);
+    }
+  }
+
   if (useAgenticRag) {
     // ═══ AGENTIC PATH: LLM decides what to search (via @google/genai) ═══
     console.log(`[chat] Using AGENTIC RAG for complex query (intent=${intentResult.intent}, fz_type=${intentResult.fz_type})`);
 
     const agenticCtx = createAgenticContext();
-
-    // ── Detect entity display names from query (for agentic prompt and balancing) ──
-    const queryLowerForEntities = userMessage.content.toLowerCase();
-    const detectedEntityNames: string[] = [];
-    for (const name of ["СГК-Алтай", "НТСК", "ЕТГК", "Кузбассэнерго", "СГК-Новосибирск"]) {
-      if (queryLowerForEntities.includes(name.toLowerCase())) {
-        detectedEntityNames.push(name);
-      }
-    }
 
     // ── Pre-seed: fetch targeted documents for ALL detected entities ──
     // This guarantees coverage regardless of what the LLM agent decides to search.
@@ -509,6 +509,39 @@ router.post("/api/chat", async (req: Request, res: Response) => {
         console.log(`[chat] Pre-seeded ${preAdded} chunks from targeted document lookup (${[...new Set(preResults.map(r => r.source_filename))].join(", ")})`);
       } catch (preError) {
         console.error("[chat] Pre-seed failed (non-fatal):", preError);
+      }
+    }
+
+    // ── Pre-seed: per-entity hybrid searches for comparative queries ──
+    // When multiple entities are detected, run a separate content-based search
+    // for each entity. This catches documents even when their filenames
+    // don't match entity hints (e.g., "С-КЭ-В5-01" for Кузбассэнерго).
+    if (detectedEntityNames.length >= 2) {
+      try {
+        const entitySearches = detectedEntityNames.map(async (name) => {
+          const entityQuery = `${userMessage.content} ${name}`;
+          const results = await hybridSearch(entityQuery, 8, searchHints);
+          return { name, results };
+        });
+        const entityResults = await Promise.all(entitySearches);
+        let entityAdded = 0;
+        for (const { name, results } of entityResults) {
+          let added = 0;
+          for (const r of results) {
+            if (!agenticCtx.chunks.has(r.id)) {
+              const boostedSim = r.similarity >= 0.25
+                ? Math.max(r.similarity, 0.75)
+                : r.similarity;
+              agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim });
+              added++;
+              entityAdded++;
+            }
+          }
+          console.log(`[chat] Per-entity search "${name}": ${results.length} found, ${added} new`);
+        }
+        console.log(`[chat] Per-entity pre-seed total: ${entityAdded} new chunks for ${detectedEntityNames.length} entities`);
+      } catch (perEntityErr) {
+        console.error("[chat] Per-entity pre-seed failed (non-fatal):", perEntityErr);
       }
     }
 
@@ -624,7 +657,7 @@ ${sanitizeUserInput(userMessage.content)}
 
       console.log(`[chat][timing] Agentic search: ${Date.now() - tAgentic}ms (${agenticCtx.searchCount} searches, ${agenticCtx.chunks.size} chunks)`);
 
-      const filtered = await finalizeAgenticResults(agenticCtx, userMessage.content, preSeededFileHints.length >= 2 ? preSeededFileHints : undefined, intentResult);
+      const filtered = await finalizeAgenticResults(agenticCtx, userMessage.content, preSeededFileHints.length >= 2 ? preSeededFileHints : undefined, intentResult, detectedEntityNames.length >= 2 ? detectedEntityNames : undefined);
       relevantChunks = filtered.results;
       lowConfidence = filtered.lowConfidence;
     } catch (agenticError) {
@@ -632,7 +665,7 @@ ${sanitizeUserInput(userMessage.content)}
       // Fallback: run a simple hybrid search
       const fallbackResults = await hybridSearch(searchQuery, 20, searchHints);
       const reranked = intentAwareRerank(fallbackResults, intentResult);
-      const rerankResult = await rerank(userMessage.content, reranked);
+      const rerankResult = await rerank(userMessage.content, reranked, detectedEntityNames.length >= 2 ? detectedEntityNames : undefined);
       const filtered = filterByRelevance(rerankResult);
       relevantChunks = filtered.results;
       lowConfidence = filtered.lowConfidence;
@@ -957,7 +990,7 @@ ${sanitizeUserInput(userMessage.content)}
     let rerankedNonGraph: SearchResult[] = [];
     if (nonGraphChunks.length > 0) {
       const rerankedNGResults = intentAwareRerank(nonGraphChunks, intentResult);
-      const rerankNGResult = await rerank(userMessage.content, rerankedNGResults);
+      const rerankNGResult = await rerank(userMessage.content, rerankedNGResults, detectedEntityNames.length >= 2 ? detectedEntityNames : undefined);
       const filteredNG = filterByRelevance(rerankNGResult);
       rerankedNonGraph = filteredNG.results;
       lowConfidence = filteredNG.lowConfidence;
@@ -986,7 +1019,7 @@ ${sanitizeUserInput(userMessage.content)}
   } else {
     // Standard path: full reranking
     const rerankedResults = intentAwareRerank(combinedResults, intentResult);
-    const rerankResult = await rerank(userMessage.content, rerankedResults);
+    const rerankResult = await rerank(userMessage.content, rerankedResults, detectedEntityNames.length >= 2 ? detectedEntityNames : undefined);
     const filtered = filterByRelevance(rerankResult);
     relevantChunks = filtered.results;
     lowConfidence = filtered.lowConfidence;
