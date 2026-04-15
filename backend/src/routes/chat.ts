@@ -713,15 +713,30 @@ ${sanitizeUserInput(userMessage.content)}
     return { results: [] as SearchResult[], groupCount: 0, hasGraphResults: false };
   });
 
+  // Per-entity hybrid searches for comparative queries (deterministic path):
+  // Run a separate content-based search for EACH entity to ensure coverage
+  // regardless of filenames or knowledge graph linkage.
+  const perEntitySearchPromises = detectedEntityNames.length >= 2
+    ? detectedEntityNames.map((name) =>
+        hybridSearch(`${searchQuery} ${name}`, 10, searchHints).catch(() => [] as SearchResult[])
+      )
+    : [];
+
   const tSearch = Date.now();
-  const [sectionResults, docResults, catalogResults, contractorResults, graphSearchResult, ...variantResults] = await Promise.all([
+  const [sectionResults, docResults, catalogResults, contractorResults, graphSearchResult, ...variantAndEntityResults] = await Promise.all([
     sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
     docRef ? fetchChunksByDocument(docRef, docRef.filenameHints.length > 2 ? 15 : 8, userMessage.content) : Promise.resolve([]),
     catalogQuery ? fetchCatalogResults(catalogQuery) : Promise.resolve([]),
     contractorSearchPromise,
     graphSearchPromise,
     ...searchPromises,
+    ...perEntitySearchPromises,
   ]);
+
+  // Split variant results and per-entity results
+  const numVariantSearches = searchPromises.length;
+  const variantResults = variantAndEntityResults.slice(0, numVariantSearches) as SearchResult[][];
+  const perEntityResults = variantAndEntityResults.slice(numVariantSearches) as SearchResult[][];
 
   console.log(`[chat][timing] Main parallel search: ${Date.now() - tSearch}ms`);
 
@@ -811,6 +826,30 @@ ${sanitizeUserInput(userMessage.content)}
     for (const r of graphResults) graphChunkIdSet.add(r.id);
     combinedResults = [...boostedGraphResults, ...combinedResults];
     console.log(`[chat] Graph search added ${boostedGraphResults.length} new chunks (boosted to 0.75), ${graphGroupCount} groups`);
+  }
+
+  // Merge per-entity search results (for comparative queries)
+  if (perEntityResults.length > 0) {
+    let perEntityAdded = 0;
+    for (let i = 0; i < perEntityResults.length; i++) {
+      const entityName = detectedEntityNames[i] ?? `entity-${i}`;
+      const results = perEntityResults[i] ?? [];
+      let added = 0;
+      for (const r of results) {
+        if (!existingIds.has(r.id)) {
+          existingIds.add(r.id);
+          // Boost to ensure entity chunks survive filtering
+          const boosted = r.similarity >= 0.25
+            ? { ...r, similarity: Math.max(r.similarity, 0.75) }
+            : r;
+          combinedResults.push(boosted);
+          added++;
+          perEntityAdded++;
+        }
+      }
+      console.log(`[chat] Per-entity search "${entityName}": ${results.length} found, ${added} new`);
+    }
+    console.log(`[chat] Per-entity total: ${perEntityAdded} new chunks for ${detectedEntityNames.length} entities`);
   }
 
   // ── Intent-aware supplementary search ──
@@ -976,6 +1015,22 @@ ${sanitizeUserInput(userMessage.content)}
     }
   }
 
+  // ── Diagnostic: entity coverage before reranking ──
+  if (detectedEntityNames.length >= 2) {
+    const entityCoverage: Record<string, number> = {};
+    for (const name of detectedEntityNames) {
+      const nameLower = name.toLowerCase();
+      entityCoverage[name] = combinedResults.filter((r) => {
+        const fname = (r.source_filename ?? "").toLowerCase();
+        const content = r.content.toLowerCase().slice(0, 500);
+        return fname.includes(nameLower) || content.includes(nameLower);
+      }).length;
+    }
+    console.log(`[chat] Entity coverage BEFORE rerank:`, entityCoverage,
+      `total=${combinedResults.length}`,
+      `files=${[...new Set(combinedResults.map(r => r.source_filename))].join(", ")}`);
+  }
+
   // Rerank and filter
   const tRerank = Date.now();
   // For multi-entity comparative queries (e.g. "НТСК vs Кузбассэнерго"), bypass
@@ -995,9 +1050,21 @@ ${sanitizeUserInput(userMessage.content)}
     relevantChunks = sorted.slice(0, 15);
     lowConfidence = relevantChunks.length === 0 || relevantChunks[0].similarity < 0.35;
 
+    // Log entity coverage in final chunks
+    const finalEntityCoverage: Record<string, number> = {};
+    for (const name of detectedEntityNames) {
+      const nameLower = name.toLowerCase();
+      finalEntityCoverage[name] = relevantChunks.filter((r) => {
+        const fname = (r.source_filename ?? "").toLowerCase();
+        const content = r.content.toLowerCase().slice(0, 500);
+        return fname.includes(nameLower) || content.includes(nameLower);
+      }).length;
+    }
     console.log(
       `[chat] Reranker BYPASSED for multi-entity query: ${relevantChunks.length} chunks ` +
-      `(entities=${detectedEntityNames.join(",")}, graphGroups=${graphGroupCount})`
+      `(entities=${detectedEntityNames.join(",")}, graphGroups=${graphGroupCount})`,
+      `entityCoverage=`, finalEntityCoverage,
+      `files=${[...new Set(relevantChunks.map(r => r.source_filename))].join(", ")}`
     );
   } else {
     // Standard path: full reranking
