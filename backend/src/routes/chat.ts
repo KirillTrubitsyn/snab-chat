@@ -200,7 +200,28 @@ function sanitizeUserInput(input: string): string {
     .replace(/[\u200B-\u200F\u2028-\u202F\uFEFF\u00AD]/g, "");
 }
 
+const REQUEST_TIMEOUT_MS = 80_000; // 80s — must fire before frontend's 90s abort
+
 router.post("/api/chat", async (req: Request, res: Response) => {
+ // ── Request-level timeout: prevent indefinite hangs ──
+ let timedOut = false;
+ const requestTimer = setTimeout(() => {
+   timedOut = true;
+   console.error(`[chat][timeout] Request exceeded ${REQUEST_TIMEOUT_MS}ms — aborting`);
+   if (!res.headersSent) {
+     res.status(504).json({ error: "Запрос занял слишком много времени. Попробуйте ещё раз." });
+   } else {
+     // Streaming already started — send error token and close
+     try {
+       res.write(`0:${JSON.stringify("\n\n⚠️ Ответ был прерван из-за превышения времени ожидания.")}\n`);
+       const finish = JSON.stringify({ finishReason: "error", usage: { promptTokens: 0, completionTokens: 0 }, isContinued: false });
+       res.write(`e:${finish}\n`);
+       res.write(`d:${finish}\n`);
+     } catch { /* response already closed */ }
+     res.end();
+   }
+ }, REQUEST_TIMEOUT_MS);
+
  try {
   const invite = await getInviteCodeFromHeader(req);
   if (!invite) {
@@ -346,7 +367,10 @@ router.post("/api/chat", async (req: Request, res: Response) => {
   const catalogQuery = detectCatalogQuery(userMessage.content);
 
   // Phase 1: Run intent classification + non-search tasks in parallel
-  const [, contextResult, intentResult, offTopicResult] = await Promise.all([
+  // Off-topic classifier is fire-and-forget — it only logs for admin and must NOT
+  // block the critical path (saves 3-8s of LLM latency).
+  const t0 = Date.now();
+  const [, contextResult, intentResult] = await Promise.all([
     conversationId
       ? saveMessage(conversationId, "user", userMessage.content)
       : Promise.resolve(),
@@ -357,30 +381,32 @@ router.post("/api/chat", async (req: Request, res: Response) => {
         })
       : Promise.resolve(null),
     classifyIntent(searchQuery),
-    classifyOffTopic(userMessage.content, messages.slice(0, -1)),
   ]);
+  console.log(`[chat][timing] Phase 1 (intent+context): ${Date.now() - t0}ms`);
 
-  // Off-topic: notify admin via TG but DO NOT block the user — let the model answer
-  if (offTopicResult.isOffTopic && !isAdminCode(invite.code)) {
-    const supabase = createServiceClient();
-    const inviteCodeId = invite.id.startsWith("admin-") ? null : invite.id;
-    const categoryLabel = CATEGORY_LABELS[offTopicResult.category as OffTopicCategory] ?? offTopicResult.category;
-
-    console.log(`[OffTopic] Detected off-topic query (not blocking): "${userMessage.content.slice(0, 80)}" (${offTopicResult.category})`);
-
-    // Fire-and-forget: log + notify, don't await
-    Promise.all([
-      supabase.from("off_topic_queries").insert({
-        invite_code_id: inviteCodeId,
-        user_name: invite.name,
-        organization: invite.organization ?? null,
-        category: offTopicResult.category,
-        query_text: userMessage.content.slice(0, 5000),
-      }).then(({ error }) => {
-        if (error) console.error("[OffTopic] DB insert error:", error.message);
-      }),
-      notifyOffTopic(invite.name, userMessage.content, offTopicResult.category, categoryLabel, invite.organization),
-    ]).catch((e) => console.error("[OffTopic] notify error:", e));
+  // Off-topic: fire-and-forget — classify + notify admin, never block the response
+  if (!isAdminCode(invite.code)) {
+    classifyOffTopic(userMessage.content, messages.slice(0, -1))
+      .then((offTopicResult) => {
+        if (!offTopicResult.isOffTopic) return;
+        const supabase = createServiceClient();
+        const inviteCodeId = invite.id.startsWith("admin-") ? null : invite.id;
+        const categoryLabel = CATEGORY_LABELS[offTopicResult.category as OffTopicCategory] ?? offTopicResult.category;
+        console.log(`[OffTopic] Detected off-topic query: "${userMessage.content.slice(0, 80)}" (${offTopicResult.category})`);
+        Promise.all([
+          supabase.from("off_topic_queries").insert({
+            invite_code_id: inviteCodeId,
+            user_name: invite.name,
+            organization: invite.organization ?? null,
+            category: offTopicResult.category,
+            query_text: userMessage.content.slice(0, 5000),
+          }).then(({ error }) => {
+            if (error) console.error("[OffTopic] DB insert error:", error.message);
+          }),
+          notifyOffTopic(invite.name, userMessage.content, offTopicResult.category, categoryLabel, invite.organization),
+        ]).catch((e) => console.error("[OffTopic] notify error:", e));
+      })
+      .catch((e) => console.error("[OffTopic] classifier error (non-fatal):", e));
   }
 
   const contextMessages: { role: string; content: string }[] =
@@ -435,6 +461,8 @@ router.post("/api/chat", async (req: Request, res: Response) => {
       }
     }
   }
+
+  if (timedOut) return; // bail out early if timeout already fired
 
   // ── Determine retrieval strategy: agentic (complex) vs deterministic (simple) ──
   const useAgenticRag = isComplexQuery(userMessage.content, intentResult);
@@ -595,9 +623,10 @@ ${sanitizeUserInput(userMessage.content)}
 - Варианты запроса: ${intentResult.query_variants.join(" | ") || "нет"}`;
 
     try {
+      const tAgentic = Date.now();
       await runAgenticSearch(agenticCtx, agenticPrompt, 6);
 
-      console.log(`[chat] Agentic search complete: ${agenticCtx.searchCount} searches, ${agenticCtx.chunks.size} chunks collected`);
+      console.log(`[chat][timing] Agentic search: ${Date.now() - tAgentic}ms (${agenticCtx.searchCount} searches, ${agenticCtx.chunks.size} chunks)`);
 
       const filtered = await finalizeAgenticResults(agenticCtx, userMessage.content, preSeededEntities.length >= 2 ? preSeededEntities : undefined, intentResult);
       relevantChunks = filtered.results;
@@ -655,6 +684,7 @@ ${sanitizeUserInput(userMessage.content)}
     return { results: [] as SearchResult[], groupCount: 0, hasGraphResults: false };
   });
 
+  const tSearch = Date.now();
   const [sectionResults, docResults, catalogResults, contractorResults, graphSearchResult, ...variantResults] = await Promise.all([
     sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
     docRef ? fetchChunksByDocument(docRef, docRef.filenameHints.length > 2 ? 15 : 8, userMessage.content) : Promise.resolve([]),
@@ -663,6 +693,8 @@ ${sanitizeUserInput(userMessage.content)}
     graphSearchPromise,
     ...searchPromises,
   ]);
+
+  console.log(`[chat][timing] Main parallel search: ${Date.now() - tSearch}ms`);
 
   // Merge variant search results (dedup, keep highest similarity)
   const mergedSearch = new Map<string, SearchResult>();
@@ -753,7 +785,10 @@ ${sanitizeUserInput(userMessage.content)}
   }
 
   // ── Intent-aware supplementary search ──
+  // Capped at MAX_SUPPLEMENT_SEARCHES to prevent pipeline bloat and timeouts.
+  // Each hybridSearch involves an embedding API call + vector search — expensive.
   {
+    const MAX_SUPPLEMENT_SEARCHES = 5;
     const supplementSearches: Promise<SearchResult[]>[] = [];
 
     // Determine if the user's query has a clear regime preference
@@ -769,94 +804,67 @@ ${sanitizeUserInput(userMessage.content)}
     const countNon223 = combinedResults.filter((r) => r.tags.some((t) => t.toLowerCase() === "вне 223-фз")).length;
     const MIN_REGIME_CHUNKS = 3;
 
-    const regimeSearchQueries = [searchQuery];
-    if (intentResult.query_variants) {
-      const firstVariant = intentResult.query_variants.find((v) => v.length > 5 && v !== searchQuery);
-      if (firstVariant) regimeSearchQueries.push(firstVariant);
-    }
-
-    const addRegimeSearches = (tags: string[]) => {
-      for (const q of regimeSearchQueries) {
-        supplementSearches.push(hybridSearch(q, 10, tags));
-      }
-    };
-
+    // Use only the main query for regime searches (not variants — saves embedding calls)
     if (intentResult.fz_type === "223" && count223 === 0) {
-      addRegimeSearches(["223-фз"]);
+      supplementSearches.push(hybridSearch(searchQuery, 10, ["223-фз"]));
     } else if (intentResult.fz_type === "non-223" && countNon223 === 0) {
-      addRegimeSearches(["вне 223-фз"]);
+      supplementSearches.push(hybridSearch(searchQuery, 10, ["вне 223-фз"]));
     } else if (intentResult.fz_type === "both") {
-      if (count223 < MIN_REGIME_CHUNKS) addRegimeSearches(["223-фз"]);
-      if (countNon223 < MIN_REGIME_CHUNKS) addRegimeSearches(["вне 223-фз"]);
+      if (count223 < MIN_REGIME_CHUNKS) supplementSearches.push(hybridSearch(searchQuery, 10, ["223-фз"]));
+      if (countNon223 < MIN_REGIME_CHUNKS) supplementSearches.push(hybridSearch(searchQuery, 10, ["вне 223-фз"]));
     } else if (intentResult.fz_type === "unknown" && intentResult.confidence >= 0.4) {
-      // Only supplement missing regimes when intent is truly unknown —
-      // do NOT add the opposite regime if one is already dominant
       if (count223 === 0 && countNon223 === 0) {
-        addRegimeSearches(["223-фз"]);
-        addRegimeSearches(["вне 223-фз"]);
+        supplementSearches.push(hybridSearch(searchQuery, 10, ["223-фз"]));
+        supplementSearches.push(hybridSearch(searchQuery, 10, ["вне 223-фз"]));
       }
     }
 
     // 2. Intent-specific tag coverage
-    const intentTagMap: Record<string, string[]> = {
-      pricing: ["ценообразование"],
-      authority: ["матрица полномочий"],
-      regulation: ["законодательство"],
-      contract: ["договоры"],
-      system: ["инструкции"],
-    };
-    const intentTags = intentTagMap[intentResult.intent];
-    if (intentTags && intentResult.confidence >= 0.5) {
-      const hasIntentTag = combinedResults.some((r) =>
-        r.tags.some((t) => intentTags.includes(t.toLowerCase()))
-      );
-      if (!hasIntentTag) {
-        supplementSearches.push(hybridSearch(searchQuery, 10, intentTags));
+    if (supplementSearches.length < MAX_SUPPLEMENT_SEARCHES) {
+      const intentTagMap: Record<string, string[]> = {
+        pricing: ["ценообразование"],
+        authority: ["матрица полномочий"],
+        regulation: ["законодательство"],
+        contract: ["договоры"],
+        system: ["инструкции"],
+      };
+      const intentTags = intentTagMap[intentResult.intent];
+      if (intentTags && intentResult.confidence >= 0.5) {
+        const hasIntentTag = combinedResults.some((r) =>
+          r.tags.some((t) => intentTags.includes(t.toLowerCase()))
+        );
+        if (!hasIntentTag) {
+          supplementSearches.push(hybridSearch(searchQuery, 10, intentTags));
+        }
       }
     }
 
     // 2b. Training course coverage: for procedure/general/regulation questions,
     // ensure training materials are present — but respect regime filter
-    const trainingIntents = ["procedure", "general", "regulation", "authority", "pricing"];
-    if (trainingIntents.includes(intentResult.intent)) {
-      const trainingChunks = combinedResults.filter((r) =>
-        r.tags.some((t) => t.toLowerCase() === "обучение")
-      );
-
-      if (trainingChunks.length === 0) {
-        // No training at all — search with regime filter if strict, broadly otherwise
-        if (isStrictRegime && strictRegimeTag) {
-          supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение", strictRegimeTag]));
-        } else {
-          supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение"]));
-        }
-      }
-
-      // For comparative queries ONLY, ensure training from BOTH regimes
-      if (intentResult.fz_type === "both") {
-        const training223 = trainingChunks.some((r) =>
-          r.tags.some((t) => t.toLowerCase() === "223-фз") ||
-          r.source_filename.toLowerCase().includes("223")
+    if (supplementSearches.length < MAX_SUPPLEMENT_SEARCHES) {
+      const trainingIntents = ["procedure", "general", "regulation", "authority", "pricing"];
+      if (trainingIntents.includes(intentResult.intent)) {
+        const trainingChunks = combinedResults.filter((r) =>
+          r.tags.some((t) => t.toLowerCase() === "обучение")
         );
-        const trainingNon223 = trainingChunks.some((r) =>
-          r.tags.some((t) => t.toLowerCase() === "вне 223-фз") ||
-          r.source_filename.toLowerCase().includes("вне")
-        );
-        if (!training223) {
-          supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение", "223-фз"]));
-        }
-        if (!trainingNon223) {
-          supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение", "вне 223-фз"]));
+
+        if (trainingChunks.length === 0) {
+          if (isStrictRegime && strictRegimeTag) {
+            supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение", strictRegimeTag]));
+          } else {
+            supplementSearches.push(hybridSearch(searchQuery, 5, ["обучение"]));
+          }
         }
       }
     }
 
-    // 3. Use intent query_variants (broader semantic coverage)
-    // When regime is clear, filter variants by regime tag to avoid pulling in wrong-regime docs
-    if (intentResult.query_variants.length > 0) {
-      const variantTagFilter = isStrictRegime && strictRegimeTag ? [strictRegimeTag] : null;
-      for (const variant of intentResult.query_variants.slice(0, 2)) {
-        if (variant !== searchQuery && variant.length > 5) {
+    // 3. Query variant search — only if we have budget left AND few results so far
+    if (supplementSearches.length < MAX_SUPPLEMENT_SEARCHES && combinedResults.length < 10) {
+      if (intentResult.query_variants.length > 0) {
+        const variantTagFilter = isStrictRegime && strictRegimeTag ? [strictRegimeTag] : null;
+        // Only use 1 variant (instead of 2) to reduce embedding calls
+        const variant = intentResult.query_variants.find((v) => v.length > 5 && v !== searchQuery);
+        if (variant) {
           supplementSearches.push(hybridSearch(variant, 10, variantTagFilter));
         }
       }
@@ -864,8 +872,7 @@ ${sanitizeUserInput(userMessage.content)}
 
     // 3b. Contractor card fallback: if intent is NOT entity_lookup but query mentions
     //      work/service types, run contractor card search as supplementary
-    //      (catches cases like "услуги такси компании" misclassified as procedure)
-    if (intentResult.intent !== "entity_lookup") {
+    if (supplementSearches.length < MAX_SUPPLEMENT_SEARCHES && intentResult.intent !== "entity_lookup") {
       const WORK_SERVICE_PATTERNS = /услуги\s+\S+|работы\s+\S+|монтаж|демонтаж|ремонт|обслуживани|поставк[аиу]|такси|клининг|охран[аыу]|уборк|перевозк|транспорт|строительств/i;
       if (WORK_SERVICE_PATTERNS.test(userMessage.content)) {
         console.log("[chat] Work/service pattern detected in non-entity_lookup query, adding contractor card search");
@@ -874,13 +881,14 @@ ${sanitizeUserInput(userMessage.content)}
     }
 
     // 4. Source diversity check: if all results come from ≤2 sources, broaden search
-    const uniqueSources = new Set(combinedResults.map((r) => r.source_filename));
-    if (uniqueSources.size <= 2 && combinedResults.length >= 5 && intentResult.search_tags.length > 0) {
-      supplementSearches.push(hybridSearch(searchQuery, 10, intentResult.search_tags));
+    if (supplementSearches.length < MAX_SUPPLEMENT_SEARCHES) {
+      const uniqueSources = new Set(combinedResults.map((r) => r.source_filename));
+      if (uniqueSources.size <= 2 && combinedResults.length >= 5 && intentResult.search_tags.length > 0) {
+        supplementSearches.push(hybridSearch(searchQuery, 10, intentResult.search_tags));
+      }
     }
 
-    // 5. Organization registry: fetch "Перечень компаний Общества" when query mentions SGK entities
-    //    Handled separately (not in supplementSearches) so we can boost results like doc/catalog lookups.
+    // 5. Organization registry: include in the parallel batch (was previously sequential)
     const mentionsOrg = ORG_MENTION_PATTERNS.some((p) => p.test(userMessage.content));
     if (mentionsOrg) {
       const hasRegistryAlready = combinedResults.some((r) =>
@@ -888,41 +896,37 @@ ${sanitizeUserInput(userMessage.content)}
         r.source_filename.toLowerCase().includes("перечень компаний")
       );
       if (!hasRegistryAlready) {
-        try {
-          const orgRegResults = await fetchChunksByDocument(
+        supplementSearches.push(
+          fetchChunksByDocument(
             { filenameHints: ["Перечень_компаний", "Перечень компаний"] },
             4,
             userMessage.content
-          );
-          const boostedOrgResults = orgRegResults
-            .filter((r) => !existingIds.has(r.id))
-            .map((r) => ({
-              ...r,
-              similarity: r.similarity >= 0.25 ? Math.max(r.similarity, 0.80) : r.similarity,
-            }));
-          for (const r of boostedOrgResults) existingIds.add(r.id);
-          combinedResults = [...boostedOrgResults, ...combinedResults];
-          if (boostedOrgResults.length > 0) {
-            console.log(`[chat] Org registry added ${boostedOrgResults.length} boosted chunks (Перечень компаний Общества)`);
-          }
-        } catch (orgErr) {
-          console.error("[chat] Org registry fetch failed (non-fatal):", orgErr);
-        }
+          ).catch((orgErr) => {
+            console.error("[chat] Org registry fetch failed (non-fatal):", orgErr);
+            return [] as SearchResult[];
+          })
+        );
       }
     }
 
     if (supplementSearches.length > 0) {
+      const tSupp = Date.now();
       const allSupplementary = await Promise.all(supplementSearches);
       let addedCount = 0;
       for (const results of allSupplementary) {
         const newResults = results.filter((r) => !existingIds.has(r.id));
-        for (const r of newResults) existingIds.add(r.id);
-        combinedResults = [...combinedResults, ...newResults];
+        for (const r of newResults) {
+          existingIds.add(r.id);
+          // Boost org registry chunks if present
+          if (mentionsOrg && (r.source_filename.toLowerCase().includes("перечень_компаний") || r.source_filename.toLowerCase().includes("перечень компаний"))) {
+            combinedResults.unshift(r.similarity >= 0.25 ? { ...r, similarity: Math.max(r.similarity, 0.80) } : r);
+          } else {
+            combinedResults.push(r);
+          }
+        }
         addedCount += newResults.length;
       }
-      if (addedCount > 0) {
-        console.log(`[chat] Intent supplementary search added ${addedCount} new chunks from ${supplementSearches.length} queries`);
-      }
+      console.log(`[chat][timing] Supplementary searches (${supplementSearches.length} queries): ${Date.now() - tSupp}ms, added ${addedCount} chunks`);
     }
 
     // Post-filter: when regime is strictly determined, remove opposite-regime chunks
@@ -944,6 +948,7 @@ ${sanitizeUserInput(userMessage.content)}
   }
 
   // Rerank and filter
+  const tRerank = Date.now();
   // When graph search found multiple named entity groups (comparative queries like
   // "СГК-Алтай vs НТСК"), bypass the Gemini LLM reranker for graph chunks.
   // The reranker reassigns scores generically and destroys the balanced per-group
@@ -990,6 +995,8 @@ ${sanitizeUserInput(userMessage.content)}
     relevantChunks = filtered.results;
     lowConfidence = filtered.lowConfidence;
   }
+
+  console.log(`[chat][timing] Rerank+filter: ${Date.now() - tRerank}ms → ${relevantChunks.length} chunks`);
 
   } // end deterministic path
 
@@ -1563,19 +1570,27 @@ ${uploadedDocsContext}`;
     res.setHeader("X-Chunk-Images", encodeURIComponent(JSON.stringify(chunkImageUrls)));
   }
 
+  console.log(`[chat][timing] Total pre-generation pipeline: ${Date.now() - t0}ms`);
+
+  if (timedOut) return; // timeout handler already sent the response
+
   let fullText = "";
   try {
     for await (const chunk of genaiStream) {
+      if (timedOut) break; // stop reading if request timed out
       const text = chunk.text ?? "";
       if (text) {
         fullText += text;
         res.write(`0:${JSON.stringify(text)}\n`);
       }
     }
+    if (timedOut) return;
+    clearTimeout(requestTimer);
     const finish = JSON.stringify({ finishReason: "stop", usage: { promptTokens: 0, completionTokens: 0 }, isContinued: false });
     res.write(`e:${finish}\n`);
     res.write(`d:${finish}\n`);
     res.end();
+    console.log(`[chat][timing] Total request: ${Date.now() - t0}ms`);
 
     // Fire-and-forget: NOW RELIABLE on Railway (persistent process)
     if (conversationId) {
@@ -1589,6 +1604,8 @@ ${uploadedDocsContext}`;
       ).catch((e) => console.error("[chat] Failed to save assistant message:", e));
     }
   } catch (err) {
+    clearTimeout(requestTimer);
+    if (timedOut) return;
     console.error("[chat] Generation stream error:", err);
     // R2 fix: never expose internal error details to client via streaming
     console.error("[chat] Stream error detail:", err instanceof Error ? err.message : String(err));
@@ -1598,6 +1615,8 @@ ${uploadedDocsContext}`;
     res.end();
   }
  } catch (e) {
+    clearTimeout(requestTimer);
+    if (timedOut) return;
     const errMsg = e instanceof Error ? e.message : String(e);
     logError({
       type: "chat",
