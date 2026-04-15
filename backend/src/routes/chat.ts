@@ -978,43 +978,26 @@ ${sanitizeUserInput(userMessage.content)}
 
   // Rerank and filter
   const tRerank = Date.now();
-  // When graph search found multiple named entity groups (comparative queries like
-  // "СГК-Алтай vs НТСК"), bypass the Gemini LLM reranker for graph chunks.
-  // The reranker reassigns scores generically and destroys the balanced per-group
-  // distribution that graphAwareSearch carefully built.
-  if (graphGroupCount >= 2 && graphChunkIdSet.size > 0) {
-    // Split: graph chunks skip reranker, non-graph chunks go through reranker
-    const graphChunks = combinedResults.filter((r) => graphChunkIdSet.has(r.id));
-    const nonGraphChunks = combinedResults.filter((r) => !graphChunkIdSet.has(r.id));
+  // For multi-entity comparative queries (e.g. "НТСК vs Кузбассэнерго"), bypass
+  // the LLM reranker entirely. The reranker suppresses chunks it considers
+  // "about another organization" — even with the multi-entity hint it still
+  // destroys the balanced per-entity distribution built by graph search and
+  // per-entity hybrid searches. Use only intent-aware tier reranking (no LLM).
+  const bypassReranker = detectedEntityNames.length >= 2 ||
+    (graphGroupCount >= 2 && graphChunkIdSet.size > 0);
 
-    let rerankedNonGraph: SearchResult[] = [];
-    if (nonGraphChunks.length > 0) {
-      const rerankedNGResults = intentAwareRerank(nonGraphChunks, intentResult);
-      const rerankNGResult = await rerank(userMessage.content, rerankedNGResults, detectedEntityNames.length >= 2 ? detectedEntityNames : undefined);
-      const filteredNG = filterByRelevance(rerankNGResult);
-      rerankedNonGraph = filteredNG.results;
-      lowConfidence = filteredNG.lowConfidence;
-    }
+  if (bypassReranker) {
+    // Apply only lightweight intent-aware reranking (tier weights + FZ boost),
+    // skip the destructive LLM cross-encoder reranker
+    const intentReranked = intentAwareRerank(combinedResults, intentResult);
+    const sorted = intentReranked.sort((a, b) => b.similarity - a.similarity);
 
-    // Take top graph chunks (already sorted by similarity from graphAwareSearch)
-    const MAX_GRAPH_CHUNKS = 10;
-    const topGraph = graphChunks
-      .sort((a, b) => b.similarity - a.similarity)
-      .slice(0, MAX_GRAPH_CHUNKS);
-
-    // Merge: graph first, then reranked non-graph (dedup)
-    const seen = new Set(topGraph.map((r) => r.id));
-    const mergedFinal = [...topGraph];
-    for (const r of rerankedNonGraph) {
-      if (!seen.has(r.id)) {
-        seen.add(r.id);
-        mergedFinal.push(r);
-      }
-    }
-    relevantChunks = mergedFinal.slice(0, 15);
+    relevantChunks = sorted.slice(0, 15);
+    lowConfidence = relevantChunks.length === 0 || relevantChunks[0].similarity < 0.35;
 
     console.log(
-      `[chat] Graph bypass reranker: ${topGraph.length} graph + ${rerankedNonGraph.length} reranked = ${relevantChunks.length} total`
+      `[chat] Reranker BYPASSED for multi-entity query: ${relevantChunks.length} chunks ` +
+      `(entities=${detectedEntityNames.join(",")}, graphGroups=${graphGroupCount})`
     );
   } else {
     // Standard path: full reranking
