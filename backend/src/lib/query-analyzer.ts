@@ -136,31 +136,32 @@ export function detectDocumentReference(query: string): DocumentReference | null
 
   // 3. Detect ALL entity/organization mentions (collect every match, no break)
   // This handles both "положение о закупках ЕТГК" and bare "ЕТГК, Кузбассэнерго и НТСК"
-  const entityPatterns: Array<{ re: RegExp; hint: string }> = [
-    { re: /\bнмгрэс\b/i, hint: "нмгрэс" },
-    { re: /\bнак[\-\s]*азот\b/i, hint: "нак" },
-    { re: /\bновомосковск/i, hint: "нмгрэс" },
-    { re: /\bсгк[\-\s]*новосибирск\b/i, hint: "новосибирск" },
-    { re: /\bновосибирск/i, hint: "новосибирск" },
-    { re: /\bсгк[\-\s]*алтай\b/i, hint: "алтай" },
-    { re: /\bбарнаул/i, hint: "алтай" },
-    { re: /\bенисейск\S*\s+тгк\b/i, hint: "енисей" },
-    { re: /\bетгк\b/i, hint: "етгк" },
-    { re: /\bкузбассэнерго\b/i, hint: "кузбасс" },
-    { re: /\bкэ\b(?!\s*-?\s*\d)/i, hint: "кузбасс" },
-    { re: /\bкемеров/i, hint: "кузбасс" },
-    { re: /\bсибэм\b/i, hint: "сибэм" },
-    { re: /\bнтск\b/i, hint: "нтск" },
-    { re: /\bкрасноярск/i, hint: "енисей" },
+  // Each entity maps to multiple filename hints (full name + abbreviation used in document codes)
+  const entityPatterns: Array<{ re: RegExp; hints: string[] }> = [
+    { re: /\bнмгрэс\b/i, hints: ["нмгрэс"] },
+    { re: /\bнак[\-\s]*азот\b/i, hints: ["нак"] },
+    { re: /\bновомосковск/i, hints: ["нмгрэс"] },
+    { re: /\bсгк[\-\s]*новосибирск\b/i, hints: ["новосибирск", "СГК-Н"] },
+    { re: /\bновосибирск/i, hints: ["новосибирск", "СГК-Н"] },
+    { re: /\bсгк[\-\s]*алтай\b/i, hints: ["алтай", "СГК-А"] },
+    { re: /\bбарнаул/i, hints: ["алтай", "СГК-А"] },
+    { re: /\bенисейск\S*\s+тгк\b/i, hints: ["енисей", "ЕТГК"] },
+    { re: /\bетгк\b/i, hints: ["етгк", "енисей"] },
+    { re: /\bкузбассэнерго\b/i, hints: ["кузбасс", "КЭ"] },
+    { re: /\bкэ\b(?!\s*-?\s*\d)/i, hints: ["кузбасс", "КЭ"] },
+    { re: /\bкемеров/i, hints: ["кузбасс", "КЭ"] },
+    { re: /\bсибэм\b/i, hints: ["сибэм"] },
+    { re: /\bнтск\b/i, hints: ["нтск", "НТСК"] },
+    { re: /\bкрасноярск/i, hints: ["енисей", "ЕТГК"] },
   ];
 
-  const foundEntities = new Set<string>();
+  const foundHints = new Set<string>();
   for (const ep of entityPatterns) {
     if (ep.re.test(lower)) {
-      foundEntities.add(ep.hint);
+      for (const h of ep.hints) foundHints.add(h);
     }
   }
-  for (const h of foundEntities) hints.push(h);
+  for (const h of foundHints) hints.push(h);
 
   // 4. Generic document type + any distinguishing words
   // "положение о закупках ред 15" → ["положен", "ред_15" or "ред 15"]
@@ -173,7 +174,7 @@ export function detectDocumentReference(query: string): DocumentReference | null
   if (hints.length === 0) return null;
 
   // 5. Extract document type hint for targeted search when entities are present
-  const docTypeHint = foundEntities.size > 0 ? extractDocumentHint(lower) : undefined;
+  const docTypeHint = foundHints.size > 0 ? extractDocumentHint(lower) : undefined;
 
   return { filenameHints: hints, documentTypeHint: docTypeHint ?? undefined };
 }
