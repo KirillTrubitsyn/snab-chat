@@ -316,9 +316,13 @@ export async function finalizeAgenticResults(
   }
 
   // Apply intent-aware reranking (FZ-type boost/penalty + intent tag boost + tier weights)
-  // before cross-encoder reranking — same pipeline as deterministic path
   const intentReranked = intent ? intentAwareRerank(allChunks, intent) : allChunks;
-  const reranked = await rerank(query, intentReranked, entityNames);
+
+  // For multi-entity queries, SKIP the LLM reranker — it suppresses chunks
+  // it considers "about another organization" and destroys entity balance.
+  const reranked = (entityNames && entityNames.length >= 2)
+    ? intentReranked
+    : await rerank(query, intentReranked, entityNames);
 
   // ── Entity-balanced selection for multi-entity queries ──
   // Without balancing, one entity can dominate the top-N results,
