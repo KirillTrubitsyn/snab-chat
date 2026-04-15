@@ -527,22 +527,22 @@ export default function HelpPage() {
         {/* Quick nav pills */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 28 }}>
           {sections.map((s) => (
-            <a
+            <button
               key={s.id}
-              href={`#${s.id}`}
-              onClick={(e) => {
-                e.preventDefault();
+              onClick={() => {
                 document.getElementById(s.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
               style={{
+                display: "inline-flex", alignItems: "center",
                 fontSize: 12, fontWeight: 600, color: "#374151",
                 background: "#fff", border: "1px solid #E5E7EB",
-                borderRadius: 20, padding: "5px 12px", textDecoration: "none",
+                borderRadius: 20, padding: "5px 12px",
                 cursor: "pointer", transition: "border-color 0.15s",
+                fontFamily: "inherit", lineHeight: 1.4,
               }}
             >
               {s.title.split("—")[0].trim()}
-            </a>
+            </button>
           ))}
         </div>
 
