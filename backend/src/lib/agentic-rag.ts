@@ -306,7 +306,8 @@ export async function finalizeAgenticResults(
   ctx: AgenticContext,
   query: string,
   entityHints?: string[],
-  intent?: IntentResult
+  intent?: IntentResult,
+  entityNames?: string[]
 ): Promise<{ results: SearchResult[]; lowConfidence: boolean }> {
   const allChunks = Array.from(ctx.chunks.values());
 
@@ -317,7 +318,7 @@ export async function finalizeAgenticResults(
   // Apply intent-aware reranking (FZ-type boost/penalty + intent tag boost + tier weights)
   // before cross-encoder reranking — same pipeline as deterministic path
   const intentReranked = intent ? intentAwareRerank(allChunks, intent) : allChunks;
-  const reranked = await rerank(query, intentReranked);
+  const reranked = await rerank(query, intentReranked, entityNames);
 
   // ── Entity-balanced selection for multi-entity queries ──
   // Without balancing, one entity can dominate the top-N results,
