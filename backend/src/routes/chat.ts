@@ -514,13 +514,24 @@ router.post("/api/chat", async (req: Request, res: Response) => {
 
     // ── Pre-seed: per-entity hybrid searches for comparative queries ──
     // When multiple entities are detected, run a separate content-based search
-    // for each entity. This catches documents even when their filenames
-    // don't match entity hints (e.g., "С-КЭ-В5-01" for Кузбассэнерго).
+    // for each entity. Key: remove other entity names from the query so
+    // the embedding focuses on one entity at a time.
     if (detectedEntityNames.length >= 2) {
       try {
+        // Extract core topic by stripping all entity names + comparison words
+        let agenticCoreTopic = userMessage.content;
+        for (const n of detectedEntityNames) {
+          agenticCoreTopic = agenticCoreTopic.replace(new RegExp(n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "");
+        }
+        agenticCoreTopic = agenticCoreTopic
+          .replace(/\b(сравни|сравнение|отличия|разница|различия|между|чем|отличается)\b/gi, "")
+          .replace(/\s{2,}/g, " ")
+          .trim();
+        if (agenticCoreTopic.length < 5) agenticCoreTopic = "закупки";
+
         const entitySearches = detectedEntityNames.map(async (name) => {
-          const entityQuery = `${userMessage.content} ${name}`;
-          const results = await hybridSearch(entityQuery, 8, searchHints);
+          const entityQuery = `${agenticCoreTopic} ${name}`;
+          const results = await hybridSearch(entityQuery, 8, null);
           return { name, results };
         });
         const entityResults = await Promise.all(entitySearches);
@@ -716,11 +727,27 @@ ${sanitizeUserInput(userMessage.content)}
   // Per-entity hybrid searches for comparative queries (deterministic path):
   // Run a separate content-based search for EACH entity to ensure coverage
   // regardless of filenames or knowledge graph linkage.
-  const perEntitySearchPromises = detectedEntityNames.length >= 2
-    ? detectedEntityNames.map((name) =>
-        hybridSearch(`${searchQuery} ${name}`, 10, searchHints).catch(() => [] as SearchResult[])
-      )
-    : [];
+  // Key: remove OTHER entity names from the query so the embedding focuses
+  // on one entity at a time (otherwise embedding is mixed and biased).
+  let perEntitySearchPromises: Promise<SearchResult[]>[] = [];
+  if (detectedEntityNames.length >= 2) {
+    // Extract core topic by stripping all entity names + comparison words
+    let coreTopic = userMessage.content;
+    for (const name of detectedEntityNames) {
+      coreTopic = coreTopic.replace(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "");
+    }
+    coreTopic = coreTopic
+      .replace(/\b(сравни|сравнение|отличия|разница|различия|между|чем|отличается)\b/gi, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    if (coreTopic.length < 5) coreTopic = "закупки";
+
+    console.log(`[chat] Per-entity core topic: "${coreTopic}", entities: ${detectedEntityNames.join(", ")}`);
+
+    perEntitySearchPromises = detectedEntityNames.map((name) =>
+      hybridSearch(`${coreTopic} ${name}`, 10, null).catch(() => [] as SearchResult[])
+    );
+  }
 
   const tSearch = Date.now();
   const [sectionResults, docResults, catalogResults, contractorResults, graphSearchResult, ...variantAndEntityResults] = await Promise.all([
