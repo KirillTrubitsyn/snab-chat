@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { createServiceClient } from "../lib/supabase.js";
 import { getInviteCodeFromHeader, isAdminCode } from "../lib/auth.js";
+import { logAuditEvent } from "../lib/audit-log.js";
 import {
   unauthorizedResponse,
   serverError,
@@ -226,6 +227,7 @@ router.delete("/api/conversations", async (req: Request, res: Response) => {
             console.error("DB error:", error.message);
             return serverError(res);
           }
+          logAuditEvent({ action: "conversations.delete", adminName: invite.name, details: { type: "delete_all", count: ownedIds.length } });
         }
       } else {
         // Обычный пользователь удаляет только свои диалоги
@@ -250,6 +252,7 @@ router.delete("/api/conversations", async (req: Request, res: Response) => {
             console.error("DB error:", error.message);
             return serverError(res);
           }
+          logAuditEvent({ action: "conversations.delete", adminName: invite.name, details: { type: "delete_all_user", count: ownedIds.length } });
         }
       }
       return ok(res);
@@ -289,6 +292,7 @@ router.delete("/api/conversations", async (req: Request, res: Response) => {
           console.error("DB error:", error.message);
           return serverError(res);
         }
+        logAuditEvent({ action: "conversations.delete", adminName: invite.name, details: { type: "bulk", count: idsToDelete.length } });
         return ok(res);
       }
 
@@ -320,6 +324,7 @@ router.delete("/api/conversations", async (req: Request, res: Response) => {
       return serverError(res);
     }
 
+    logAuditEvent({ action: "conversations.delete", adminName: invite.name, targetId: id });
     return res.json({ ok: true });
   } catch (err) {
     console.error("[conversations] DELETE error:", err);

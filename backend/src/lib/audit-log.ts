@@ -5,6 +5,7 @@ export type AuditAction =
   | "invite_code.update"
   | "invite_code.delete"
   | "source.delete"
+  | "source.update"
   | "source.ingest"
   | "support.reply"
   | "support.delete"
