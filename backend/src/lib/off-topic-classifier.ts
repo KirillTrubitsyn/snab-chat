@@ -5,7 +5,7 @@
  *
  * Работает "тихо" — не блокирует запросы, только логирует для администратора.
  */
-import { google } from "./google-ai";
+import { google, withGoogleApiLimit } from "./google-ai";
 import { generateText } from "ai";
 
 export type OffTopicCategory =
@@ -271,13 +271,13 @@ export async function classifyOffTopic(
   }
 
   try {
-    const { text } = await generateText({
+    const { text } = await withGoogleApiLimit(() => generateText({
       model: google("gemini-3.1-flash-lite-preview"),
       system: CLASSIFIER_PROMPT,
       prompt: userPrompt,
       maxOutputTokens: 20,
       temperature: 0,
-    });
+    }));
 
     const result = text.trim().toLowerCase().replace(/[^a-z_]/g, "");
     console.log(`[OffTopic] Query: "${userMessage.slice(0, 80)}" → LLM raw: "${text.trim()}", parsed: "${result}"`);
