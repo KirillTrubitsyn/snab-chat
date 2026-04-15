@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { createServiceClient } from "../lib/supabase.js";
 import { getInviteCodeFromHeader, isAdminCode, requireAdmin, requireDocumentAdmin, requireAuth } from "../lib/auth.js";
+import { logAuditEvent } from "../lib/audit-log.js";
 import multer from "multer";
 
 const router = Router();
@@ -105,6 +106,7 @@ router.patch("/api/sources", async (req: Request, res: Response) => {
 
     const { error } = await supabase.from("sources").update(updates).eq("id", id);
     if (error) { console.error("[sources] DB error:", error.message); return res.status(500).json({ error: "Internal error" }); }
+    logAuditEvent({ action: "source.update", adminName: adminCheck.adminName, targetId: id, details: { updatedFields: Object.keys(updates) } });
     return res.json({ ok: true });
   } catch (err) {
     console.error("[sources] PATCH error:", err);
@@ -122,26 +124,45 @@ router.delete("/api/sources", async (req: Request, res: Response) => {
     const supabase = createServiceClient();
 
     if (id) {
-      // Single delete
-      await supabase.from("chunks").delete().eq("source_filename",
-        (await supabase.from("sources").select("filename").eq("id", id).single()).data?.filename
-      );
+      // Single delete — fetch metadata before deletion for audit + storage cleanup
+      const { data: source } = await supabase.from("sources").select("filename, storage_path").eq("id", id).single();
+      if (source?.filename) {
+        await supabase.from("chunks").delete().eq("source_filename", source.filename);
+      }
       const { error } = await supabase.from("sources").delete().eq("id", id);
       if (error) { console.error("[sources] DB error:", error.message); return res.status(500).json({ error: "Internal error" }); }
+
+      // Remove file from Supabase Storage
+      if (source?.storage_path) {
+        const { error: storageErr } = await supabase.storage.from("documents").remove([source.storage_path]);
+        if (storageErr) console.error("[sources] Storage cleanup error:", storageErr.message);
+      }
+
+      logAuditEvent({ action: "source.delete", adminName: docAdmin.adminName, targetId: id, details: { filename: source?.filename ?? null } });
       return res.json({ ok: true });
     }
 
     // Bulk delete from body
     const { ids } = req.body || {};
     if (Array.isArray(ids) && ids.length > 0) {
-      const { data: sources } = await supabase.from("sources").select("id, filename").in("id", ids);
+      const { data: sources } = await supabase.from("sources").select("id, filename, storage_path").in("id", ids);
       if (sources) {
         const filenames = sources.map((s: { filename: string }) => s.filename);
         if (filenames.length > 0) {
           await supabase.from("chunks").delete().in("source_filename", filenames);
         }
         await supabase.from("sources").delete().in("id", ids);
+
+        // Remove files from Supabase Storage
+        const storagePaths = sources
+          .map((s: { storage_path?: string }) => s.storage_path)
+          .filter((p): p is string => !!p);
+        if (storagePaths.length > 0) {
+          const { error: storageErr } = await supabase.storage.from("documents").remove(storagePaths);
+          if (storageErr) console.error("[sources] Storage bulk cleanup error:", storageErr.message);
+        }
       }
+      logAuditEvent({ action: "source.delete", adminName: docAdmin.adminName, details: { ids, count: ids.length } });
       return res.json({ ok: true, deleted: ids.length });
     }
 

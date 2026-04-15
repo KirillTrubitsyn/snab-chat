@@ -372,12 +372,38 @@ router.delete("/api/admin/activity", async (req: Request, res: Response) => {
       const ids = idsParam.split(",").filter(Boolean);
       if (ids.length === 0) return res.json({ deleted: 0 });
 
-      const { error } = await supabase.from("messages").delete().in("id", ids);
+      // Verify admin owns the conversations these messages belong to
+      const { data: msgs } = await supabase
+        .from("messages")
+        .select("id, conversation_id")
+        .in("id", ids);
+
+      if (!msgs || msgs.length === 0) return res.json({ deleted: 0 });
+
+      const convIds = [...new Set(msgs.map((m: { conversation_id: string }) => m.conversation_id))];
+      const { data: convs } = await supabase
+        .from("conversations")
+        .select("id, admin_name")
+        .in("id", convIds);
+
+      const ownedConvIds = new Set(
+        (convs || [])
+          .filter((c: { admin_name: string | null }) => c.admin_name === admin.adminName)
+          .map((c: { id: string }) => c.id)
+      );
+      const allowedIds = msgs
+        .filter((m: { conversation_id: string }) => ownedConvIds.has(m.conversation_id))
+        .map((m: { id: string }) => m.id);
+
+      if (allowedIds.length === 0) return res.status(403).json({ error: "Нет прав на удаление этих сообщений" });
+
+      const { error } = await supabase.from("messages").delete().in("id", allowedIds);
       if (error) {
         console.error("DB error:", error.message);
         return res.status(500).json({ error: "Внутренняя ошибка сервера" });
       }
-      return res.json({ deleted: ids.length });
+      logAuditEvent({ action: "messages.delete", adminName: admin.adminName, details: { ids: allowedIds, count: allowedIds.length } });
+      return res.json({ deleted: allowedIds.length });
     }
 
     // ── Delete orphaned conversations (explicit type=orphaned required) ──
@@ -416,6 +442,7 @@ router.delete("/api/admin/activity", async (req: Request, res: Response) => {
       return res.status(500).json({ error: "Внутренняя ошибка сервера" });
     }
 
+    logAuditEvent({ action: "conversations.delete", adminName: admin.adminName, details: { type: "orphaned", count: orphanedIds.length } });
     return res.json({ deleted: orphanedIds.length });
   } catch (err) {
     console.error("DELETE /api/admin/activity error:", err);

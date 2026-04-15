@@ -1,3 +1,4 @@
+import "server-only";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 function getEnvOrThrow(name: string): string {
