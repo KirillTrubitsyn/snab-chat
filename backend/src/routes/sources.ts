@@ -269,7 +269,14 @@ router.get("/api/sources/download", async (req: Request, res: Response) => {
       res.setHeader("Content-Type", mimeType);
       res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(source.filename)}`);
       res.removeHeader("X-Frame-Options");
-      res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'self'; frame-ancestors 'self' https://*.snabchat.app https://*.vercel.app");
+      // L-A fix: SAFE_INLINE_TYPES содержит только PDF, изображения и text/plain —
+      // ни один из этих форматов не требует 'unsafe-inline' для script-src или style-src.
+      // Убираем 'unsafe-inline' полностью: default-src 'none' + object-src 'self' достаточно
+      // для нативного рендера PDF и изображений в iframe.
+      res.setHeader(
+        "Content-Security-Policy",
+        "default-src 'none'; object-src 'self'; img-src 'self' data:; frame-ancestors 'self' https://*.snabchat.app https://*.vercel.app"
+      );
     }
     return res.send(buffer);
   } catch (err) {
