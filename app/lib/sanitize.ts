@@ -1,10 +1,38 @@
 import DOMPurify from "isomorphic-dompurify";
 
 /**
+ * M-E fix: хук afterSanitizeAttributes, принудительно ставящий безопасные атрибуты
+ * на все внешние ссылки. Вызывается один раз при первой загрузке модуля.
+ */
+let _hookInstalled = false;
+function ensureHook(): void {
+  if (_hookInstalled) return;
+  DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+    // Любая ссылка с target получает rel="noopener noreferrer" для защиты от tabnabbing
+    if (node.nodeName === "A" && node instanceof Element) {
+      const target = node.getAttribute("target");
+      if (target) {
+        node.setAttribute("rel", "noopener noreferrer");
+      }
+      // javascript:-ссылки уже режет DOMPurify по умолчанию, но дополнительно проверяем href
+      const href = node.getAttribute("href") ?? "";
+      if (/^\s*javascript:/i.test(href)) {
+        node.removeAttribute("href");
+      }
+    }
+  });
+  _hookInstalled = true;
+}
+
+/**
  * Санитизирует HTML-строку, удаляя потенциально опасные теги и атрибуты.
  * Используется для рендера пользовательского/внешнего HTML через dangerouslySetInnerHTML.
+ *
+ * M-E: из ALLOWED_ATTR убран "style" (рендер стилизуется классами; style допускал CSS-инъекции
+ * через url()/expression() в устаревших движках и визуальное маскирование для фишинга).
  */
 export function sanitizeHtml(html: string): string {
+  ensureHook();
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
       "h1", "h2", "h3", "h4", "h5", "h6",
@@ -18,7 +46,7 @@ export function sanitizeHtml(html: string): string {
     ],
     ALLOWED_ATTR: [
       "href", "src", "alt", "title", "class", "id",
-      "colspan", "rowspan", "width", "height", "style",
+      "colspan", "rowspan", "width", "height",
       "target", "rel",
     ],
     ALLOW_DATA_ATTR: false,
