@@ -1599,12 +1599,17 @@ ${uploadedDocsContext}`;
   const modelMessages: ModelMessage[] = [];
 
   // Add context messages (V14+V21: sanitize both user and assistant messages to prevent stored prompt injection)
+  // V25: skip consecutive same-role messages — they arise when a request fails after saveMessage
+  // completes but before generation succeeds (race: saveMessage || loadConversationContext).
+  // On retry the duplicate user message ends up in the DB context; sending two consecutive
+  // user turns to the Gemini API causes an InvalidArgument error → outer catch → 500.
   const ctxMsgs = contextMessages.filter((m) => m.role !== "system");
   if (ctxMsgs.length > 0) {
     for (const m of ctxMsgs) {
-      if (m.role === "user") {
+      const lastRole = modelMessages.length > 0 ? modelMessages[modelMessages.length - 1].role : null;
+      if (m.role === "user" && lastRole !== "user") {
         modelMessages.push({ role: "user" as const, content: sanitizeUserInput(m.content as string) });
-      } else if (m.role === "assistant") {
+      } else if (m.role === "assistant" && lastRole !== "assistant") {
         modelMessages.push({ role: "assistant" as const, content: sanitizeUserInput(m.content as string) });
       }
     }
@@ -1612,9 +1617,10 @@ ${uploadedDocsContext}`;
     // Use messages from request (excluding last, we'll add it with images)
     for (let k = 0; k < messages.length - 1; k++) {
       const msg = messages[k];
-      if (msg.role === "user") {
+      const lastRole = modelMessages.length > 0 ? modelMessages[modelMessages.length - 1].role : null;
+      if (msg.role === "user" && lastRole !== "user") {
         modelMessages.push({ role: "user" as const, content: sanitizeUserInput(msg.content as string) });
-      } else if (msg.role === "assistant") {
+      } else if (msg.role === "assistant" && lastRole !== "assistant") {
         modelMessages.push({ role: "assistant" as const, content: sanitizeUserInput(msg.content as string) });
       }
     }
