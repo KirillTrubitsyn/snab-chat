@@ -7,8 +7,8 @@ import { classifyIntent, type SpuSubIntent } from "../lib/intent-classifier.js";
 import { loadConversationContext, saveMessage } from "../lib/memory.js";
 import { getInviteCodeFromHeader, isAdminCode } from "../lib/auth.js";
 import { createServiceClient } from "../lib/supabase.js";
-import { classifyOffTopic, detectGibberish, CATEGORY_LABELS, type OffTopicCategory } from "../lib/off-topic-classifier.js";
-import { notifyOffTopic, notifyInvalidInput } from "../lib/telegram.js";
+import { classifyOffTopic, detectGibberish, detectVagueQuery, CATEGORY_LABELS, type OffTopicCategory } from "../lib/off-topic-classifier.js";
+import { notifyOffTopic, notifyInvalidInput, notifyVagueQuery } from "../lib/telegram.js";
 import { logError } from "../lib/error-logger.js";
 import { extractSearchHints, detectSectionReference, detectDocumentReference, detectCatalogQuery } from "../lib/query-analyzer.js";
 import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgenticResults } from "../lib/agentic-rag.js";
@@ -339,6 +339,79 @@ router.post("/api/chat", async (req: Request, res: Response) => {
     res.write(`d:${finish}\n`);
     res.end();
     return;
+  }
+
+  // ── Vague query detection ──
+  // Blocks queries too general to answer (e.g. "как провести закупку?", "аукцион").
+  // Runs AFTER gibberish check, BEFORE any expensive RAG pipeline calls.
+  // Skip when: admin user, attachments present, or conversation already has ≥2 prior user turns
+  // (prior turns provide disambiguating context, so clarification is unnecessary).
+  const priorUserMsgCount = (messages as Array<{ role: string }>)
+    .slice(0, -1)
+    .filter((m) => m.role === "user")
+    .length;
+
+  if (!isAdminCode(invite.code) && !effectiveHasAttachments && priorUserMsgCount < 2) {
+    const vagueResult = await detectVagueQuery(userMessage.content);
+    if (vagueResult.isVague) {
+      console.log(
+        `[VagueQuery] Detected (${vagueResult.detectedBy}) from "${invite.name}": ` +
+        `"${userMessage.content.slice(0, 60)}"`
+      );
+
+      const vagueMsg =
+        "Ваш вопрос слишком общий — чтобы дать точный ответ, мне нужна уточняющая информация.\n\n" +
+        "Пожалуйста, уточните один или несколько из следующих параметров:\n\n" +
+        "- **Режим закупки** — по **223-ФЗ** (для АО СГК и дочерних АО) или **вне 223-ФЗ** (для ООО СГК и дочерних ООО)?\n" +
+        "- **Организация или бизнес-единица** — например, АО «СГК», ООО «СГК», НТСК, ЕТГК, СГК-Алтай?\n" +
+        "- **Способ закупки** — конкурс, аукцион, запрос котировок, запрос предложений, простая закупка, ЗЦ, ЗП?\n" +
+        "- **Конкретный вопрос** — сроки подачи заявок, пороговые суммы, порядок согласования, требования к документации?\n\n" +
+        "**Примеры конкретных вопросов:**\n" +
+        "— «Какой срок рассмотрения заявок по запросу котировок для АО СГК по 223-ФЗ?»\n" +
+        "— «Каков порог для простой закупки вне 223-ФЗ для ООО СГК?»\n" +
+        "— «Нужно ли обеспечение заявки при аукционе по 223-ФЗ до 1 млн рублей?»";
+
+      // Fire-and-forget: persist messages + log to DB + notify admin
+      {
+        const supabase = createServiceClient();
+        const inviteCodeId = invite.id.startsWith("admin-") ? null : invite.id;
+        const msgSaves = conversationId
+          ? saveMessage(conversationId, "user", userMessage.content)
+              .then(() => saveMessage(conversationId, "assistant", vagueMsg))
+              .catch(() => {})
+          : Promise.resolve();
+        Promise.all([
+          msgSaves,
+          supabase
+            .from("off_topic_queries")
+            .insert({
+              invite_code_id: inviteCodeId,
+              user_name: invite.name,
+              organization: invite.organization ?? null,
+              category: "vague_query",
+              query_text: userMessage.content.slice(0, 5000),
+            })
+            .then(({ error }) => {
+              if (error) console.error("[VagueQuery] DB insert error:", error.message);
+            }),
+          notifyVagueQuery(invite.name, userMessage.content, vagueResult.detectedBy, invite.organization),
+        ]).catch((e) => console.error("[VagueQuery] async error:", e));
+      }
+
+      // Return in streaming protocol the frontend expects
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("X-Sources", encodeURIComponent(JSON.stringify([])));
+      res.write(`0:${JSON.stringify(vagueMsg)}\n`);
+      const vagueFinish = JSON.stringify({
+        finishReason: "stop",
+        usage: { promptTokens: 0, completionTokens: 0 },
+        isContinued: false,
+      });
+      res.write(`e:${vagueFinish}\n`);
+      res.write(`d:${vagueFinish}\n`);
+      res.end();
+      return;
+    }
   }
 
   // ── Classify document intent (Phase 1) ──

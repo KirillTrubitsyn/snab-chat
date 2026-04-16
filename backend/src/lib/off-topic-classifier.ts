@@ -239,6 +239,146 @@ export function detectGibberish(text: string): boolean {
   return checkable > 0 && gibberish / checkable > 0.5;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   VAGUE QUERY DETECTION
+   Blocking pre-RAG check. Returns true when the query is too general to
+   answer without clarification (e.g. "как провести закупку?", "аукцион").
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+export interface VagueQueryResult {
+  isVague: boolean;
+  /** Internal classification path for logging */
+  detectedBy: "heuristic_specific" | "heuristic_vague" | "llm" | "llm_error";
+}
+
+/** Single-word procurement concepts that alone are too vague to answer */
+const VAGUE_SINGLE_TERMS = new Set([
+  "аукцион", "конкурс", "котировка", "котировки", "тендер", "закупка",
+  "переторжка", "запрос", "лот", "нмц", "нмцк", "нмцд", "нмцж",
+  "зц", "зп", "тз", "ти", "ктп", "еи", "ру",
+  "сроки", "срок", "порог", "порядок", "процедура", "регламент",
+  "способ", "способы", "этапы", "этап",
+]);
+
+/** Ultra-generic question patterns (without any qualifying detail) */
+const VAGUE_TEMPLATE_PATTERNS = [
+  /^как\s+провести\s+закупку\??$/i,
+  /^как\s+организовать\s+закупку\??$/i,
+  /^какие\s+сроки\??$/i,
+  /^что\s+такое\s+[а-яёА-ЯЁ]{2,15}\??$/i,
+  /^расскажи\s+про\s+[а-яёА-ЯЁ\s\-]{2,30}\??$/i,
+  /^(?:опиши|объясни)\s+[а-яёА-ЯЁ\s\-]{2,30}\??$/i,
+];
+
+/**
+ * Heuristic: returns true when the query already contains enough specificity —
+ * the query is definitely NOT vague and no LLM call is needed.
+ */
+function heuristicIsSpecific(text: string): boolean {
+  // Contains any digit → amount, section number, article, threshold
+  if (/\d/.test(text)) return true;
+
+  // Explicit FZ regime
+  if (/223.?фз|вне\s+223|не\s+по\s+223|по\s+223/i.test(text)) return true;
+
+  // Legal entity form (company named)
+  if (/(?:ао|ооо|зао|пао)\s+[«"а-яё]/i.test(text)) return true;
+
+  // Specific multi-word procedure name
+  if (/(?:запрос\s+котировок|запрос\s+предложений|единственн\w+\s+(?:источник|поставщик|исполнитель))/i.test(text)) return true;
+
+  // Section/article/clause reference
+  if (/(?:пункт|п\.\s*\d|раздел|статья|ст\.\s*\d)/i.test(text)) return true;
+
+  // Back-reference (follow-up question with pronoun — context from prior turns)
+  if (/\b(?:это|такой|такая|такое|такие|тот\s+же|та\s+же|те\s+же|тем\s+же|этот|эта|эти)\b/i.test(text) && text.length < 80) return true;
+
+  // Long queries are almost always specific enough
+  if (text.trim().length > 120) return true;
+
+  return false;
+}
+
+const VAGUE_CLASSIFIER_PROMPT = `You are a query quality classifier for a corporate procurement AI assistant (Russia, СГК group).
+Your task: decide if a user query is TOO VAGUE to answer without clarification.
+
+A query is VAGUE if it:
+- Asks about a procurement concept without specifying: which legal regime (223-FZ for АО entities / non-223-FZ for ООО entities), which entity/company, which stage, or which amount range
+- Is a single bare term with no context: "аукцион", "сроки", "НМЦ", "ЗЦ", "переторжка"
+- Uses a template question with no specifics: "как провести закупку?", "какие сроки?", "расскажи про запрос котировок"
+- Could apply to dozens of different documents or procedures (requires scanning everything to guess intent)
+
+A query is SPECIFIC if it mentions ANY of:
+- A legal regime: "по 223-ФЗ", "вне 223-ФЗ", "для АО", "для ООО СГК"
+- A named entity or business unit
+- A numeric threshold or amount (рублей, млн, тыс.)
+- A specific procedure stage: "срок рассмотрения заявок", "обеспечение исполнения контракта", "этап согласования"
+- A specific document, section, or clause reference
+- A concrete action on a named object: "какой порог для простой закупки для ООО СГК"
+
+RULES:
+- When in doubt → SPECIFIC (never block a legitimate work query)
+- Abbreviations like НМЦК, НМЦЖ, ЗЦ, ЗП, ЕИ alone → VAGUE (need context to answer)
+- Same abbreviation with a qualifier ("срок согласования НМЦК по 223-ФЗ") → SPECIFIC
+- Questions about the system itself ("что ты умеешь", "какие документы загружены") → SPECIFIC
+
+Respond with EXACTLY one word: VAGUE or SPECIFIC`;
+
+/**
+ * Classifies whether a procurement query is too vague to answer without clarification.
+ *
+ * Uses a three-layer approach:
+ *   A. Fast heuristics "definitely specific" → skip immediately (0ms, no API)
+ *   B. Fast heuristics "definitely vague" → block immediately (0ms, no API)
+ *   C. Gemini Flash Lite LLM → for ambiguous middle-ground cases
+ *
+ * Designed as a BLOCKING check before the RAG pipeline.
+ * Fails open on any error (returns isVague: false) — never blocks a real query.
+ */
+export async function detectVagueQuery(text: string): Promise<VagueQueryResult> {
+  const trimmed = text.trim();
+
+  // ── Layer A: Heuristic "definitely specific" bypass ──
+  if (heuristicIsSpecific(trimmed)) {
+    return { isVague: false, detectedBy: "heuristic_specific" };
+  }
+
+  // ── Layer B: Heuristic "definitely vague" fast path ──
+  const words = trimmed.toLowerCase().split(/\s+/).filter(Boolean);
+  // Single known-vague term (possibly with trailing punctuation)
+  if (words.length === 1) {
+    const bare = words[0].replace(/[^а-яёa-z]/gi, "");
+    if (VAGUE_SINGLE_TERMS.has(bare)) {
+      return { isVague: true, detectedBy: "heuristic_vague" };
+    }
+  }
+  // Matches a known ultra-generic question template
+  if (VAGUE_TEMPLATE_PATTERNS.some((p) => p.test(trimmed))) {
+    return { isVague: true, detectedBy: "heuristic_vague" };
+  }
+
+  // ── Layer C: LLM judgment for ambiguous middle-ground ──
+  try {
+    const { text: llmText } = await withGoogleApiLimit(() =>
+      generateText({
+        model: google("gemini-3.1-flash-lite-preview"),
+        system: VAGUE_CLASSIFIER_PROMPT,
+        prompt: trimmed,
+        maxOutputTokens: 5,
+        temperature: 0,
+      })
+    );
+
+    const response = llmText.trim().toUpperCase();
+    console.log(`[VagueQuery] Query: "${trimmed.slice(0, 80)}" → LLM: "${response}"`);
+    const isVague = response.includes("VAGUE");
+    return { isVague, detectedBy: "llm" };
+  } catch (e) {
+    console.error("[VagueQuery] LLM classification failed (failing open):", e);
+    return { isVague: false, detectedBy: "llm_error" };
+  }
+}
+
 export async function classifyOffTopic(
   userMessage: string,
   conversationHistory?: { role: string; content: string }[]

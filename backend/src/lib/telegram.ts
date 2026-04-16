@@ -195,6 +195,24 @@ export async function notifyInvalidInput(
   await notifyAllAdmins(text);
 }
 
+/** Уведомление о слишком общем / неконкретном запросе */
+export async function notifyVagueQuery(
+  userName: string,
+  query: string,
+  detectedBy: string,
+  organization?: string | null
+): Promise<void> {
+  const truncated = query.length > 500 ? query.slice(0, 500) + "..." : query;
+  const orgLine = organization ? `\n🏢 <b>Организация:</b> ${escapeHtml(organization)}` : "";
+  const text =
+    `🌫️ <b>Слишком общий запрос</b>\n\n` +
+    `👤 <b>Пользователь:</b> ${escapeHtml(userName)}${orgLine}\n` +
+    `🔍 <b>Метод обнаружения:</b> ${escapeHtml(detectedBy)}\n\n` +
+    `💬 <b>Запрос:</b>\n${escapeHtml(truncated)}\n\n` +
+    `🕐 ${getMoscowTime()}`;
+  await notifyAllAdmins(text);
+}
+
 /** Уведомление об ошибке */
 export async function notifyError(
   errorType: string,
