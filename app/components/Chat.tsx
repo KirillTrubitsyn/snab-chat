@@ -105,14 +105,37 @@ export default function Chat() {
   useEffect(() => {
     if (!isAuthenticated) return;
     const deviceId = localStorage.getItem("snabchat_device_id") || "";
-    const sendHeartbeat = () => {
-      fetch(apiUrl("/api/heartbeat"), {
-        method: "POST",
-        headers: {
-          ...getAuthHeaders(),
-          "x-device-id": deviceId,
-        },
-      }).catch(() => {});
+    const sendHeartbeat = async () => {
+      try {
+        const res = await fetch(apiUrl("/api/heartbeat"), {
+          method: "POST",
+          headers: {
+            ...getAuthHeaders(),
+            "x-device-id": deviceId,
+          },
+        });
+        // H-A companion: если admin/user session истекла, бэкенд отдаёт 401.
+        // Раньше такие ответы молча накапливались в логах каждые 2 мин.
+        // Теперь — сбрасываем auth-состояние и вынуждаем повторный логин.
+        if (res.status === 401) {
+          console.warn("[heartbeat] session expired — forcing re-login");
+          try {
+            sessionStorage.removeItem("snabchat_auth_token");
+            sessionStorage.removeItem("snabchat_is_admin");
+            sessionStorage.removeItem("snabchat_admin_session");
+            sessionStorage.removeItem("snabchat_admin_code");
+          } catch { /* storage unavailable */ }
+          setIsAuthenticated(false);
+          return;
+        }
+        // Backend signals forced logout (device was removed by admin)
+        if (res.ok) {
+          const data = await res.json().catch(() => null);
+          if (data && data.logout) {
+            setIsAuthenticated(false);
+          }
+        }
+      } catch { /* network hiccup — ignore, retry on next tick */ }
     };
     sendHeartbeat();
     const interval = setInterval(sendHeartbeat, 2 * 60 * 1000);
