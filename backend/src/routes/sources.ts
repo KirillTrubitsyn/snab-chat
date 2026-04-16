@@ -624,7 +624,9 @@ router.post("/api/sources/upload-original", upload.single("file"), async (req: R
     if (!file || !sourceId) return res.status(400).json({ error: "Missing file or sourceId" });
 
     const supabase = createServiceClient();
-    const storagePath = `documents/${sourceId}_${file.originalname}`;
+    // Санитизация имени файла: устранение path traversal и запрещённых символов в Supabase Storage
+    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const storagePath = `documents/${sourceId}_${Date.now()}_${safeName}`;
 
     const { error: uploadError } = await supabase.storage
       .from("documents")
