@@ -1,9 +1,24 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { apiUrl, getAdminHeaders } from "@/app/lib/api";
 import { formatDateShort } from "@/app/lib/date-utils";
 import type { InviteCode } from "./types";
+
+type StatusFilter = "all" | "active" | "inactive";
+type TwoFAFilter = "all" | "has" | "none";
+
+const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
+  { key: "all", label: "Все" },
+  { key: "active", label: "Активен" },
+  { key: "inactive", label: "Отключён" },
+];
+
+const TWO_FA_FILTERS: { key: TwoFAFilter; label: string }[] = [
+  { key: "all", label: "Все" },
+  { key: "has", label: "Есть 2FA" },
+  { key: "none", label: "Нет 2FA" },
+];
 
 export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: string; canDeleteCodes: boolean }) {
   const [codes, setCodes] = useState<InviteCode[]>([]);
@@ -16,6 +31,9 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
   const [newDeviceLimit, setNewDeviceLimit] = useState("2");
   const [creating, setCreating] = useState(false);
   const [searchName, setSearchName] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [orgFilter, setOrgFilter] = useState("");
+  const [twoFAFilter, setTwoFAFilter] = useState<TwoFAFilter>("all");
 
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -158,10 +176,37 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
     } catch { /* ignore */ }
   };
 
-  const filteredCodes = codes.filter((c) => {
-    if (searchName && !c.name.toLowerCase().includes(searchName.toLowerCase()) && !c.code.toLowerCase().includes(searchName.toLowerCase())) return false;
+  const orgs = useMemo(
+    () => [...new Set(codes.map((c) => c.organization).filter(Boolean))].sort() as string[],
+    [codes]
+  );
+
+  const hasActiveFilters = searchName !== "" || statusFilter !== "all" || orgFilter !== "" || twoFAFilter !== "all";
+
+  const resetFilters = () => {
+    setSearchName("");
+    setStatusFilter("all");
+    setOrgFilter("");
+    setTwoFAFilter("all");
+  };
+
+  const filteredCodes = useMemo(() => codes.filter((c) => {
+    if (searchName) {
+      const q = searchName.toLowerCase();
+      if (
+        !c.name.toLowerCase().includes(q) &&
+        !c.code.toLowerCase().includes(q) &&
+        !(c.organization ?? "").toLowerCase().includes(q)
+      ) return false;
+    }
+    if (statusFilter === "active" && !c.is_active) return false;
+    if (statusFilter === "inactive" && c.is_active) return false;
+    if (orgFilter && c.organization !== orgFilter) return false;
+    const has2fa = c.has_telegram || c.has_sms || c.has_totp;
+    if (twoFAFilter === "has" && !has2fa) return false;
+    if (twoFAFilter === "none" && has2fa) return false;
     return true;
-  });
+  }), [codes, searchName, statusFilter, orgFilter, twoFAFilter]);
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -240,13 +285,44 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
             </div>
             <div className="admin-card-actions">
               <div className="admin-form-field admin-search-field">
-                <input placeholder="Поиск по имени или коду..." value={searchName} onChange={(e) => setSearchName(e.target.value)} />
+                <input placeholder="Поиск по имени, коду, организации..." value={searchName} onChange={(e) => setSearchName(e.target.value)} />
               </div>
+              {orgs.length > 0 && (
+                <select
+                  value={orgFilter}
+                  onChange={(e) => setOrgFilter(e.target.value)}
+                  style={{ height: 36, fontSize: 13, padding: "0 8px", border: "1px solid #E2E8F0", borderRadius: 6, background: "#fff", color: "#0F172A", cursor: "pointer" }}
+                >
+                  <option value="">Все организации</option>
+                  {orgs.map((org) => <option key={org} value={org}>{org}</option>)}
+                </select>
+              )}
               <button className="admin-btn-secondary" onClick={loadCodes} disabled={codesLoading}>
                 <span className="material-symbols-outlined">refresh</span>
                 Обновить
               </button>
             </div>
+          </div>
+          <div style={{ padding: "8px 24px", display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", borderBottom: "1px solid #E2E8F0", background: "#fff" }}>
+            <div className="admin-doc-pills">
+              {STATUS_FILTERS.map((f) => (
+                <button key={f.key} className={`admin-doc-pill ${statusFilter === f.key ? "active" : ""}`} onClick={() => setStatusFilter(f.key)}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <div className="admin-doc-pills">
+              {TWO_FA_FILTERS.map((f) => (
+                <button key={f.key} className={`admin-doc-pill ${twoFAFilter === f.key ? "active" : ""}`} onClick={() => setTwoFAFilter(f.key)}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            {hasActiveFilters && (
+              <button className="admin-action-link" onClick={resetFilters} style={{ fontSize: 13 }}>
+                Сбросить фильтры
+              </button>
+            )}
           </div>
 
           {codesLoading ? (
