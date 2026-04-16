@@ -1,17 +1,24 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { apiUrl, getAdminHeaders } from "@/app/lib/api";
 import { formatDateTime } from "@/app/lib/date-utils";
 import type { ActivityItem } from "./types";
 
 type DateFilter = "today" | "7days" | "30days" | "all";
+type TypeFilter = "all" | "chat" | "infographic";
 
 const DATE_FILTERS: { key: DateFilter; label: string }[] = [
   { key: "today", label: "Сегодня" },
   { key: "7days", label: "7 дней" },
   { key: "30days", label: "30 дней" },
   { key: "all", label: "Все время" },
+];
+
+const TYPE_FILTERS: { key: TypeFilter; label: string }[] = [
+  { key: "all", label: "Все" },
+  { key: "chat", label: "Чат" },
+  { key: "infographic", label: "Инфографика" },
 ];
 
 function filterByDate(items: ActivityItem[], filter: DateFilter): ActivityItem[] {
@@ -30,6 +37,9 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
   const [dateFilter, setDateFilter] = useState<DateFilter>("today");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [orgFilter, setOrgFilter] = useState("");
+  const [searchText, setSearchText] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const headers = getAdminHeaders(adminCode);
@@ -44,7 +54,34 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
     setActivityLoading(false);
   }, [adminCode]);
 
-  const filteredActivity = filterByDate(activity, dateFilter);
+  const orgs = useMemo(
+    () => [...new Set(activity.map((a) => a.organization).filter(Boolean))].sort() as string[],
+    [activity]
+  );
+
+  const hasActiveFilters = searchText !== "" || typeFilter !== "all" || orgFilter !== "";
+
+  const resetFilters = () => {
+    setSearchText("");
+    setTypeFilter("all");
+    setOrgFilter("");
+  };
+
+  const filteredActivity = useMemo(() => {
+    let items = filterByDate(activity, dateFilter);
+    if (typeFilter !== "all") items = items.filter((a) => a.type === typeFilter);
+    if (orgFilter) items = items.filter((a) => a.organization === orgFilter);
+    if (searchText) {
+      const q = searchText.toLowerCase();
+      items = items.filter(
+        (a) =>
+          a.user_name.toLowerCase().includes(q) ||
+          (a.organization ?? "").toLowerCase().includes(q) ||
+          a.content.toLowerCase().includes(q)
+      );
+    }
+    return items;
+  }, [activity, dateFilter, typeFilter, orgFilter, searchText]);
 
   useEffect(() => { loadActivity(); }, [loadActivity]);
 
@@ -101,6 +138,23 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
             <span className="admin-card-badge">{filteredActivity.length}</span>
           </div>
           <div className="admin-card-actions">
+            <div className="admin-form-field admin-search-field">
+              <input
+                placeholder="Поиск по имени, организации, запросу..."
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+              />
+            </div>
+            {orgs.length > 0 && (
+              <select
+                value={orgFilter}
+                onChange={(e) => setOrgFilter(e.target.value)}
+                style={{ height: 36, fontSize: 13, padding: "0 8px", border: "1px solid #E2E8F0", borderRadius: 6, background: "#fff", color: "#0F172A", cursor: "pointer" }}
+              >
+                <option value="">Все организации</option>
+                {orgs.map((org) => <option key={org} value={org}>{org}</option>)}
+              </select>
+            )}
             {selectedIds.size > 0 && (
               <button className="admin-btn-danger" onClick={deleteSelected} disabled={deleting}>
                 <span className="material-symbols-outlined">delete</span>
@@ -118,13 +172,27 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
           </div>
         </div>
 
-        {/* Date filter pills */}
-        <div className="admin-doc-pills" style={{ marginBottom: 0 }}>
-          {DATE_FILTERS.map((f) => (
-            <button key={f.key} className={`admin-doc-pill ${dateFilter === f.key ? "active" : ""}`} onClick={() => { setDateFilter(f.key); setSelectedIds(new Set()); }}>
-              {f.label}
+        {/* Filters */}
+        <div style={{ padding: "8px 24px", display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", borderBottom: "1px solid #E2E8F0", background: "#fff" }}>
+          <div className="admin-doc-pills">
+            {DATE_FILTERS.map((f) => (
+              <button key={f.key} className={`admin-doc-pill ${dateFilter === f.key ? "active" : ""}`} onClick={() => { setDateFilter(f.key); setSelectedIds(new Set()); }}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <div className="admin-doc-pills">
+            {TYPE_FILTERS.map((f) => (
+              <button key={f.key} className={`admin-doc-pill ${typeFilter === f.key ? "active" : ""}`} onClick={() => setTypeFilter(f.key)}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          {hasActiveFilters && (
+            <button className="admin-action-link" onClick={resetFilters} style={{ fontSize: 13 }}>
+              Сбросить фильтры
             </button>
-          ))}
+          )}
         </div>
 
         {activityLoading ? (
