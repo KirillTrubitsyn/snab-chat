@@ -37,10 +37,20 @@ function buildCSP(nonce: string, pathname: string): string {
       ? "'self'"
       : "'none'";
 
+  // V24: CSP для стилей.
+  // - style-src-elem: только nonce + same-origin + Google Fonts (без unsafe-inline).
+  //   Блокирует инъекцию внешних <style> блоков через XSS.
+  // - style-src-attr: сохраняет 'unsafe-inline' для React style="..." атрибутов —
+  //   без них Next.js/React сломаются, но риск от style-атрибута минимален.
+  // - style-src с 'unsafe-inline' оставлен как legacy-fallback для браузеров без
+  //   поддержки CSP 3 (-elem/-attr). Современные браузеры приоритезируют
+  //   более специфичные директивы и игнорируют эту.
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
-    `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
+    `style-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://fonts.googleapis.com`,
+    `style-src-elem 'self' 'nonce-${nonce}' https://fonts.googleapis.com`,
+    `style-src-attr 'unsafe-inline'`,
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: blob:",
     "media-src 'self' https://*.supabase.co",
