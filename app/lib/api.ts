@@ -18,15 +18,20 @@ const BACKEND_API_KEY = process.env.NEXT_PUBLIC_BACKEND_API_KEY || "";
 
 /**
  * Build auth headers for API requests.
- * Includes x-invite-code, x-auth-token from localStorage, and x-api-key.
+ * Includes x-invite-code, x-auth-token from localStorage, и x-admin-session,
+ * если пользователь залогинен как админ (для user-scope эндпоинтов, защищённых
+ * требованием admin 2FA после H-A).
  */
 export function getAuthHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};
   const code = localStorage.getItem("snabchat_invite_code") || "";
   const token = sessionStorage.getItem("snabchat_auth_token") || "";
+  const adminSession = sessionStorage.getItem("snabchat_admin_session") || "";
   const headers: Record<string, string> = {};
   if (code) headers["x-invite-code"] = encodeURIComponent(code);
   if (token) headers["x-auth-token"] = token;
+  // H-A companion: админский session token, если он сохранён (проверяется validateAdminFastpath на бэкенде)
+  if (adminSession) headers["x-admin-session"] = adminSession;
   if (BACKEND_API_KEY) headers["x-api-key"] = BACKEND_API_KEY;
   return headers;
 }
