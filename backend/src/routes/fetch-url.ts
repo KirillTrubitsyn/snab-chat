@@ -1,4 +1,7 @@
 import { Router, Request, Response } from "express";
+import { promises as dns } from "node:dns";
+import { Agent, fetch as undiciFetch } from "undici";
+import ipaddr from "ipaddr.js";
 import { getInviteCodeFromHeader } from "../lib/auth.js";
 
 const router = Router();
@@ -6,6 +9,91 @@ const router = Router();
 const MAX_CONTENT_LENGTH = 5 * 1024 * 1024; // 5 MB max page size
 const FETCH_TIMEOUT = 15000; // 15 seconds
 const MAX_OUTPUT_CHARS = 50000; // Same as MAX_UPLOADED_DOC_CHARS in chat route
+
+// M-B fix: диапазоны IP, к которым запрещено обращаться (защита от SSRF + DNS rebinding)
+const BLOCKED_IP_RANGES = new Set([
+  "private",
+  "loopback",
+  "linkLocal",
+  "uniqueLocal",
+  "carrierGradeNat",
+  "reserved",
+  "unspecified",
+  "multicast",
+  "broadcast",
+]);
+
+function isBlockedIP(ip: string): boolean {
+  try {
+    const addr = ipaddr.parse(ip);
+    const range = addr.range();
+    if (BLOCKED_IP_RANGES.has(range)) return true;
+    // IPv4-mapped IPv6 (::ffff:a.b.c.d): проверяем базовый IPv4
+    if (addr.kind() === "ipv6" && (addr as ipaddr.IPv6).isIPv4MappedAddress()) {
+      const v4 = (addr as ipaddr.IPv6).toIPv4Address();
+      return BLOCKED_IP_RANGES.has(v4.range());
+    }
+    return false;
+  } catch {
+    // Неразборчивый IP — блокируем
+    return true;
+  }
+}
+
+/**
+ * Резолвит hostname во все A и AAAA записи, валидирует КАЖДЫЙ IP против чёрного списка диапазонов.
+ * Если хотя бы один IP попадает во внутренний диапазон — отказ (защита от multi-answer DNS rebinding).
+ * Возвращает первый допустимый IP для закрепления в undici Agent (защита от TTL=0 rebinding).
+ */
+async function resolveAndPinHostname(hostname: string): Promise<{ ip: string; family: 4 | 6 }> {
+  // Если пользователь передал голый IP — валидируем напрямую, DNS не нужен
+  if (ipaddr.isValid(hostname)) {
+    if (isBlockedIP(hostname)) {
+      throw new Error("BLOCKED_IP");
+    }
+    const family = ipaddr.parse(hostname).kind() === "ipv4" ? 4 : 6;
+    return { ip: hostname, family };
+  }
+
+  const [ipv4, ipv6] = await Promise.all([
+    dns.resolve4(hostname).catch(() => [] as string[]),
+    dns.resolve6(hostname).catch(() => [] as string[]),
+  ]);
+
+  const all = [...ipv4, ...ipv6];
+  if (all.length === 0) {
+    throw new Error("NO_DNS");
+  }
+
+  for (const ip of all) {
+    if (isBlockedIP(ip)) {
+      throw new Error("BLOCKED_IP");
+    }
+  }
+
+  if (ipv4.length > 0) {
+    return { ip: ipv4[0], family: 4 };
+  }
+  return { ip: ipv6[0], family: 6 };
+}
+
+/**
+ * Строит undici Agent, закреплённый на заранее проверенном IP.
+ * Все последующие соединения внутри этого Agent резолвят hostname только в указанный IP,
+ * что исключает DNS rebinding между моментом проверки и моментом TCP-соединения.
+ */
+function createPinnedAgent(pinnedIP: string, family: 4 | 6): Agent {
+  return new Agent({
+    connect: {
+      lookup: (_hostname, _options, cb) => {
+        cb(null, pinnedIP, family);
+      },
+    },
+    connectTimeout: 10_000,
+    bodyTimeout: FETCH_TIMEOUT,
+    headersTimeout: FETCH_TIMEOUT,
+  });
+}
 
 /**
  * Extract readable text content from HTML, converting to simple markdown.
@@ -116,35 +204,10 @@ router.post("/api/fetch-url", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Поддерживаются только HTTP/HTTPS ссылки" });
     }
 
-    // V04 + N6: Block private/internal IP ranges to prevent SSRF (including bypass techniques)
+    // M-B fix: доменные суффиксы, недопустимые независимо от результата DNS
     const hostname = parsedUrl.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-    const BLOCKED_HOST_PATTERNS = [
-      /^localhost$/,
-      /^127\./,
-      /^0\./,
-      /^10\./,
-      /^172\.(1[6-9]|2\d|3[01])\./,
-      /^192\.168\./,
-      /^169\.254\./,
-      // IPv6 loopback and private
-      /^::1$/,
-      /^fe80:/i,
-      /^fc00:/i,
-      /^fd/i,
-      // N6 fix: IPv4-mapped IPv6 (::ffff:127.0.0.1)
-      /^::ffff:/i,
-      // N6 fix: decimal IP notation (e.g., 2130706433 = 127.0.0.1)
-      /^\d{8,10}$/,
-      // N6 fix: octal IP notation (e.g., 0177.0.0.1)
-      /^0\d+\./,
-      // N6 fix: hex IP notation (e.g., 0x7f.0.0.1)
-      /^0x[0-9a-f]/i,
-      // Domain-based
-      /\.internal$/,
-      /\.local$/,
-      /\.localhost$/,
-    ];
-    if (BLOCKED_HOST_PATTERNS.some((p) => p.test(hostname))) {
+    const BLOCKED_DOMAIN_SUFFIXES = [/\.internal$/, /\.local$/, /\.localhost$/, /^localhost$/];
+    if (BLOCKED_DOMAIN_SUFFIXES.some((p) => p.test(hostname))) {
       return res.status(403).json({ error: "Обращение к внутренним адресам запрещено" });
     }
 
@@ -158,14 +221,38 @@ router.post("/api/fetch-url", async (req: Request, res: Response) => {
       "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.5",
     };
 
-    let response!: globalThis.Response;
+    let response!: Awaited<ReturnType<typeof undiciFetch>>;
     let currentUrl = url;
+    const agents: Agent[] = [];
     try {
       for (let i = 0; i <= MAX_REDIRECTS; i++) {
-        response = await fetch(currentUrl, {
+        const targetUrl = new URL(currentUrl);
+        const targetHost = targetUrl.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+
+        if (BLOCKED_DOMAIN_SUFFIXES.some((p) => p.test(targetHost))) {
+          return res.status(403).json({ error: "Обращение к внутренним адресам запрещено" });
+        }
+
+        // M-B fix: резолвим DNS единожды перед каждым хопом, валидируем все IP,
+        // затем закрепляем undici Agent на первом допустимом IP, чтобы предотвратить rebinding.
+        let pinned: { ip: string; family: 4 | 6 };
+        try {
+          pinned = await resolveAndPinHostname(targetHost);
+        } catch (e) {
+          if (e instanceof Error && e.message === "BLOCKED_IP") {
+            return res.status(403).json({ error: "Обращение к внутренним адресам запрещено" });
+          }
+          return res.status(400).json({ error: "Не удалось разрешить имя хоста" });
+        }
+
+        const dispatcher = createPinnedAgent(pinned.ip, pinned.family);
+        agents.push(dispatcher);
+
+        response = await undiciFetch(currentUrl, {
           signal: controller.signal,
           headers: fetchHeaders,
           redirect: "manual",
+          dispatcher,
         });
 
         const status = response.status;
@@ -184,12 +271,6 @@ router.post("/api/fetch-url", async (req: Request, res: Response) => {
             return res.status(400).json({ error: "Некорректный редирект" });
           }
 
-          // Re-check SSRF blocklist on redirect target
-          const redirectHost = redirectUrl.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-          if (BLOCKED_HOST_PATTERNS.some((p) => p.test(redirectHost))) {
-            return res.status(403).json({ error: "Обращение к внутренним адресам запрещено" });
-          }
-
           currentUrl = redirectUrl.href;
           if (i === MAX_REDIRECTS) {
             return res.status(400).json({ error: "Слишком много редиректов" });
@@ -201,52 +282,58 @@ router.post("/api/fetch-url", async (req: Request, res: Response) => {
       }
     } catch (err) {
       clearTimeout(timeout);
-      if (err instanceof DOMException && err.name === "AbortError") {
+      for (const a of agents) await a.close().catch(() => {});
+      if (err instanceof Error && err.name === "AbortError") {
         return res.status(400).json({ error: "Не удалось загрузить страницу: таймаут" });
       }
       return res.status(400).json({ error: "Не удалось загрузить страницу: сайт недоступен" });
     }
     clearTimeout(timeout);
 
-    if (!response.ok) {
-      return res.status(400).json({ error: `Не удалось загрузить страницу: HTTP ${response.status}` });
+    try {
+      if (!response.ok) {
+        return res.status(400).json({ error: `Не удалось загрузить страницу: HTTP ${response.status}` });
+      }
+
+      const contentType = response.headers.get("content-type") || "";
+      if (!contentType.includes("text/html") && !contentType.includes("text/plain") && !contentType.includes("application/xhtml")) {
+        return res.status(400).json({ error: "Страница не содержит текст (тип: " + contentType.split(";")[0] + ")" });
+      }
+
+      // Check content length
+      const contentLength = response.headers.get("content-length");
+      if (contentLength && parseInt(contentLength) > MAX_CONTENT_LENGTH) {
+        return res.status(400).json({ error: "Страница слишком большая (> 5 МБ)" });
+      }
+
+      const html = await response.text();
+      if (html.length > MAX_CONTENT_LENGTH) {
+        return res.status(400).json({ error: "Страница слишком большая (> 5 МБ)" });
+      }
+
+      const title = extractTitle(html) || parsedUrl.hostname;
+      let markdown = htmlToMarkdown(html);
+
+      // Truncate to max output chars
+      if (markdown.length > MAX_OUTPUT_CHARS) {
+        markdown = markdown.slice(0, MAX_OUTPUT_CHARS) + "\n\n... (содержимое обрезано)";
+      }
+
+      // Skip if too little content extracted
+      if (markdown.length < 50) {
+        return res.status(400).json({ error: "Не удалось извлечь текст со страницы (возможно, контент загружается через JavaScript)" });
+      }
+
+      return res.json({
+        title,
+        url: parsedUrl.href,
+        markdown,
+        length: markdown.length,
+      });
+    } finally {
+      // Освобождаем все закреплённые undici Agent (TCP-сокеты)
+      for (const a of agents) await a.close().catch(() => {});
     }
-
-    const contentType = response.headers.get("content-type") || "";
-    if (!contentType.includes("text/html") && !contentType.includes("text/plain") && !contentType.includes("application/xhtml")) {
-      return res.status(400).json({ error: "Страница не содержит текст (тип: " + contentType.split(";")[0] + ")" });
-    }
-
-    // Check content length
-    const contentLength = response.headers.get("content-length");
-    if (contentLength && parseInt(contentLength) > MAX_CONTENT_LENGTH) {
-      return res.status(400).json({ error: "Страница слишком большая (> 5 МБ)" });
-    }
-
-    const html = await response.text();
-    if (html.length > MAX_CONTENT_LENGTH) {
-      return res.status(400).json({ error: "Страница слишком большая (> 5 МБ)" });
-    }
-
-    const title = extractTitle(html) || parsedUrl.hostname;
-    let markdown = htmlToMarkdown(html);
-
-    // Truncate to max output chars
-    if (markdown.length > MAX_OUTPUT_CHARS) {
-      markdown = markdown.slice(0, MAX_OUTPUT_CHARS) + "\n\n... (содержимое обрезано)";
-    }
-
-    // Skip if too little content extracted
-    if (markdown.length < 50) {
-      return res.status(400).json({ error: "Не удалось извлечь текст со страницы (возможно, контент загружается через JavaScript)" });
-    }
-
-    return res.json({
-      title,
-      url: parsedUrl.href,
-      markdown,
-      length: markdown.length,
-    });
   } catch (err) {
     console.error("[fetch-url] Error:", err);
     return res.status(500).json({ error: "Ошибка при загрузке страницы" });
