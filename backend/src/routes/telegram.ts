@@ -149,15 +149,26 @@ router.post("/api/telegram/setup", async (req: Request, res: Response) => {
       return res.status(500).json({ error: "TELEGRAM_BOT_TOKEN не настроен" });
     }
 
-    // Webhook URL should point to the frontend (Vercel/Next.js), not backend
+    // L-D fix: webhook URLs строятся ТОЛЬКО из конфигурации (env), никогда из
+    // req.headers["host"] — Host header injection позволил бы перенаправить бота
+    // на произвольный адрес.
+    // Frontend URL обязателен, иначе — 500.
     const frontendUrl = (process.env.FRONTEND_URL || "").split(",")[0]?.trim();
-    const host = frontendUrl
-      ? new URL(frontendUrl).host
-      : (req.headers["host"] as string) ?? "www.snabchat.app";
-    const protocol = host.includes("localhost") ? "http" : "https";
+    if (!frontendUrl) {
+      return res.status(500).json({
+        error: "FRONTEND_URL не настроен — невозможно построить адрес webhook",
+      });
+    }
+    let frontendHost: string;
+    try {
+      frontendHost = new URL(frontendUrl).host;
+    } catch {
+      return res.status(500).json({ error: "FRONTEND_URL некорректный" });
+    }
+    const protocol = frontendHost.includes("localhost") ? "http" : "https";
 
     // ── Основной бот ──
-    const webhookUrl = `${protocol}://${host}/api/telegram/webhook`;
+    const webhookUrl = `${protocol}://${frontendHost}/api/telegram/webhook`;
     const body: Record<string, unknown> = {
       url: webhookUrl,
       allowed_updates: ["message", "callback_query"],
@@ -177,8 +188,21 @@ router.post("/api/telegram/setup", async (req: Request, res: Response) => {
     let twoFAResult = null;
     let webhook2FAUrl = "";
     if (bot2FAToken) {
-      // 2FA webhook points to backend (Railway), not frontend, to share the same DB
-      const backendHost = (req.headers["host"] as string) ?? host;
+      // L-D fix: 2FA webhook указывает на backend (Railway). Требуется PUBLIC_BACKEND_URL;
+      // req.headers["host"] больше не используется.
+      const publicBackendUrl = (process.env.PUBLIC_BACKEND_URL || "").trim();
+      if (!publicBackendUrl) {
+        return res.status(500).json({
+          error:
+            "PUBLIC_BACKEND_URL не настроен — невозможно построить адрес 2FA webhook",
+        });
+      }
+      let backendHost: string;
+      try {
+        backendHost = new URL(publicBackendUrl).host;
+      } catch {
+        return res.status(500).json({ error: "PUBLIC_BACKEND_URL некорректный" });
+      }
       const backendProtocol = backendHost.includes("localhost") ? "http" : "https";
       webhook2FAUrl = `${backendProtocol}://${backendHost}/api/telegram/webhook-2fa`;
       const body2FA: Record<string, unknown> = {
