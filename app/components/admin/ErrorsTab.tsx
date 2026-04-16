@@ -80,6 +80,7 @@ export default function ErrorsTab({ adminCode }: { adminCode: string }) {
                       {ERROR_TYPE_LABELS[e.error_type] ?? e.error_type}
                     </span>
                     {e.user_name && <span style={{ fontSize: 13 }}>{e.user_name}</span>}
+                    {e.organization && <span className="admin-text-muted" style={{ fontSize: 12 }}>{e.organization}</span>}
                     {e.endpoint && <span className="admin-text-muted" style={{ fontSize: 12 }}>{e.endpoint}</span>}
                   </div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

@@ -113,7 +113,7 @@ export default function SupportTab({ adminCode }: { adminCode: string }) {
                 {m.admin_reply && (
                   <div style={{ background: "#e8f4fd", borderRadius: 8, padding: 12, marginBottom: 8, borderLeft: "3px solid #1976d2" }}>
                     <div style={{ fontSize: 12, color: "#1976d2", marginBottom: 4 }}>
-                      Ответ администратора {m.admin_number ?? ""} · {m.replied_at ? formatDateTime(m.replied_at) : ""}
+                      Ответ администратора{m.admin_number !== null ? ` №${m.admin_number}` : ""}{m.replied_at ? ` · ${formatDateTime(m.replied_at)}` : ""}
                     </div>
                     {m.admin_reply}
                   </div>
