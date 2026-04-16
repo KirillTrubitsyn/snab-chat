@@ -17,6 +17,7 @@ interface AdminPanelProps {
   userName: string;
   isDocAdmin: boolean;
   canDeleteCodes: boolean;
+  isPrimaryAdmin: boolean;
   onLogout: () => void;
 }
 
@@ -38,10 +39,9 @@ const navItems: { key: TabKey; label: string; icon: string }[] = [
   { key: "errors", label: "Ошибки", icon: "error" },
 ];
 
-export default function AdminPanel({ adminCode, userName, isDocAdmin, canDeleteCodes, onLogout }: AdminPanelProps) {
+export default function AdminPanel({ adminCode, userName, isDocAdmin, canDeleteCodes, isPrimaryAdmin, onLogout }: AdminPanelProps) {
   const [tab, setTab] = useState<TabKey>("activity");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const isPrimaryAdmin = typeof window !== "undefined" && sessionStorage.getItem("snabchat_is_primary_admin") === "true";
 
   return (
     <div className="admin-layout">

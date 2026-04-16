@@ -10,6 +10,7 @@ export default function AdminPage() {
   const [userName, setUserName] = useState<string>("");
   const [isDocAdmin, setIsDocAdmin] = useState(false);
   const [canDeleteCodes, setCanDeleteCodes] = useState(false);
+  const [isPrimaryAdmin, setIsPrimaryAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
@@ -62,6 +63,7 @@ export default function AdminPage() {
           setCanDeleteCodes(true);
         }
         if (data.isPrimaryAdmin) {
+          setIsPrimaryAdmin(true);
           sessionStorage.setItem("snabchat_is_primary_admin", "true");
         } else {
           sessionStorage.removeItem("snabchat_is_primary_admin");
@@ -121,6 +123,7 @@ export default function AdminPage() {
       userName={userName}
       isDocAdmin={isDocAdmin}
       canDeleteCodes={canDeleteCodes}
+      isPrimaryAdmin={isPrimaryAdmin}
       onLogout={handleLogout}
     />
   );
