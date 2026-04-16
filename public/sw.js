@@ -1,4 +1,4 @@
-const CACHE_NAME = "snabchat-v1";
+const CACHE_NAME = "snabchat-v2";
 const STATIC_ASSETS = [
   "/",
   "/manifest.json",
@@ -32,13 +32,23 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Cache API rejects anything other than http(s). Browser extensions (Perplexity,
+  // ad-blockers, etc.) inject chrome-extension:// / moz-extension:// requests
+  // through the page's SW scope — ignore them.
+  if (!request.url.startsWith("http:") && !request.url.startsWith("https:")) {
+    return;
+  }
+
   event.respondWith(
     fetch(request)
       .then((response) => {
         // Cache successful responses for static assets
         if (response.ok && response.type === "basic") {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          caches
+            .open(CACHE_NAME)
+            .then((cache) => cache.put(request, clone))
+            .catch(() => { /* cache rejected — ignore, response already returned */ });
         }
         return response;
       })
