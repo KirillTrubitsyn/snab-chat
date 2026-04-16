@@ -210,13 +210,35 @@ export async function getDeviceCount(inviteCodeId: string): Promise<number> {
 // Auth tokens (HMAC-based stateless session tokens)
 // ============================================================
 
-const AUTH_TOKEN_SECRET =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_SERVICE_KEY ||
-  (() => {
-    console.warn("[auth] WARNING: No auth token secret configured — using random ephemeral key. Tokens will NOT survive restarts.");
-    return randomBytes(32).toString("hex");
-  })();
+/**
+ * M-D fix: выделенный секрет для подписи auth-токенов.
+ *
+ * Приоритет источников:
+ *   1. AUTH_TOKEN_SECRET (рекомендуется, >= 32 байт случайности, hex/base64)
+ *   2. Устаревший fallback на SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SERVICE_KEY
+ *      — сохранён для backwards-compat, чтобы ротация ENV не разлогинила всех пользователей.
+ *      При использовании fallback в лог пишется WARN, чтобы было видно необходимость миграции.
+ *   3. Эфемерный ключ на время процесса (токены не переживут рестарт).
+ *
+ * Ротация AUTH_TOKEN_SECRET инвалидирует ВСЕ выпущенные auth-токены.
+ * Это безопасный способ принудительно разлогинить сессии.
+ */
+const AUTH_TOKEN_SECRET = (() => {
+  if (process.env.AUTH_TOKEN_SECRET && process.env.AUTH_TOKEN_SECRET.length >= 32) {
+    return process.env.AUTH_TOKEN_SECRET;
+  }
+  const legacy = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+  if (legacy) {
+    console.warn(
+      "[auth] WARNING: AUTH_TOKEN_SECRET not set — using legacy fallback on SUPABASE_SERVICE_*_KEY. " +
+      "Set a dedicated AUTH_TOKEN_SECRET (>=32 chars, e.g. `openssl rand -hex 32`) to decouple token signing from the database key. " +
+      "This is a migration path; fallback will be removed in a future release."
+    );
+    return legacy;
+  }
+  console.warn("[auth] WARNING: No auth token secret configured — using random ephemeral key. Tokens will NOT survive restarts.");
+  return randomBytes(32).toString("hex");
+})();
 const AUTH_TOKEN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 /**
