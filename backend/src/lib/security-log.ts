@@ -7,6 +7,8 @@ export type SecurityEventType =
   | "auth.device_limit"
   | "auth.admin_2fa_fail"
   | "auth.admin_2fa_setup"
+  | "auth.admin_2fa_setup_rejected"
+  | "auth.admin_2fa_verify_rejected"
   | "auth.admin_session_created"
   | "rate_limit.hit"
   | "admin.ip_blocked";

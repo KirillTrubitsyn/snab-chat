@@ -1091,6 +1091,28 @@ router.post("/api/auth/admin/setup-totp", async (req: Request, res: Response) =>
       return res.status(401).json({ error: "Неверный админ-код" });
     }
 
+    // H-B fix: если TOTP уже настроен для этого админа, запрещаем повторную инициализацию.
+    // Это исключает сценарий, при котором злоумышленник с утёкшим админ-кодом перезаписывает
+    // привязку TOTP и блокирует легитимного владельца. Сброс идёт через отдельный out-of-band поток.
+    const adminNumber = getAdminNumber(upperCode)!;
+    const supabase = createServiceClient();
+    const { data: existing } = await supabase
+      .from("admin_2fa")
+      .select("totp_secret")
+      .eq("admin_number", adminNumber)
+      .maybeSingle();
+
+    if (existing?.totp_secret) {
+      logSecurityEvent("auth.admin_2fa_setup_rejected", {
+        ip: getClientIP(req),
+        userAgent: req.headers["user-agent"] as string,
+        details: { adminNumber, reason: "already_enrolled" },
+      });
+      return res.status(409).json({
+        error: "TOTP уже настроен для этого администратора. Для сброса обратитесь к владельцу проекта.",
+      });
+    }
+
     const adminName = getAdminName(upperCode)!;
     const secret = generateTOTPSecret();
     const otpauthUrl = generateTOTPUrl(secret, `Admin: ${adminName}`);
@@ -1126,12 +1148,25 @@ router.post("/api/auth/admin/verify-setup-totp", async (req: Request, res: Respo
     const adminNumber = getAdminNumber(upperCode)!;
     const supabase = createServiceClient();
 
-    // Upsert admin_2fa row
+    // H-B fix: запрещаем переписать существующий totp_secret без out-of-band подтверждения.
+    // Если ранее уже был настроен TOTP для этого adminNumber, setup-totp должен был отклонить запрос на стадии инициализации.
+    // Здесь повторно проверяем состояние перед записью: если запись существует с непустым totp_secret, отказываем.
     const { data: existing } = await supabase
       .from("admin_2fa")
-      .select("id")
+      .select("id, totp_secret")
       .eq("admin_number", adminNumber)
       .maybeSingle();
+
+    if (existing?.totp_secret) {
+      logSecurityEvent("auth.admin_2fa_verify_rejected", {
+        ip: clientIp,
+        userAgent: req.headers["user-agent"] as string,
+        details: { adminNumber, reason: "already_enrolled" },
+      });
+      return res.status(409).json({
+        error: "TOTP уже настроен для этого администратора. Для сброса обратитесь к владельцу проекта.",
+      });
+    }
 
     if (existing) {
       await supabase
