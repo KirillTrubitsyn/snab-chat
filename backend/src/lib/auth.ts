@@ -436,6 +436,37 @@ export async function requireDocumentAdmin(
   return { adminName: getAdminName(code)! };
 }
 
+/**
+ * H-A fix: проверяет допустимость fastpath по админ-коду с учётом состояния 2FA.
+ *
+ * Правила (в порядке приоритета):
+ *  1. Если передан валидный x-admin-session, соответствующий этому админу → разрешаем.
+ *  2. Если для админа НЕ настроен ни один 2FA-метод (TOTP/Telegram) → разрешаем
+ *     (миграционный backwards-compat окно, чтобы не сломать первичный setup-флоу
+ *     до того, как все админы пройдут настройку 2FA).
+ *  3. Иначе (2FA настроено, но session отсутствует/невалиден) → отклоняем.
+ */
+async function validateAdminFastpath(req: Request, code: string): Promise<boolean> {
+  const adminNumber = getAdminNumber(code);
+  if (adminNumber === null) return false;
+
+  const sessionToken = getHeader(req, "x-admin-session");
+  if (sessionToken) {
+    const session = await verifyAdminSessionToken(sessionToken);
+    if (session && session.adminNumber === adminNumber) {
+      return true;
+    }
+  }
+
+  const status = await getAdmin2FAStatus(adminNumber);
+  if (!status.hasAnyMethod) {
+    // 2FA ещё не настроено — временно разрешаем fastpath
+    return true;
+  }
+
+  return false;
+}
+
 export async function getInviteCodeFromHeader(
   req: Request
 ): Promise<InviteCode | null> {
@@ -443,6 +474,15 @@ export async function getInviteCodeFromHeader(
   if (!code) return null;
 
   if (isAdminCode(code)) {
+    // H-A fix: fastpath пропускает админ-код только если либо присутствует валидный
+    // admin session token, либо 2FA у этого админа ещё не настроено (backwards-compat).
+    const ok = await validateAdminFastpath(req, code);
+    if (!ok) {
+      console.warn(
+        `[auth] Rejected admin fastpath for ***${code.slice(-3).toUpperCase()}: 2FA required but session missing/invalid`
+      );
+      return null;
+    }
     return {
       id: `admin-${code.toUpperCase()}`,
       code: code.toUpperCase(),
@@ -492,6 +532,12 @@ export async function requireAuth(
   const code = rawInvite || rawAdmin;
 
   if (isAdminCode(code)) {
+    // H-A fix: admin-fastpath только при наличии валидной admin session или до настройки 2FA.
+    const ok = await validateAdminFastpath(req, code);
+    if (!ok) {
+      res.status(401).json({ error: "Требуется 2FA авторизация администратора" });
+      return null;
+    }
     return { inviteCodeId: null, isAdmin: true };
   }
 
