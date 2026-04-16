@@ -40,5 +40,8 @@
     "@types/react-dom": "^19.0.0",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.7.0"
+  },
+  "overrides": {
+    "html-encoding-sniffer": "4.0.0"
   }
 }
