@@ -55,7 +55,8 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
       const actData = await actRes.json();
       const uploadsData = await uploadsRes.json().catch(() => ({}));
       const combined: ActivityItem[] = [
-        ...(actData.activity || []),
+        // Из Railway берём только чат и инфографику, документы — только из Vercel
+        ...(actData.activity || []).filter((a: ActivityItem) => a.type !== "document"),
         ...(uploadsData.uploads || []),
       ];
       combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
