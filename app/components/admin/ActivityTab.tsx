@@ -6,7 +6,7 @@ import { formatDateTime } from "@/app/lib/date-utils";
 import type { ActivityItem } from "./types";
 
 type DateFilter = "today" | "7days" | "30days" | "all";
-type TypeFilter = "all" | "chat" | "infographic";
+type TypeFilter = "all" | "chat" | "infographic" | "document";
 
 const DATE_FILTERS: { key: DateFilter; label: string }[] = [
   { key: "today", label: "Сегодня" },
@@ -19,6 +19,7 @@ const TYPE_FILTERS: { key: TypeFilter; label: string }[] = [
   { key: "all", label: "Все" },
   { key: "chat", label: "Чат" },
   { key: "infographic", label: "Инфографика" },
+  { key: "document", label: "Документы" },
 ];
 
 function filterByDate(items: ActivityItem[], filter: DateFilter): ActivityItem[] {
@@ -219,8 +220,8 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
                     <td className="admin-cell-name">{a.user_name}</td>
                     <td className="admin-cell-name">{a.organization || <span className="admin-text-muted">—</span>}</td>
                     <td>
-                      <span className={`admin-status ${a.type === "chat" ? "active" : "infographic"}`}>
-                        {a.type === "chat" ? "Чат" : "Инфографика"}
+                      <span className={`admin-status ${a.type === "chat" ? "active" : a.type === "infographic" ? "infographic" : "document"}`}>
+                        {a.type === "chat" ? "Чат" : a.type === "infographic" ? "Инфографика" : "Документ"}
                       </span>
                     </td>
                     <td

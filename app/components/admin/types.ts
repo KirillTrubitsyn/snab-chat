@@ -20,7 +20,7 @@ export interface InviteCode {
 
 export interface ActivityItem {
   id: string;
-  type: "chat" | "infographic";
+  type: "chat" | "infographic" | "document";
   user_name: string;
   organization: string | null;
   content: string;

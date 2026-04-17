@@ -5,6 +5,7 @@ import { chunkMarkdown } from "../lib/chunking.js";
 import { embedDocuments, embedTexts } from "../lib/embeddings.js";
 import { requireDocumentAdmin } from "../lib/auth.js";
 import { logError } from "../lib/error-logger.js";
+import { logAuditEvent } from "../lib/audit-log.js";
 import { parseToMarkdown } from "../lib/parser.js";
 import type { ExtractedImage } from "../lib/parser.js";
 import {
@@ -293,6 +294,13 @@ router.post(
       console.log(
         `[ingest] ${filename}: ${insertedCount} chunks, ${totalImages} images uploaded`
       );
+
+      logAuditEvent({
+        action: "document.upload",
+        adminName: adminCheck.adminName,
+        targetId: String(source.id),
+        details: { filename, chunks: insertedCount, images: totalImages },
+      }).catch(() => {});
 
       return res.json({
         sourceId: source.id,
