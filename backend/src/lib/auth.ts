@@ -151,12 +151,16 @@ export async function validateInviteCode(
 // Управление устройствами
 // ============================================================
 
+function isMobileUserAgent(userAgent: string): boolean {
+  return /mobile|android|iphone|ipad|ipod|blackberry|windows phone|webos/i.test(userAgent);
+}
+
 export async function checkAndRegisterDevice(
   inviteCodeId: string,
   deviceId: string,
   deviceLimit: number | null,
   userAgent: string = ""
-): Promise<{ error: string | null; isNewDevice: boolean }> {
+): Promise<{ error: string | null; isNewDevice: boolean; deviceNumber: number; isMobile: boolean }> {
   const supabase = createServiceClient();
 
   const { data: existing } = await supabase
@@ -171,7 +175,7 @@ export async function checkAndRegisterDevice(
       .from("devices")
       .update({ last_seen_at: new Date().toISOString(), user_agent: userAgent })
       .eq("id", existing.id);
-    return { error: null, isNewDevice: false };
+    return { error: null, isNewDevice: false, deviceNumber: 0, isMobile: false };
   }
 
   if (deviceLimit !== null) {
@@ -184,6 +188,8 @@ export async function checkAndRegisterDevice(
       return {
         error: `Превышен лимит устройств (${deviceLimit}). Обратитесь к администратору.`,
         isNewDevice: false,
+        deviceNumber: 0,
+        isMobile: false,
       };
     }
   }
@@ -194,7 +200,12 @@ export async function checkAndRegisterDevice(
     user_agent: userAgent,
   });
 
-  return { error: null, isNewDevice: true };
+  const { count: newCount } = await supabase
+    .from("devices")
+    .select("id", { count: "exact", head: true })
+    .eq("invite_code_id", inviteCodeId);
+
+  return { error: null, isNewDevice: true, deviceNumber: newCount ?? 1, isMobile: isMobileUserAgent(userAgent) };
 }
 
 export async function getDeviceCount(inviteCodeId: string): Promise<number> {

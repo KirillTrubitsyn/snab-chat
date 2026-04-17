@@ -128,7 +128,7 @@ router.post("/api/auth/login", async (req: Request, res: Response) => {
     let isNewDevice = false;
     if (device_id) {
       const userAgent = req.headers["user-agent"] || "";
-      const { error: deviceError, isNewDevice: newDevice } = await checkAndRegisterDevice(
+      const { error: deviceError, isNewDevice: newDevice, deviceNumber: newDeviceNumber, isMobile: newDeviceIsMobile } = await checkAndRegisterDevice(
         invite.id,
         device_id,
         invite.device_limit ?? null,
@@ -138,14 +138,9 @@ router.post("/api/auth/login", async (req: Request, res: Response) => {
         return res.status(403).json({ error: deviceError });
       }
       isNewDevice = newDevice;
-    }
-
-    // 5. НЕ расходуем uses_remaining здесь — это делает set-password после установки пароля.
-    // Если расходовать на этапе login, то set-password и 2FA-роуты не смогут пройти валидацию.
-
-    // 6. Уведомление при активации кода с нового устройства
-    if (isNewDevice) {
-      notifyNewUser(invite.name, invite.organization).catch(() => {});
+      if (newDevice) {
+        notifyNewUser(invite.name, invite.organization, newDeviceNumber, newDeviceIsMobile).catch(() => {});
+      }
     }
 
     return res.json({
@@ -273,10 +268,9 @@ router.post("/api/auth/verify-password", async (req: Request, res: Response) => 
     }
 
     // Проверка лимита устройств
-    let isNewDevice = false;
     if (parsed.data.device_id) {
       const userAgent = req.headers["user-agent"] || "";
-      const { error: deviceError, isNewDevice: newDevice } = await checkAndRegisterDevice(
+      const { error: deviceError, isNewDevice, deviceNumber, isMobile } = await checkAndRegisterDevice(
         invite.id,
         parsed.data.device_id,
         invite.device_limit ?? null,
@@ -285,11 +279,9 @@ router.post("/api/auth/verify-password", async (req: Request, res: Response) => 
       if (deviceError) {
         return res.status(403).json({ error: deviceError });
       }
-      isNewDevice = newDevice;
-    }
-
-    if (isNewDevice) {
-      notifyNewUser(invite.name, invite.organization).catch(() => {});
+      if (isNewDevice) {
+        notifyNewUser(invite.name, invite.organization, deviceNumber, isMobile).catch(() => {});
+      }
     }
 
     const twoFactorMethods: string[] = [];
@@ -986,7 +978,7 @@ router.post("/api/auth/login-password", async (req: Request, res: Response) => {
 
     if (device_id) {
       const userAgent = req.headers["user-agent"] || "";
-      const { error: deviceError, isNewDevice } = await checkAndRegisterDevice(
+      const { error: deviceError, isNewDevice, deviceNumber, isMobile } = await checkAndRegisterDevice(
         matched.id,
         device_id,
         matched.device_limit ?? null,
@@ -996,7 +988,7 @@ router.post("/api/auth/login-password", async (req: Request, res: Response) => {
         return res.status(403).json({ error: deviceError });
       }
       if (isNewDevice) {
-        notifyNewUser(matched.name, matched.organization).catch(() => {});
+        notifyNewUser(matched.name, matched.organization, deviceNumber, isMobile).catch(() => {});
       }
     }
 

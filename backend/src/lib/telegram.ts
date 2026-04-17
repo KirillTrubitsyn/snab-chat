@@ -262,12 +262,18 @@ export async function notifySupportMessage(
 /** Уведомление о регистрации нового пользователя */
 export async function notifyNewUser(
   userName: string,
-  organization?: string | null
+  organization?: string | null,
+  deviceNumber?: number,
+  isMobile?: boolean
 ): Promise<void> {
   const orgLine = organization ? `\n🏢 <b>Организация:</b> ${escapeHtml(organization)}` : "";
+  const deviceTypeLine = isMobile !== undefined
+    ? `\n${isMobile ? "📱" : "🖥"} <b>Тип устройства:</b> ${isMobile ? "Мобильное" : "Десктоп"}`
+    : "";
+  const deviceNumLine = deviceNumber ? `\n🔢 <b>Устройство №${deviceNumber}</b>` : "";
   const text =
     `🆕 <b>Новый пользователь</b>\n\n` +
-    `👤 <b>Имя:</b> ${escapeHtml(userName)}${orgLine}\n\n` +
+    `👤 <b>Имя:</b> ${escapeHtml(userName)}${orgLine}${deviceTypeLine}${deviceNumLine}\n\n` +
     `🕐 ${getMoscowTime()}`;
   await notifyAllAdmins(text);
 }
