@@ -235,6 +235,7 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
       { data: assistantMsgs },
       { data: offTopicRows },
       { data: infographicRows },
+      { data: documentUploadRows },
     ] = await Promise.all([
       supabase
         .from("messages")
@@ -257,6 +258,12 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
       supabase
         .from("infographics")
         .select("id, invite_code_id, conversation_id, topic, admin_name, ip_address, created_at")
+        .order("created_at", { ascending: false })
+        .limit(200),
+      supabase
+        .from("audit_log")
+        .select("id, admin_name, details, created_at")
+        .eq("action", "document.upload")
         .order("created_at", { ascending: false })
         .limit(200),
     ]);
@@ -346,7 +353,22 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
       };
     });
 
-    const result = [...chatItems, ...infographicItems].sort(
+    const documentItems = (documentUploadRows || []).map((row) => {
+      const details = (row.details || {}) as Record<string, unknown>;
+      const filename = (details.filename as string) || "Документ";
+      const chunks = details.chunks != null ? ` (${details.chunks} чанков)` : "";
+      return {
+        id: row.id,
+        type: "document" as const,
+        user_name: row.admin_name || "Администратор",
+        organization: null as string | null,
+        content: filename + chunks,
+        model: null as string | null,
+        created_at: row.created_at,
+      };
+    });
+
+    const result = [...chatItems, ...infographicItems, ...documentItems].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     ).slice(0, 300);
 

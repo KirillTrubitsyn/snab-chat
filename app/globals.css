@@ -4634,6 +4634,11 @@ input, textarea {
   color: #6B21A8;
 }
 
+.admin-status.document {
+  background: #DBEAFE;
+  color: #1D4ED8;
+}
+
 /* ── Text helpers ── */
 
 .admin-text-muted {
