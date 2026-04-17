@@ -235,7 +235,7 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
       { data: assistantMsgs },
       { data: offTopicRows },
       { data: infographicRows },
-      { data: documentUploadRows },
+      { data: sourceRows },
     ] = await Promise.all([
       supabase
         .from("messages")
@@ -261,9 +261,8 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
         .order("created_at", { ascending: false })
         .limit(200),
       supabase
-        .from("audit_log")
-        .select("id, admin_name, details, created_at")
-        .eq("action", "document.upload")
+        .from("sources")
+        .select("id, filename, mime_type, folder_path, created_at")
         .order("created_at", { ascending: false })
         .limit(200),
     ]);
@@ -353,16 +352,13 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
       };
     });
 
-    const documentItems = (documentUploadRows || []).map((row) => {
-      const details = (row.details || {}) as Record<string, unknown>;
-      const filename = (details.filename as string) || "Документ";
-      const chunks = details.chunks != null ? ` (${details.chunks} чанков)` : "";
+    const documentItems = (sourceRows || []).map((row) => {
       return {
         id: row.id,
         type: "document" as const,
-        user_name: row.admin_name || "Администратор",
-        organization: null as string | null,
-        content: filename + chunks,
+        user_name: "Администратор",
+        organization: row.folder_path as string | null,
+        content: row.filename as string,
         model: null as string | null,
         created_at: row.created_at,
       };

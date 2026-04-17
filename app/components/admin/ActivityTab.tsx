@@ -237,9 +237,11 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
                     </td>
                     <td className="admin-cell-date" style={{ textAlign: "right", paddingLeft: 0 }}>{formatDateTime(a.created_at)}</td>
                     <td style={{ textAlign: "right" }}>
-                      <button className="admin-btn-icon-danger" onClick={() => deleteSingle(a.id)} title="Удалить">
-                        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
-                      </button>
+                      {a.type !== "document" && (
+                        <button className="admin-btn-icon-danger" onClick={() => deleteSingle(a.id)} title="Удалить">
+                          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
