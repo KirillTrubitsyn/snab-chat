@@ -1,7 +1,17 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
-  serverExternalPackages: ['ioredis', 'isomorphic-dompurify', 'jsdom'],
+  serverExternalPackages: [
+    'ioredis',
+    'isomorphic-dompurify',
+    'jsdom',
+    'cssstyle',
+    '@asamuzakjp/css-color',
+    '@csstools/css-calc',
+    '@csstools/css-color-parser',
+    '@csstools/css-parser-algorithms',
+    '@csstools/css-tokenizer',
+  ],
   experimental: {
     serverActions: {
       bodySizeLimit: '30mb',
