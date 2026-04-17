@@ -48,9 +48,18 @@ export default function ActivityTab({ adminCode }: { adminCode: string }) {
   const loadActivity = useCallback(async () => {
     setActivityLoading(true);
     try {
-      const res = await fetch(apiUrl("/api/admin/activity"), { headers });
-      const data = await res.json();
-      if (data.activity) setActivity(data.activity);
+      const [actRes, uploadsRes] = await Promise.all([
+        fetch(apiUrl("/api/admin/activity"), { headers }),
+        fetch("/api/admin/chat-uploads", { headers }),
+      ]);
+      const actData = await actRes.json();
+      const uploadsData = await uploadsRes.json().catch(() => ({}));
+      const combined: ActivityItem[] = [
+        ...(actData.activity || []),
+        ...(uploadsData.uploads || []),
+      ];
+      combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      setActivity(combined);
     } catch { /* ignore */ }
     setActivityLoading(false);
   }, [adminCode]);
