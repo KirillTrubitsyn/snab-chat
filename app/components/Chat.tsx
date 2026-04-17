@@ -1021,6 +1021,15 @@ export default function Chat() {
         ...readyPhotos.map((p) => p.file.name || "Фото"),
       ];
 
+      // Fire-and-forget: log file attachments to Vercel API (not Railway)
+      if (attachmentNames.length > 0) {
+        fetch("/api/admin/chat-uploads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+          body: JSON.stringify({ filenames: attachmentNames, conversationId: convIdRef.current || null }),
+        }).catch(() => {});
+      }
+
       // ── Auto-detect and fetch URLs from message text ──
       const urlRegex = /https?:\/\/[^\s<>"{}|\\^`[\]]+/gi;
       const detectedUrls = text ? [...new Set(text.match(urlRegex) || [])] : [];

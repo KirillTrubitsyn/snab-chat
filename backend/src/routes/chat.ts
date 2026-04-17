@@ -444,7 +444,14 @@ router.post("/api/chat", async (req: Request, res: Response) => {
   const t0 = Date.now();
   const [, contextResult, intentResult] = await Promise.all([
     conversationId
-      ? saveMessage(conversationId, "user", userMessage.content)
+      ? saveMessage(
+          conversationId,
+          "user",
+          userMessage.content,
+          hasNewAttachments
+            ? { attached_files: rawAttached.map((d: { filename: string }) => d.filename) }
+            : undefined
+        )
       : Promise.resolve(),
     conversationId
       ? loadConversationContext(conversationId).catch((e) => {

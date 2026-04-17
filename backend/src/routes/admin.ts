@@ -235,7 +235,6 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
       { data: assistantMsgs },
       { data: offTopicRows },
       { data: infographicRows },
-      { data: sourceRows },
     ] = await Promise.all([
       supabase
         .from("messages")
@@ -258,11 +257,6 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
       supabase
         .from("infographics")
         .select("id, invite_code_id, conversation_id, topic, admin_name, ip_address, created_at")
-        .order("created_at", { ascending: false })
-        .limit(200),
-      supabase
-        .from("sources")
-        .select("id, filename, mime_type, folder_path, created_at")
         .order("created_at", { ascending: false })
         .limit(200),
     ]);
@@ -352,17 +346,33 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
       };
     });
 
-    const documentItems = (sourceRows || []).map((row) => {
-      return {
-        id: row.id,
-        type: "document" as const,
-        user_name: "Администратор",
-        organization: row.folder_path as string | null,
-        content: row.filename as string,
-        model: null as string | null,
-        created_at: row.created_at,
-      };
-    });
+    const documentItems: Array<{
+      id: string;
+      type: "document";
+      user_name: string;
+      organization: string | null;
+      content: string;
+      model: string | null;
+      created_at: string;
+    }> = [];
+    for (const m of messages || []) {
+      const files = (m.metadata as Record<string, unknown> | null)?.attached_files;
+      if (!Array.isArray(files) || files.length === 0) continue;
+      if (lookupOk && !(m.conversation_id in convsMap)) continue;
+      const user = resolveUser(m.conversation_id, convsMap, codesMap);
+      files.forEach((filename, idx) => {
+        if (typeof filename !== "string") return;
+        documentItems.push({
+          id: `${m.id}_file_${idx}`,
+          type: "document",
+          user_name: user.user_name,
+          organization: user.organization,
+          content: filename,
+          model: null,
+          created_at: m.created_at,
+        });
+      });
+    }
 
     const result = [...chatItems, ...infographicItems, ...documentItems].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
