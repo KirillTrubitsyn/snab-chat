@@ -8,4 +8,5 @@ backend/dist/
 
 # Claude Code project instructions (may contain secrets)
 CLAUDE.md
-.claude/
+.claude/*
+!.claude/skills/
