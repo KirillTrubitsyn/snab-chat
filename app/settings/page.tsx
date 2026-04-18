@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { apiUrl } from "@/app/lib/api";
 import { QRCodeSVG } from "qrcode.react";
-import { AVATAR_COLORS, getAvatarColor, setAvatarColor } from "@/app/lib/avatarColors";
+import { getAvatarColor } from "@/app/lib/avatarColors";
 
 interface TwoFAStatus {
   telegram: boolean;

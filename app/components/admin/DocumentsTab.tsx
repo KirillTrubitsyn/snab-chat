@@ -49,8 +49,7 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
   const [showDocFormatModal, setShowDocFormatModal] = useState(false);
   const [docFormatFileName, setDocFormatFileName] = useState("");
 
-  const authHeaders = { ...getAuthHeaders(), "x-admin-code": encodeURIComponent(adminCode), "x-invite-code": encodeURIComponent(adminCode) };
-  const headers = authHeaders;
+  const headers = { ...getAuthHeaders(), "x-admin-code": encodeURIComponent(adminCode), "x-invite-code": encodeURIComponent(adminCode) };
 
   const loadSources = useCallback(async () => {
     setSourcesLoading(true);
@@ -426,7 +425,7 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
             }}
             onDownload={async (sourceId) => {
               try {
-                const res = await fetch(apiUrl("/api/sources/download?id=" + sourceId + "&action=download"), { headers: authHeaders });
+                const res = await fetch(apiUrl("/api/sources/download?id=" + sourceId + "&action=download"), { headers });
                 if (!res.ok) return;
                 const blob = await res.blob();
                 const disposition = res.headers.get("content-disposition");
@@ -520,7 +519,7 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
                     <button className="admin-doc-action-btn" title="Скачать" onClick={async (e) => {
                       e.stopPropagation();
                       try {
-                        const res = await fetch(apiUrl(`/api/sources/download?id=${doc.id}&action=download`), { headers: authHeaders });
+                        const res = await fetch(apiUrl(`/api/sources/download?id=${doc.id}&action=download`), { headers });
                         if (!res.ok) return;
                         const blob = await res.blob();
                         const disposition = res.headers.get("content-disposition");

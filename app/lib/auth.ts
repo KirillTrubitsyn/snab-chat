@@ -338,6 +338,14 @@ async function verifyAdminSession(sessionToken: string): Promise<{ adminNumber: 
 // Helpers для защиты API-роутов
 // ============================================================
 
+function sessionExpiredResponse() {
+  return NextResponse.json({ error: "Сессия истекла, войдите заново" }, { status: 401 });
+}
+
+function twoFactorRequiredResponse() {
+  return NextResponse.json({ error: "Требуется 2FA авторизация" }, { status: 401 });
+}
+
 /**
  * Проверяет заголовок X-Admin-Code + X-Admin-Session и возвращает имя админа или 401
  */
@@ -355,14 +363,14 @@ export async function requireAdmin(
   if (sessionToken) {
     const session = await verifyAdminSession(sessionToken);
     if (!session) {
-      return NextResponse.json({ error: "Сессия истекла, войдите заново" }, { status: 401 });
+      return sessionExpiredResponse();
     }
     const adminNumber = getAdminNumber(code);
     if (session.adminNumber !== adminNumber) {
       return adminRequiredResponse();
     }
   } else {
-    return NextResponse.json({ error: "Требуется 2FA авторизация" }, { status: 401 });
+    return twoFactorRequiredResponse();
   }
 
   return { adminName: name };
@@ -386,10 +394,10 @@ export async function requirePrimaryAdmin(
   if (sessionToken) {
     const session = await verifyAdminSession(sessionToken);
     if (!session || session.adminNumber !== number) {
-      return NextResponse.json({ error: "Сессия истекла, войдите заново" }, { status: 401 });
+      return sessionExpiredResponse();
     }
   } else {
-    return NextResponse.json({ error: "Требуется 2FA авторизация" }, { status: 401 });
+    return twoFactorRequiredResponse();
   }
 
   return { adminName: name };
@@ -411,10 +419,10 @@ export async function requireDocumentAdmin(
   if (sessionToken) {
     const session = await verifyAdminSession(sessionToken);
     if (!session) {
-      return NextResponse.json({ error: "Сессия истекла, войдите заново" }, { status: 401 });
+      return sessionExpiredResponse();
     }
   } else {
-    return NextResponse.json({ error: "Требуется 2FA авторизация" }, { status: 401 });
+    return twoFactorRequiredResponse();
   }
 
   return { adminName: getAdminName(code)! };
