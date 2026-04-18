@@ -10,3 +10,4 @@ backend/dist/
 CLAUDE.md
 .claude/*
 !.claude/skills/
+!.claude/commands/
