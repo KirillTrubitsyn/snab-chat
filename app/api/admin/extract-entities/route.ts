@@ -3,6 +3,7 @@ import { createServiceClient } from '@/app/lib/supabase';
 import { embedQuery } from '@/app/lib/embeddings';
 import { GoogleGenAI } from '@google/genai';
 import { requireAdmin } from '@/app/lib/auth';
+import { serverError } from '@/app/lib/api-helpers';
 
 // ============================================================
 // POST /api/admin/extract-entities
@@ -378,7 +379,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: unknown) {
     console.error('Extract entities error:', error instanceof Error ? error.message : error);
-    return NextResponse.json({ error: 'Ошибка извлечения сущностей' }, { status: 500 });
+    return serverError('Ошибка извлечения сущностей');
   }
 }
 
@@ -392,7 +393,7 @@ export async function GET(request: NextRequest) {
     const { data } = await supabase.rpc('kg_stats');
     return NextResponse.json(data?.[0] || data || {});
   } catch {
-    return NextResponse.json({ error: 'kg_stats RPC not found' }, { status: 500 });
+    return serverError('kg_stats RPC not found');
   }
 }
 

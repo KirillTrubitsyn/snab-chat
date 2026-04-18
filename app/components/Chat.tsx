@@ -3,19 +3,15 @@
 import { useState, useEffect, useRef, useCallback, useMemo, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 // useChat removed in ai SDK v6 migration — streaming is fully manual
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import InviteGate from "./InviteGate";
 import { containsMarkdownTable } from "@/app/lib/markdown-tables";
 import KBSearchBar from "@/app/components/KBSearchBar";
 import { formatDateRelative } from "@/app/lib/date-utils";
-import { sanitizeHtml } from "@/app/lib/sanitize";
 import { apiUrl, getAuthHeaders } from "@/app/lib/api";
 import { getAvatarColor, setAvatarColor as saveAvatarColor, AVATAR_COLORS } from "@/app/lib/avatarColors";
 import {
   VoiceButton,
   CameraButton,
-  ExcelViewer,
   MessageBubble,
   EmptyState,
   ChatDocumentViewer,
@@ -24,10 +20,9 @@ import {
   MenuIcon,
   ArrowUpIcon,
   HistoryIcon,
-  SearchIcon,
   InfographicIcon,
 } from "./chat";
-import type { Conversation, Source, ChatFile, ChatPhoto, ExcelSheet } from "./chat/types";
+import type { Conversation, Source, ChatFile, ChatPhoto } from "./chat/types";
 
 /* ── Helpers ── */
 

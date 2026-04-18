@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
 import { requireAdmin, getInviteCodeFromHeader } from "@/app/lib/auth";
+import { badRequest, ok } from "@/app/lib/api-helpers";
 
 // POST /api/admin/chat-uploads
 // Вызывается из Chat.tsx когда пользователь прикрепляет документ — логирует в audit_log
@@ -14,7 +15,7 @@ export async function POST(req: NextRequest) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return badRequest("Invalid JSON");
   }
 
   const rawFilenames = body.filenames;
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
     ? rawFilenames.filter((f): f is string => typeof f === "string").slice(0, 20)
     : [];
 
-  if (filenames.length === 0) return NextResponse.json({ ok: true });
+  if (filenames.length === 0) return ok();
 
   const conversationId =
     typeof body.conversationId === "string" ? body.conversationId : null;
