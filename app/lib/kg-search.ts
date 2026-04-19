@@ -202,12 +202,39 @@ export async function graphEnhancedSearch(
   chunkIds: string[];
   graphContext: string;
   hasGraphResults: boolean;
+  /** Per-chunk provenance signals для confidence/hop-взвешенного scoring. */
+  chunkSignals: Map<string, { minHop: number; maxConfidence: number }>;
 }> {
   try {
     const result = await graphQuery(query);
 
     if (result.scopedChunkIds.length === 0) {
-      return { chunkIds: [], graphContext: '', hasGraphResults: false };
+      return {
+        chunkIds: [],
+        graphContext: '',
+        hasGraphResults: false,
+        chunkSignals: new Map(),
+      };
+    }
+
+    // Аккумулятор сигналов по чанкам: (minHop, maxConfidence).
+    const chunkSignals = new Map<string, { minHop: number; maxConfidence: number }>();
+    const recordSignal = (chunkId: string | number | null | undefined, hop: number, confidence: number) => {
+      if (chunkId == null) return;
+      const key = String(chunkId);
+      const prev = chunkSignals.get(key);
+      if (!prev) {
+        chunkSignals.set(key, { minHop: hop, maxConfidence: confidence });
+        return;
+      }
+      if (hop < prev.minHop) prev.minHop = hop;
+      if (confidence > prev.maxConfidence) prev.maxConfidence = confidence;
+    };
+    for (const e of result.startEntities) {
+      for (const cid of e.source_chunk_ids ?? []) recordSignal(cid, 0, 1.0);
+    }
+    for (const c of result.connectedEntities) {
+      recordSignal(c.source_chunk_id, c.hop, c.confidence);
     }
 
     // Сформировать текстовый контекст графа для системного промпта
@@ -233,9 +260,10 @@ export async function graphEnhancedSearch(
       chunkIds: result.scopedChunkIds.slice(0, matchCount),
       graphContext,
       hasGraphResults: true,
+      chunkSignals,
     };
   } catch (error) {
     console.error('graphEnhancedSearch error:', error);
-    return { chunkIds: [], graphContext: '', hasGraphResults: false };
+    return { chunkIds: [], graphContext: '', hasGraphResults: false, chunkSignals: new Map() };
   }
 }

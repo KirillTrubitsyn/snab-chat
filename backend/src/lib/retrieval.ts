@@ -850,6 +850,7 @@ export async function graphAwareSearch(
       chunkIds: [],
       groups: [],
       hasGraphResults: false,
+      chunkSignals: new Map(),
     })),
     hybridSearch(query, matchCount, filterTags),
   ]);
@@ -1057,10 +1058,17 @@ export async function graphAwareSearch(
     }
   }
 
-  // Merge: graph chunks with bonus + standard.
-  // For multi-group queries the first `reservedCount` graph results are
-  // guaranteed per-group primary docs — they must stay at the top.
-  const GRAPH_BONUS = 0.15;
+  // Merge: graph chunks with per-chunk boost + standard.
+  // Per-chunk boost = 0.05 + 0.12 * confidence - 0.03 * hop  (clamp [0.02, 0.18]).
+  // Chunks с прямым упоминанием стартовой сущности (hop=0, conf=1.0) получают ~0.17,
+  // далёкие слабые связи (hop=2, conf=0.5) — ~0.05.
+  // Chunks без сигнала (не должны возникать, защитно) — median 0.10.
+  const DEFAULT_BOOST = 0.1;
+  const computeGraphBoost = (hop: number, confidence: number): number => {
+    const raw = 0.05 + 0.12 * confidence - 0.03 * hop;
+    return Math.max(0.02, Math.min(0.18, raw));
+  };
+
   const isMultiGroup = graphResult.groups.length >= 2;
   const reservedCount = isMultiGroup
     ? Math.min(graphResult.groups.length * 3, graphChunkResults.length)
@@ -1074,7 +1082,12 @@ export async function graphAwareSearch(
     const r = graphChunkResults[i];
     if (seen.has(r.id)) continue;
     seen.add(r.id);
-    const boosted = { ...r, similarity: Math.min(r.similarity + GRAPH_BONUS, 1.0) };
+    const chunkIdNum = Number(r.id);
+    const signal = graphResult.chunkSignals.get(chunkIdNum);
+    const boost = signal
+      ? computeGraphBoost(signal.minHop, signal.maxConfidence)
+      : DEFAULT_BOOST;
+    const boosted = { ...r, similarity: Math.min(r.similarity + boost, 1.0) };
     if (i < reservedCount) {
       mergedReserved.push(boosted);
     } else {
