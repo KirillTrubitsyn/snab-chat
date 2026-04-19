@@ -4,6 +4,12 @@ import { embedQuery } from '@/app/lib/embeddings';
 import { GoogleGenAI } from '@google/genai';
 import { requireAdmin } from '@/app/lib/auth';
 import { serverError } from '@/app/lib/api-helpers';
+import {
+  resolveOntologyForTags,
+  resolveOntologyForBatch,
+  buildDomainPromptAddendum,
+  type DomainOntology,
+} from '@/app/lib/kg-ontologies';
 
 // ============================================================
 // POST /api/admin/extract-entities
@@ -266,211 +272,228 @@ export async function POST(request: NextRequest) {
     let totalEntities = 0;
     let totalRelations = 0;
     const newEntityIds: string[] = [];
+    const ontologyUsage: Record<string, number> = {};
 
-    // 4. Обработка пачками
-    for (let i = 0; i < chunks.length; i += batchSize) {
-      const batch = chunks.slice(i, i + batchSize);
+    // Группируем чанки по домену (онтологии), чтобы каждый батч получал
+    // доменно-специфичный промпт и был однородным по жанру документа.
+    // Чанки без совпадения ни с одной онтологией идут в группу "default".
+    const chunksByDomain = new Map<string, { ontology: DomainOntology | null; list: typeof chunks }>();
+    for (const c of chunks) {
+      const ont = resolveOntologyForTags(c.tags);
+      const key = ont?.name ?? '__default__';
+      const entry = chunksByDomain.get(key);
+      if (entry) entry.list.push(c);
+      else chunksByDomain.set(key, { ontology: ont, list: [c] });
+    }
 
-      // Формируем контекст для LLM
-      const batchText = batch.map((c, idx) =>
-        `--- Чанк ${idx + 1} (файл: ${c.source_filename}) ---\n${c.content.slice(0, 6000)}`
-      ).join('\n\n');
+    // 4. Обработка пачками (в каждой группе — своя онтология)
+    for (const { ontology: groupOntology, list: groupChunks } of chunksByDomain.values()) {
+      for (let i = 0; i < groupChunks.length; i += batchSize) {
+        const batch = groupChunks.slice(i, i + batchSize);
 
-      // Вызов Gemini 3 Flash
-      let extraction: ExtractionResult = { entities: [], relations: [] };
+        // Формируем контекст для LLM
+        const batchText = batch.map((c, idx) =>
+          `--- Чанк ${idx + 1} (файл: ${c.source_filename}) ---\n${c.content.slice(0, 6000)}`
+        ).join('\n\n');
 
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: [
-              { role: 'user', parts: [{ text: `${EXTRACTION_PROMPT}\n\nТЕКСТ ДЛЯ АНАЛИЗА:\n\n${batchText}` }] }
-            ],
-            config: {
-              temperature: 0.1,
-              maxOutputTokens: 8192,
-              responseMimeType: 'application/json',
-            },
-          });
+        // На случай смешанных тегов в батче — пересчитаем онтологию по голосованию.
+        const batchOntology = groupOntology ?? resolveOntologyForBatch(batch);
+        const domainAddendum = buildDomainPromptAddendum(batchOntology);
+        const ontologyKey = batchOntology?.name ?? 'default';
+        ontologyUsage[ontologyKey] = (ontologyUsage[ontologyKey] || 0) + batch.length;
 
-          const text = response.text || '';
-          const parsed = JSON.parse(text);
-          extraction = {
-            entities: Array.isArray(parsed.entities) ? parsed.entities : [],
-            relations: Array.isArray(parsed.relations) ? parsed.relations : [],
-          };
-          break;
-        } catch (err: unknown) {
-          const error = err as { status?: number; message?: string };
-          if (error.status === 429 && attempt < 2) {
-            await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 2000));
-            continue;
-          }
-          console.error(`Extraction error batch ${i}:`, error.message);
-          break;
-        }
-      }
+        // Вызов Gemini 3 Flash
+        let extraction: ExtractionResult = { entities: [], relations: [] };
 
-      // 5. Upsert сущностей
-      const batchEntityMap = new Map<string, string>(); // name → entity_id
-      let batchResolvedByEmbedding = 0;
-
-      for (const ent of extraction.entities) {
-        if (!ent.name || !ent.type || !ENTITY_TYPES.includes(ent.type)) continue;
-
-        const canonical = normalize(ent.name);
-        const cacheKey = `${canonical}::${ent.type}`;
-        const chunkIds = batch.map(c => c.id);
-        const sourceIds = [...new Set(batch.map(c => c.source_id))];
-
-        // --- 5a. Точный мёрж по canonical_name + type (O(1) через кэш) ---
-        if (entityCache.has(cacheKey)) {
-          const existing = entityCache.get(cacheKey)!;
-          await mergeIntoExisting(supabase, existing, chunkIds, sourceIds);
-          batchEntityMap.set(ent.name, existing.id);
-          continue;
-        }
-
-        // --- 5b. Cross-document резолюция по эмбеддингу (semantic merge) ---
-        // Для не-STRICT типов: если существует сущность того же типа с
-        // embedding-сходством >= threshold и совместимым каноническим именем —
-        // мёржим вместо создания дубля. Это критично для regulations/roles/
-        // documents, которые упоминаются в разных типах документов.
-        let entityId: string | null = null;
-        let entityEmbedding: number[] | null = null;
-
-        if (
-          crossDocResolution &&
-          !STRICT_MATCH_TYPES.has(ent.type)
-        ) {
+        for (let attempt = 0; attempt < 3; attempt++) {
           try {
-            const embedText = `${ent.name}. ${ent.description || ''}`.trim();
-            entityEmbedding = await embedQuery(embedText);
-
-            const { data: matches, error: matchErr } = await supabase.rpc('kg_search_entities', {
-              query_embedding: JSON.stringify(entityEmbedding),
-              match_count: 3,
-              filter_types: [ent.type],
+            const response = await ai.models.generateContent({
+              model: 'gemini-3-flash-preview',
+              contents: [
+                {
+                  role: 'user',
+                  parts: [{
+                    text: `${EXTRACTION_PROMPT}${domainAddendum}\n\nТЕКСТ ДЛЯ АНАЛИЗА:\n\n${batchText}`,
+                  }],
+                },
+              ],
+              config: {
+                temperature: 0.1,
+                maxOutputTokens: 8192,
+                responseMimeType: 'application/json',
+              },
             });
 
-            if (!matchErr && Array.isArray(matches)) {
-              for (const m of matches as Array<{
-                entity_id: string;
-                canonical_name: string;
-                similarity: number;
-                source_chunk_ids: string[] | null;
-                source_ids: string[] | null;
-              }>) {
-                if (
-                  m.similarity >= resolveSimilarityThreshold &&
-                  canonicalNamesCompatible(canonical, m.canonical_name)
-                ) {
-                  const resolved = {
-                    id: m.entity_id,
-                    source_chunk_ids: m.source_chunk_ids || [],
-                    source_ids: m.source_ids || [],
-                  };
-                  await mergeIntoExisting(supabase, resolved, chunkIds, sourceIds);
-
-                  // Кэшируем под обоими ключами: исходным matched canonical_name
-                  // (чтобы дальше в batch'е тоже резолвилось) и под новым каноническим.
-                  entityCache.set(`${m.canonical_name}::${ent.type}`, resolved);
-                  entityCache.set(cacheKey, resolved);
-                  entityId = m.entity_id;
-                  batchResolvedByEmbedding++;
-                  break;
-                }
-              }
+            const text = response.text || '';
+            const parsed = JSON.parse(text);
+            extraction = {
+              entities: Array.isArray(parsed.entities) ? parsed.entities : [],
+              relations: Array.isArray(parsed.relations) ? parsed.relations : [],
+            };
+            break;
+          } catch (err: unknown) {
+            const error = err as { status?: number; message?: string };
+            if (error.status === 429 && attempt < 2) {
+              await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 2000));
+              continue;
             }
-          } catch (err) {
-            console.error('cross-doc resolve error for', ent.name, err);
+            console.error(`Extraction error batch ${i} (domain=${ontologyKey}):`, error.message);
+            break;
           }
         }
 
-        if (entityId) {
-          batchEntityMap.set(ent.name, entityId);
-          continue;
-        }
+        // 5. Upsert сущностей
+        const batchEntityMap = new Map<string, string>(); // name → entity_id
+        let batchResolvedByEmbedding = 0;
 
-        // --- 5c. Создание новой сущности ---
-        // Если эмбеддинг уже посчитан для резолюции — записываем его сразу,
-        // чтобы избежать повторной embed-генерации на шаге 8.
-        const insertPayload: Record<string, unknown> = {
-          name: ent.name,
-          canonical_name: canonical,
-          entity_type: ent.type,
-          description: ent.description || '',
-          source_chunk_ids: chunkIds,
-          source_ids: sourceIds,
-        };
-        if (entityEmbedding) {
-          insertPayload.embedding = JSON.stringify(entityEmbedding);
-        }
+        for (const ent of extraction.entities) {
+          if (!ent.name || !ent.type || !ENTITY_TYPES.includes(ent.type)) continue;
 
-        const { data: inserted, error: insError } = await supabase
-          .from('kg_entities')
-          .upsert(insertPayload, { onConflict: 'canonical_name,entity_type' })
-          .select('id')
-          .single();
+          const canonical = normalize(ent.name);
+          const cacheKey = `${canonical}::${ent.type}`;
+          const chunkIds = batch.map(c => c.id);
+          const sourceIds = [...new Set(batch.map(c => c.source_id))];
 
-        if (!insError && inserted) {
-          entityCache.set(cacheKey, {
-            id: inserted.id,
+          // --- 5a. Точный мёрж по canonical_name + type (O(1) через кэш) ---
+          if (entityCache.has(cacheKey)) {
+            const existing = entityCache.get(cacheKey)!;
+            await mergeIntoExisting(supabase, existing, chunkIds, sourceIds);
+            batchEntityMap.set(ent.name, existing.id);
+            continue;
+          }
+
+          // --- 5b. Cross-document резолюция по эмбеддингу (semantic merge) ---
+          let entityId: string | null = null;
+          let entityEmbedding: number[] | null = null;
+
+          if (
+            crossDocResolution &&
+            !STRICT_MATCH_TYPES.has(ent.type)
+          ) {
+            try {
+              const embedText = `${ent.name}. ${ent.description || ''}`.trim();
+              entityEmbedding = await embedQuery(embedText);
+
+              const { data: matches, error: matchErr } = await supabase.rpc('kg_search_entities', {
+                query_embedding: JSON.stringify(entityEmbedding),
+                match_count: 3,
+                filter_types: [ent.type],
+              });
+
+              if (!matchErr && Array.isArray(matches)) {
+                for (const m of matches as Array<{
+                  entity_id: string;
+                  canonical_name: string;
+                  similarity: number;
+                  source_chunk_ids: string[] | null;
+                  source_ids: string[] | null;
+                }>) {
+                  if (
+                    m.similarity >= resolveSimilarityThreshold &&
+                    canonicalNamesCompatible(canonical, m.canonical_name)
+                  ) {
+                    const resolved = {
+                      id: m.entity_id,
+                      source_chunk_ids: m.source_chunk_ids || [],
+                      source_ids: m.source_ids || [],
+                    };
+                    await mergeIntoExisting(supabase, resolved, chunkIds, sourceIds);
+
+                    entityCache.set(`${m.canonical_name}::${ent.type}`, resolved);
+                    entityCache.set(cacheKey, resolved);
+                    entityId = m.entity_id;
+                    batchResolvedByEmbedding++;
+                    break;
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('cross-doc resolve error for', ent.name, err);
+            }
+          }
+
+          if (entityId) {
+            batchEntityMap.set(ent.name, entityId);
+            continue;
+          }
+
+          // --- 5c. Создание новой сущности ---
+          const insertPayload: Record<string, unknown> = {
+            name: ent.name,
+            canonical_name: canonical,
+            entity_type: ent.type,
+            description: ent.description || '',
             source_chunk_ids: chunkIds,
             source_ids: sourceIds,
-          });
-          batchEntityMap.set(ent.name, inserted.id);
-          // Если embedding уже записан — не включаем в очередь на пост-embedding.
-          if (!entityEmbedding) newEntityIds.push(inserted.id);
-          totalEntities++;
+          };
+          if (entityEmbedding) {
+            insertPayload.embedding = JSON.stringify(entityEmbedding);
+          }
+
+          const { data: inserted, error: insError } = await supabase
+            .from('kg_entities')
+            .upsert(insertPayload, { onConflict: 'canonical_name,entity_type' })
+            .select('id')
+            .single();
+
+          if (!insError && inserted) {
+            entityCache.set(cacheKey, {
+              id: inserted.id,
+              source_chunk_ids: chunkIds,
+              source_ids: sourceIds,
+            });
+            batchEntityMap.set(ent.name, inserted.id);
+            if (!entityEmbedding) newEntityIds.push(inserted.id);
+            totalEntities++;
+          }
         }
-      }
 
-      if (batchResolvedByEmbedding > 0) {
-        console.log(
-          `[extract-entities] batch ${i}: ${batchResolvedByEmbedding} сущностей смёржено через cross-doc resolution`,
-        );
-      }
+        if (batchResolvedByEmbedding > 0) {
+          console.log(
+            `[extract-entities] batch ${i} (domain=${ontologyKey}): ${batchResolvedByEmbedding} сущностей смёржено через cross-doc resolution`,
+          );
+        }
 
-      // 6. Вставка связей
-      for (const rel of extraction.relations) {
-        if (!rel.source || !rel.target || !rel.type || !RELATION_TYPES.includes(rel.type)) continue;
+        // 6. Вставка связей
+        for (const rel of extraction.relations) {
+          if (!rel.source || !rel.target || !rel.type || !RELATION_TYPES.includes(rel.type)) continue;
 
-        const sourceId = batchEntityMap.get(rel.source)
-          || entityCache.get(`${normalize(rel.source)}::${findTypeByName(extraction.entities, rel.source)}`)?.id;
-        const targetId = batchEntityMap.get(rel.target)
-          || entityCache.get(`${normalize(rel.target)}::${findTypeByName(extraction.entities, rel.target)}`)?.id;
+          const sourceId = batchEntityMap.get(rel.source)
+            || entityCache.get(`${normalize(rel.source)}::${findTypeByName(extraction.entities, rel.source)}`)?.id;
+          const targetId = batchEntityMap.get(rel.target)
+            || entityCache.get(`${normalize(rel.target)}::${findTypeByName(extraction.entities, rel.target)}`)?.id;
 
-        if (!sourceId || !targetId || sourceId === targetId) continue;
+          if (!sourceId || !targetId || sourceId === targetId) continue;
 
-        const { error: relError } = await supabase
-          .from('kg_relations')
-          .insert({
-            source_entity_id: sourceId,
-            target_entity_id: targetId,
-            relation_type: rel.type,
-            description: rel.description || '',
-            confidence: rel.confidence || 1.0,
-            source_chunk_id: batch[0].id,
-            source_id: batch[0].source_id,
-          });
+          const { error: relError } = await supabase
+            .from('kg_relations')
+            .insert({
+              source_entity_id: sourceId,
+              target_entity_id: targetId,
+              relation_type: rel.type,
+              description: rel.description || '',
+              confidence: rel.confidence || 1.0,
+              source_chunk_id: batch[0].id,
+              source_id: batch[0].source_id,
+            });
 
-        if (!relError) totalRelations++;
-      }
+          if (!relError) totalRelations++;
+        }
 
-      // 7. Записать в лог извлечения
-      const logEntries = batch.map(c => ({
-        chunk_id: c.id,
-        source_id: c.source_id,
-        entities_count: extraction.entities.length,
-        relations_count: extraction.relations.length,
-      }));
+        // 7. Записать в лог извлечения
+        const logEntries = batch.map(c => ({
+          chunk_id: c.id,
+          source_id: c.source_id,
+          entities_count: extraction.entities.length,
+          relations_count: extraction.relations.length,
+        }));
 
-      await supabase.from('kg_extraction_log').upsert(logEntries, { onConflict: 'chunk_id' });
+        await supabase.from('kg_extraction_log').upsert(logEntries, { onConflict: 'chunk_id' });
 
-      // Пауза между батчами (rate limiting)
-      if (i + batchSize < chunks.length) {
-        await new Promise(r => setTimeout(r, 500));
+        // Пауза между батчами (rate limiting)
+        if (i + batchSize < groupChunks.length) {
+          await new Promise(r => setTimeout(r, 500));
+        }
       }
     }
 
@@ -512,6 +535,7 @@ export async function POST(request: NextRequest) {
       filterTags,
       crossDocResolution,
       resolveSimilarityThreshold,
+      ontologyUsage,
       message: totalRemaining > 0
         ? `Обработано ${chunks.length} чанков. Осталось ~${totalRemaining}. Запустите ещё раз.`
         : 'Все чанки обработаны.',
