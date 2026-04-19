@@ -137,13 +137,39 @@
 
 Таблицы `kg_entities` и `kg_relations` заполняются через API `POST /api/admin/extract-entities`.
 
+**Параметры запроса:**
+- `filterTags?: string[]` — whitelist тегов чанков. Если не указан, используется preset
+  `['стандарт', 'положения', 'договоры', 'матрица полномочий']`. `[]` — обработать всё.
+- `batchSize?: number` — чанков за один вызов LLM (до 10, по умолчанию 5).
+- `limit?: number` — макс. чанков за один запуск (до 200, по умолчанию 50).
+- `embedEntities?: boolean` — генерировать эмбеддинги для новых сущностей (default true).
+- `crossDocResolution?: boolean` — семантический merge сущностей одного типа
+  через embedding-сходство (default true; требует `embedEntities=true`).
+- `resolveSimilarityThreshold?: number` — порог cosine similarity для merge
+  (default 0.92; диапазон 0.8–0.99).
+
 **Типы сущностей** (закупочная онтология):
-`standard`, `branch`, `mtr_type`, `procedure`, `system`, `organization`, `document`, `role`, `threshold`, `concept`, `regulation`, `section`
+`standard`, `branch`, `mtr_type`, `procedure`, `system`, `organization`, `document`,
+`role`, `threshold`, `concept`, `regulation`, `section`,
+`contract_party`, `obligation`, `approval_level`.
 
 **Типы связей**:
-`defines`, `references`, `requires`, `governs`, `part_of`, `belongs_to`, `supersedes`, `amends`, `sets_threshold`, `restricts`, `delegates_to`, `requires_approval`
+`defines`, `references`, `requires`, `governs`, `part_of`, `belongs_to`, `supersedes`,
+`amends`, `sets_threshold`, `restricts`, `delegates_to`, `requires_approval`,
+`party_of`, `obliged_to`, `penalized_by`, `approves`, `escalates_to`.
 
 Сущности имеют собственные эмбеддинги (vector(1536)) с HNSW-индексом для семантического поиска по графу.
+
+**Cross-document entity resolution.** При upsert'е новой сущности extractor
+сначала проверяет точное совпадение `canonical_name + entity_type`, затем
+(для не-STRICT типов) ищет существующую сущность того же типа через
+`kg_search_entities` (HNSW по эмбеддингу). Если cosine similarity ≥
+`resolveSimilarityThreshold` И canonical-имена структурно совместимы
+(общие токены ≥3 символов или substring-inclusion), сущности мёржатся:
+к существующей добавляются `source_chunk_ids` и `source_ids` новой.
+STRICT-типы (`standard`, `regulation`, `threshold`, `section`) никогда не
+мёржатся по эмбеддингу, так как их идентификаторы содержат номера, которые
+нельзя путать (например, «ГОСТ 12.1.005» ≠ «ГОСТ 12.1.007»).
 
 ### 3.6 Связи между документами (`relationships.ts`)
 
