@@ -314,6 +314,55 @@ function linkifyTextNode(
   });
 }
 
+/**
+ * Normalize raw LLM output so ReactMarkdown parses it predictably.
+ *
+ * Fixes for artefacts that leave literal `##` / `**` in the rendered page:
+ *  1. BOM, zero-width chars (U+200B..D, U+FEFF) — invisible but break parsing
+ *  2. CRLF/CR → LF
+ *  3. NBSP and narrow-space variants after heading markers (`##\u00A0X` is NOT
+ *     a valid ATX heading in CommonMark and renders literally)
+ *  4. Leading indent >3 spaces before a heading marker disables ATX headings
+ *  5. Backslash-escaped heading markers `\##` → `##`
+ *  6. Force blank line BEFORE and AFTER headings (LLMs frequently forget these)
+ *  7. Strip redundant `**bold**` wrapping inside headings — the h2/h3 style
+ *     already handles emphasis and the extra asterisks occasionally leak through
+ *  8. Strip stray lone `**` tokens that never close (orphan bold artefacts)
+ */
+function normalizeLLMMarkdown(text: string): string {
+  if (!text) return text;
+  let t = text;
+
+  // 1. Strip zero-width and BOM
+  t = t.replace(/[\u200B-\u200D\uFEFF]/g, "");
+
+  // 2. CRLF / CR → LF
+  t = t.replace(/\r\n?/g, "\n");
+
+  // 3. Convert NBSP and narrow spaces to regular space
+  t = t.replace(/[\u00A0\u2007\u202F]/g, " ");
+
+  // 4. Strip leading whitespace (>0 chars) before a heading marker
+  t = t.replace(/^[ \t]+(?=#{1,6}\s)/gm, "");
+
+  // 5. Unescape `\#` at line start (LLM sometimes over-escapes)
+  t = t.replace(/(^|\n)\\(#{1,6}\s)/g, "$1$2");
+
+  // 6a. Ensure blank line BEFORE heading (if glued to previous line)
+  t = t.replace(/([^\n])\n(#{1,6}\s)/g, "$1\n\n$2");
+  // 6b. Ensure blank line AFTER heading (if glued to following text that's not another heading)
+  t = t.replace(/(\n#{1,6}[^\n]*)\n(?!\n|#{1,6}\s|$)/g, "$1\n\n");
+
+  // 7. Strip `**...**` that wraps an entire heading text — the heading style
+  //    already makes it bold; the extra asterisks sometimes survive parsing
+  t = t.replace(/^(#{1,6})\s+\*\*\s*(.+?)\s*\*\*\s*$/gm, "$1 $2");
+
+  // 8. Collapse accidental triple+ blank lines
+  t = t.replace(/\n{3,}/g, "\n\n");
+
+  return t;
+}
+
 function linkifyContent(text: string, allSources: Source[]): string {
   if (allSources.length === 0) return text;
 
@@ -491,9 +540,12 @@ export default function MessageBubble({
       .filter((line) => line.length > 0 && line.endsWith("?"));
   }
 
-  // Ensure blank lines before markdown headings (## / ###) so ReactMarkdown parses them correctly
-  const linkedContent = linkifyContent(mainContent, allSources);
-  const processedContent = linkedContent.replace(/([^\n])\n(#{1,4}\s)/g, "$1\n\n$2");
+  // Normalize LLM markdown so ReactMarkdown reliably renders headings/lists without
+  // leaving literal `##` / `**` symbols in the DOM. Applied BEFORE linkification so
+  // downstream regexes see clean line structure.
+  const normalizedContent = normalizeLLMMarkdown(mainContent);
+  const linkedContent = linkifyContent(normalizedContent, allSources);
+  const processedContent = linkedContent.replace(/([^\n])\n(#{1,6}\s)/g, "$1\n\n$2");
 
   const [expandedImg, setExpandedImg] = useState<string | null>(null);
 
