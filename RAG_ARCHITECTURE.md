@@ -219,6 +219,23 @@ boost = clamp(0.05 + 0.12 * confidence - 0.03 * hop, 0.02, 0.18)
 пропадают из выдачи (floor 0.02). Chunks без сигнала (защитная ветка)
 получают медианный бонус 0.10.
 
+**Eval pipeline для extraction.** Чтобы измерять, как изменения промптов
+и онтологий влияют на качество извлечения, введены две таблицы:
+
+- `kg_eval_gold` — экспертно размеченный золотой датасет: для каждого
+  `chunk_id` хранятся `expected_entities` и `expected_relations` в JSONB;
+- `kg_eval_run` — история прогонов: общие precision/recall/F1 по
+  сущностям и связям + детализация в `metrics` (per-domain, per-type,
+  примеры FN/FP).
+
+Эндпоинт `POST /api/admin/kg-eval` читает `kg_eval_gold`, прогоняет
+extraction (с теми же доменными промптами, что и прод) **без записи**
+в `kg_entities` / `kg_relations` и сохраняет метрики. Это позволяет
+A/B-сравнивать версии промпта перед выкаткой. Ключ сравнения:
+`normalize(name)::type` для сущностей и `norm(src)→norm(tgt)::type`
+для связей (см. `app/lib/kg-eval.ts`). `GET /api/admin/kg-eval?limit=20`
+возвращает последние прогоны и размер золотого датасета.
+
 ### 3.6 Связи между документами (`relationships.ts`)
 
 Метаданные связей хранятся в `sources.relationships` (JSONB):
