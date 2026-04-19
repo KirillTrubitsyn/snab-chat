@@ -192,6 +192,50 @@ escalates_to») без потери обратной совместимости:
 `ENTITY_TYPES` / `RELATION_TYPES` остаётся union'ом всех онтологий, и чанки
 без совпадения по тегам попадают в группу `default` с базовым промптом.
 
+**Confidence/hop-взвешенный scoring.** Раньше все чанки из графа получали
+фиксированный бонус `+0.15` к similarity независимо от того, как они были
+найдены. Теперь `graphScopedSearch` / `graphEnhancedSearch` возвращают
+дополнительное поле `chunkSignals: Map<chunkId, {minHop, maxConfidence}>`:
+
+- `minHop = 0, maxConfidence = 1.0` — чанк напрямую упомянут в стартовой сущности;
+- `minHop = N, maxConfidence = c` — чанк найден через обход графа (связь на hop N с confidence c).
+
+Формула в `graphAwareSearch`:
+
+```
+boost = clamp(0.05 + 0.12 * confidence - 0.03 * hop, 0.02, 0.18)
+```
+
+Примеры:
+- hop 0, conf 1.0 → **0.17** (прямое упоминание)
+- hop 1, conf 1.0 → 0.14
+- hop 1, conf 0.8 → 0.12
+- hop 2, conf 0.7 → 0.10
+- hop 2, conf 0.5 → **0.08**
+- hop 3, conf 0.5 → 0.05
+
+Так чанки с прямым упоминанием стартовой сущности (лучший сигнал)
+ранжируются выше, чем далёкие слабые связи, — но и последние не
+пропадают из выдачи (floor 0.02). Chunks без сигнала (защитная ветка)
+получают медианный бонус 0.10.
+
+**Eval pipeline для extraction.** Чтобы измерять, как изменения промптов
+и онтологий влияют на качество извлечения, введены две таблицы:
+
+- `kg_eval_gold` — экспертно размеченный золотой датасет: для каждого
+  `chunk_id` хранятся `expected_entities` и `expected_relations` в JSONB;
+- `kg_eval_run` — история прогонов: общие precision/recall/F1 по
+  сущностям и связям + детализация в `metrics` (per-domain, per-type,
+  примеры FN/FP).
+
+Эндпоинт `POST /api/admin/kg-eval` читает `kg_eval_gold`, прогоняет
+extraction (с теми же доменными промптами, что и прод) **без записи**
+в `kg_entities` / `kg_relations` и сохраняет метрики. Это позволяет
+A/B-сравнивать версии промпта перед выкаткой. Ключ сравнения:
+`normalize(name)::type` для сущностей и `norm(src)→norm(tgt)::type`
+для связей (см. `app/lib/kg-eval.ts`). `GET /api/admin/kg-eval?limit=20`
+возвращает последние прогоны и размер золотого датасета.
+
 ### 3.6 Связи между документами (`relationships.ts`)
 
 Метаданные связей хранятся в `sources.relationships` (JSONB):

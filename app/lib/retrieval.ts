@@ -956,6 +956,7 @@ export async function graphAwareSearch(
       chunkIds: [] as string[],
       graphContext: "",
       hasGraphResults: false,
+      chunkSignals: new Map<string, { minHop: number; maxConfidence: number }>(),
     })),
     hybridSearch(query, matchCount, filterTags),
   ]);
@@ -990,15 +991,26 @@ export async function graphAwareSearch(
     console.error("graphAwareSearch scoped search error:", err);
   }
 
-  // Объединить: чанки из графа с бонусом + стандартные
-  const GRAPH_BONUS = 0.15;
+  // Объединить: чанки из графа с per-chunk бонусом + стандартные.
+  // boost = 0.05 + 0.12 * confidence - 0.03 * hop  (clamp [0.02, 0.18]).
+  // Chunks без сигнала (защитно) получают median 0.10.
+  const DEFAULT_BOOST = 0.1;
+  const computeGraphBoost = (hop: number, confidence: number): number => {
+    const raw = 0.05 + 0.12 * confidence - 0.03 * hop;
+    return Math.max(0.02, Math.min(0.18, raw));
+  };
+
   const seen = new Set<string>();
   const merged: SearchResult[] = [];
 
   for (const r of graphChunkResults) {
     if (!seen.has(r.id)) {
       seen.add(r.id);
-      merged.push({ ...r, similarity: Math.min(r.similarity + GRAPH_BONUS, 1.0) });
+      const signal = graphResult.chunkSignals.get(r.id);
+      const boost = signal
+        ? computeGraphBoost(signal.minHop, signal.maxConfidence)
+        : DEFAULT_BOOST;
+      merged.push({ ...r, similarity: Math.min(r.similarity + boost, 1.0) });
     }
   }
 

@@ -234,6 +234,15 @@ export interface GraphScopedResult {
   /** Per-entity-group chunk_ids for balanced retrieval */
   groups: { name: string; chunkIds: number[] }[];
   hasGraphResults: boolean;
+  /**
+   * Per-chunk provenance signals used by confidence/hop-weighted scoring.
+   * - minHop: кратчайший путь от стартовой сущности (0 — прямое упоминание).
+   * - maxConfidence: максимальная уверенность связи вдоль этого пути.
+   * Chunk'и, упомянутые сразу в source_chunk_ids стартовой сущности,
+   * получают (0, 1.0). Chunk'и, найденные через связь hop N,
+   * получают (N, relation.confidence).
+   */
+  chunkSignals: Map<number, { minHop: number; maxConfidence: number }>;
 }
 
 export async function graphScopedSearch(
@@ -259,8 +268,22 @@ export async function graphScopedSearch(
     }
 
     if (allEntities.length === 0) {
-      return { chunkIds: [], groups: [], hasGraphResults: false };
+      return { chunkIds: [], groups: [], hasGraphResults: false, chunkSignals: new Map() };
     }
+
+    // Аккумулятор сигналов по чанкам: (minHop, maxConfidence).
+    // Заполняется по мере обхода; для каждого chunk_id сохраняем лучший путь.
+    const chunkSignals = new Map<number, { minHop: number; maxConfidence: number }>();
+    const recordSignal = (chunkId: number | null | undefined, hop: number, confidence: number) => {
+      if (chunkId == null) return;
+      const prev = chunkSignals.get(chunkId);
+      if (!prev) {
+        chunkSignals.set(chunkId, { minHop: hop, maxConfidence: confidence });
+        return;
+      }
+      if (hop < prev.minHop) prev.minHop = hop;
+      if (confidence > prev.maxConfidence) prev.maxConfidence = confidence;
+    };
 
     // Step 2: Group named entities by matched pattern name
     // (e.g., all "СГК-Алтай" entities in one group, all "НТСК" in another)
@@ -347,19 +370,29 @@ export async function graphScopedSearch(
     const uniqueIds = [...new Set([...startIds, ...connected.map(c => c.entity_id)])];
     const allChunkIds = await getScopedChunkIds(uniqueIds);
 
+    // Заполняем chunkSignals: стартовые сущности → hop=0, conf=1.0
+    // по их source_chunk_ids; связи → hop/confidence ребра по его source_chunk_id.
+    for (const e of allEntities) {
+      for (const cid of e.source_chunk_ids ?? []) recordSignal(cid, 0, 1.0);
+    }
+    for (const c of connected) {
+      recordSignal(c.source_chunk_id, c.hop, c.confidence);
+    }
+
     console.log(
       `[kg] graphScopedSearch: ${allEntities.length} entities, ` +
       `${connected.length} connected, ${allChunkIds.length} total chunks, ` +
-      `${groups.length} named groups`
+      `${groups.length} named groups, ${chunkSignals.size} scored chunks`
     );
 
     return {
       chunkIds: allChunkIds,
       groups,
       hasGraphResults: allChunkIds.length > 0,
+      chunkSignals,
     };
   } catch (error) {
     console.error("graphScopedSearch error:", error);
-    return { chunkIds: [], groups: [], hasGraphResults: false };
+    return { chunkIds: [], groups: [], hasGraphResults: false, chunkSignals: new Map() };
   }
 }
