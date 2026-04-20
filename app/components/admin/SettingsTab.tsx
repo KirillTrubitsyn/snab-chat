@@ -67,6 +67,19 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
 
   const headers = getAdminHeaders(adminCode);
 
+  // fetch с 1 retry на network error — мобильное соединение часто
+  // рвётся посреди 60-90с запроса; seed-gold и kg-eval идемпотентны
+  // (upsert по chunk_id), ретрай безопасен.
+  const fetchWithRetry = async (url: string, init: RequestInit): Promise<Response> => {
+    try {
+      return await fetch(url, init);
+    } catch (err) {
+      console.warn("[admin-rag] network error, retrying in 2s:", err);
+      await new Promise((r) => setTimeout(r, 2000));
+      return fetch(url, init);
+    }
+  };
+
   // kg-eval / seed-gold живут на Railway backend — там нет serverless
   // timeout, и Pro-модель для gold-сида (60 LLM-вызовов, 3-7 мин) не
   // успевает за 300s Vercel-кап.
@@ -105,7 +118,7 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
     setEvalRunning(true);
     setEvalResult(null);
     try {
-      const res = await fetch(apiUrl("/api/admin/kg-eval"), {
+      const res = await fetchWithRetry(apiUrl("/api/admin/kg-eval"), {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ limit: 50, notes: "Запуск из админки" }),
@@ -145,9 +158,23 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
     "legislation",
   ];
 
+  // Свежий goldSize из сервера — чтобы в сообщениях показывать реальную
+  // дельту (когда ответ POST'а не дошёл, но сервер успел записать).
+  const fetchGoldSize = async (): Promise<number> => {
+    try {
+      const res = await fetch(apiUrl("/api/admin/kg-eval?limit=1"), { headers });
+      if (!res.ok) return goldSize;
+      const data = await res.json();
+      return typeof data.goldDatasetSize === "number" ? data.goldDatasetSize : goldSize;
+    } catch {
+      return goldSize;
+    }
+  };
+
   const runSeedGold = async () => {
     setSeedRunning(true);
     setSeedResult("Запуск…");
+    const initialGoldSize = goldSize;
     let totalInserted = 0;
     let finalGoldSize = goldSize;
     const statsLines: string[] = [];
@@ -157,7 +184,7 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
         setSeedResult(
           `Разметка ${i + 1}/${GOLD_DOMAINS.length}: ${domain}… (добавлено: ${totalInserted})`,
         );
-        const res = await fetch(apiUrl("/api/admin/kg-eval/seed-gold"), {
+        const res = await fetchWithRetry(apiUrl("/api/admin/kg-eval/seed-gold"), {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -180,8 +207,10 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
         }
         if (!res.ok) {
           const msg = data.error || data.message || `HTTP ${res.status}`;
+          const actualSize = await fetchGoldSize();
+          const realDelta = actualSize - initialGoldSize;
           setSeedResult(
-            `⚠️ Остановка на домене ${domain}: ${msg}. Добавлено до остановки: ${totalInserted}.`,
+            `⚠️ Остановка на домене ${domain}: ${msg}. Добавлено: ${realDelta} (всего в gold: ${actualSize}).`,
           );
           await loadRuns();
           return;
@@ -199,8 +228,13 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
         `✅ Готово. Добавлено ${totalInserted} записей (всего в gold: ${finalGoldSize}). ${statsLines.join("; ")}`,
       );
     } catch {
+      // Фронтовой fetch упал (два раза подряд после retry). Показываем
+      // реальную дельту gold через свежий GET, чтобы пользователь видел,
+      // что именно успело записаться.
+      const actualSize = await fetchGoldSize();
+      const realDelta = actualSize - initialGoldSize;
       setSeedResult(
-        `❌ Сетевая ошибка (добавлено до сбоя: ${totalInserted}). Нажмите «Досыпать в датасет», чтобы продолжить.`,
+        `❌ Сетевая ошибка. Успело записаться: ${realDelta} (всего в gold: ${actualSize}). Нажмите «Досыпать в датасет», чтобы продолжить.`,
       );
       await loadRuns();
     } finally {
