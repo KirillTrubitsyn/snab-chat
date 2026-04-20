@@ -67,15 +67,15 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
 
   const headers = getAdminHeaders(adminCode);
 
-  // kg-eval / rag-diagnostics / kg-eval/seed-gold живут ТОЛЬКО в Next.js
-  // app/api (server-only доступ к Supabase + Google AI). apiUrl() уводит
-  // запросы на Railway backend, где этих маршрутов нет — поэтому ходим
-  // same-origin относительными путями.
+  // kg-eval / seed-gold живут на Railway backend — там нет serverless
+  // timeout, и Pro-модель для gold-сида (60 LLM-вызовов, 3-7 мин) не
+  // успевает за 300s Vercel-кап.
+  // rag-diagnostics остаётся в Next.js app/api — он read-only и быстрый.
   const loadRuns = async () => {
     setRunsLoading(true);
     setRunsError(null);
     try {
-      const res = await fetch("/api/admin/kg-eval?limit=20", { headers });
+      const res = await fetch(apiUrl("/api/admin/kg-eval?limit=20"), { headers });
       const data = await res.json();
       if (!res.ok) {
         if (data.migrationRequired) {
@@ -105,7 +105,7 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
     setEvalRunning(true);
     setEvalResult(null);
     try {
-      const res = await fetch("/api/admin/kg-eval", {
+      const res = await fetch(apiUrl("/api/admin/kg-eval"), {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ limit: 50, notes: "Запуск из админки" }),
@@ -136,7 +136,7 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
     setSeedRunning(true);
     setSeedResult(null);
     try {
-      const res = await fetch("/api/admin/kg-eval/seed-gold", {
+      const res = await fetch(apiUrl("/api/admin/kg-eval/seed-gold"), {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ perDomain: 10, notes: "Автогенерация из админки" }),
