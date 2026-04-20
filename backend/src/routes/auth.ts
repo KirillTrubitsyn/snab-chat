@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import bcrypt from "bcryptjs";
+import bcrypt from "@node-rs/bcrypt";
 import { randomUUID } from "crypto";
 import {
   isAdminCode,
@@ -967,9 +967,10 @@ router.post("/api/auth/login-password", async (req: Request, res: Response) => {
     }
 
     // N3 fix: compare ALL users in parallel to prevent timing leak on user position.
-    // Parallel execution lets bcryptjs interleave chunked async work — drops login
-    // latency from O(n × bcrypt) to ~O(bcrypt) in practice, while preserving
-    // constant-time property (we await every comparison before responding).
+    // @node-rs/bcrypt runs on libuv worker threads, so Promise.all gives real
+    // parallelism (up to UV_THREADPOOL_SIZE, default 4), cutting login latency
+    // from ~N×compareTime down to ~N/4×compareTime. Constant-time property is
+    // preserved — we await every comparison before responding.
     const compareResults = await Promise.all(
       users.map(u =>
         u.password_hash

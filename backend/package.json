@@ -12,9 +12,9 @@
   "dependencies": {
     "@ai-sdk/google": "^3.0.59",
     "@google/genai": "^1.48.0",
+    "@node-rs/bcrypt": "^1.10.7",
     "@supabase/supabase-js": "^2.49.0",
     "ai": "^6.0.147",
-    "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "docx": "^9.6.1",
     "exceljs": "^4.4.0",
@@ -32,7 +32,6 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/multer": "^1.4.12",
