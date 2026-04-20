@@ -168,7 +168,7 @@ export async function checkAndRegisterDevice(
     .select("id")
     .eq("invite_code_id", inviteCodeId)
     .eq("device_id", deviceId)
-    .single();
+    .maybeSingle();
 
   if (existing) {
     await supabase
@@ -194,11 +194,25 @@ export async function checkAndRegisterDevice(
     }
   }
 
-  await supabase.from("devices").insert({
+  // Race-safe insert. Two concurrent logins from the same browser (double-click,
+  // duplicate tab, client retry) both pass the SELECT above. Without checking
+  // the insert error, each saw count=1 from their own write and fired a
+  // duplicate "Устройство №1" notification. The devices table has
+  // UNIQUE(invite_code_id, device_id), so the loser gets 23505 → treat as
+  // already-existing, no notification.
+  const { error: insertError } = await supabase.from("devices").insert({
     invite_code_id: inviteCodeId,
     device_id: deviceId,
     user_agent: userAgent,
   });
+
+  if (insertError) {
+    if ((insertError as { code?: string }).code === "23505") {
+      return { error: null, isNewDevice: false, deviceNumber: 0, isMobile: false };
+    }
+    console.error("[checkAndRegisterDevice] insert error:", insertError.message);
+    return { error: "Ошибка регистрации устройства", isNewDevice: false, deviceNumber: 0, isMobile: false };
+  }
 
   const { count: newCount } = await supabase
     .from("devices")
