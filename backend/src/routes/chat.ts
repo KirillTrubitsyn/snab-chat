@@ -15,6 +15,7 @@ import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgentic
 import { expandByRelationships } from "../lib/relationships.js";
 import { getMatchingDirectives, generateDirectivesPromptBlock } from "../lib/directives-registry.js";
 import { shouldInjectStandardsRegistry, generateStandardsRegistryBlock } from "../lib/standards-registry.js";
+import { shouldInjectSgkRegistry, generateSgkRegistryPromptBlock, detectNmgresAuthorityQuery } from "../lib/sgk-registry.js";
 import { classifyDocumentIntent, getDocumentIntentPrompt } from "../lib/document-intent.js";
 
 const router = Router();
@@ -683,6 +684,31 @@ router.post("/api/chat", async (req: Request, res: Response) => {
       }
     }
 
+    // ── Pre-seed: Novomoskovsk GRES authority matrix (local order 355-од) ──
+    const nmgresAuthorityHints = detectNmgresAuthorityQuery(userMessage.content);
+    if (nmgresAuthorityHints) {
+      try {
+        const nmResults = await fetchChunksByDocument(
+          { filenameHints: nmgresAuthorityHints },
+          6,
+          userMessage.content
+        );
+        let nmAdded = 0;
+        for (const r of nmResults) {
+          if (!agenticCtx.chunks.has(r.id)) {
+            const boostedSim = r.similarity >= 0.2 ? Math.max(r.similarity, 0.80) : r.similarity;
+            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim });
+            nmAdded++;
+          }
+        }
+        if (nmAdded > 0) {
+          console.log(`[chat] Pre-seeded ${nmAdded} НМГРЭС authority-matrix chunks (Приказ №355-од/НМГРЭС)`);
+        }
+      } catch (nmError) {
+        console.error("[chat] НМГРЭС authority-matrix pre-seed failed (non-fatal):", nmError);
+      }
+    }
+
     // ── Pre-seed: graph-aware search results for multi-entity coverage ──
     // The agentic LLM often fails to search for ALL entities independently.
     // graphAwareSearch uses the knowledge graph to ensure balanced retrieval
@@ -1084,6 +1110,30 @@ ${sanitizeUserInput(userMessage.content)}
       }
     }
 
+    // 6. Novomoskovsk GRES authority matrix (Приказ №355-од/НМГРЭС):
+    //    fetch directly by filename when user asks about authority/matrix for НМГРЭС,
+    //    even without naming the order number. Keeps deterministic path consistent
+    //    with the agentic pre-seed above.
+    const nmgresAuthorityHintsDet = detectNmgresAuthorityQuery(userMessage.content);
+    if (nmgresAuthorityHintsDet) {
+      const hasNmAuthorityAlready = combinedResults.some((r) => {
+        const f = r.source_filename.toLowerCase();
+        return f.includes("нмгрэс-355") || f.includes("нмгрэс_355") || f.includes("355-од") || f.includes("355_од");
+      });
+      if (!hasNmAuthorityAlready) {
+        supplementSearches.push(
+          fetchChunksByDocument(
+            { filenameHints: nmgresAuthorityHintsDet },
+            6,
+            userMessage.content
+          ).catch((nmErr) => {
+            console.error("[chat] НМГРЭС authority-matrix fetch failed (non-fatal):", nmErr);
+            return [] as SearchResult[];
+          })
+        );
+      }
+    }
+
     if (supplementSearches.length > 0) {
       const tSupp = Date.now();
       const allSupplementary = await Promise.all(supplementSearches);
@@ -1092,9 +1142,11 @@ ${sanitizeUserInput(userMessage.content)}
         const newResults = results.filter((r) => !existingIds.has(r.id));
         for (const r of newResults) {
           existingIds.add(r.id);
-          // Boost org registry chunks if present
-          if (mentionsOrg && (r.source_filename.toLowerCase().includes("перечень_компаний") || r.source_filename.toLowerCase().includes("перечень компаний"))) {
-            combinedResults.unshift(r.similarity >= 0.25 ? { ...r, similarity: Math.max(r.similarity, 0.80) } : r);
+          const fnameLower = r.source_filename.toLowerCase();
+          const isOrgRegistry = mentionsOrg && (fnameLower.includes("перечень_компаний") || fnameLower.includes("перечень компаний"));
+          const isNmAuthority = !!nmgresAuthorityHintsDet && (fnameLower.includes("нмгрэс") || fnameLower.includes("355-од") || fnameLower.includes("355_од"));
+          if (isOrgRegistry || isNmAuthority) {
+            combinedResults.unshift(r.similarity >= 0.2 ? { ...r, similarity: Math.max(r.similarity, 0.80) } : r);
           } else {
             combinedResults.push(r);
           }
@@ -1414,6 +1466,13 @@ ${sanitizeUserInput(userMessage.content)}
     ? generateStandardsRegistryBlock()
     : "";
 
+  // ── SGK organization registry: inject when query mentions an entity, filial,
+  // regime question, or group structure. Authoritative source that overrides
+  // the model's pre-training knowledge (e.g. wrong "АО Квадра" for НМГРЭС).
+  const sgkRegistryBlock = shouldInjectSgkRegistry(userMessage.content, intentResult.intent)
+    ? generateSgkRegistryPromptBlock(userMessage.content)
+    : "";
+
   // ── SPU contractor search prompt (adaptive by sub-intent) ──
   const spuPromptBlock = intentResult.intent === "entity_lookup"
     ? `\n\n=== ПОИСК КОНТРАГЕНТОВ (СПУ) ===\n${generateSpuPrompt(intentResult.spu_sub_intent)}`
@@ -1467,7 +1526,8 @@ ${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФО
 4. Если вопрос частично покрыт документами — ответь только на покрытую часть и явно укажи, что остальное в документах отсутствует.
 5. При цитировании — приводи ДОСЛОВНЫЕ цитаты из документов.
 6. Перед каждым утверждением мысленно проверь: есть ли для него ПРЯМОЕ подтверждение в <documents>? Если нет — НЕ включай его в ответ.
-7. НЕ вставляй ссылки на источники вида [doc:N] в текст ответа. Источники отображаются отдельно в интерфейсе.`}
+7. НЕ вставляй ссылки на источники вида [doc:N] в текст ответа. Источники отображаются отдельно в интерфейсе.
+8. ПРИНАДЛЕЖНОСТЬ ОБЪЕКТОВ (филиал какого юрлица, в какую группу входит, по какому ФЗ работает) — ОПРЕДЕЛЯЙ ИСКЛЮЧИТЕЛЬНО по блоку «РЕЕСТР ОРГАНИЗАЦИЙ ГРУППЫ СГК» (если он присутствует ниже) или по документу «Перечень компаний Общества» из <documents>. Если ни того, ни другого нет — прямо скажи, что принадлежность объекта не может быть определена из доступных данных. НИ В КОЕМ СЛУЧАЕ не заполняй это поле из своих общих знаний: названия типа «АО Квадра», «ИНТЕР РАО», «ОГК», «ТГК» (любые бренды вне этого реестра) запрещено применять к объектам группы СГК и её внешним филиалам.`}
 
 УТОЧНЯЮЩИЕ ВОПРОСЫ:
 Если запрос пользователя слишком общий, неоднозначный или может относиться к нескольким темам — ЗАДАЙ уточняющий вопрос, прежде чем давать ответ. Примеры ситуаций:
@@ -1544,7 +1604,7 @@ ${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФО
 
 ПРИМЕР ОТКАЗА (когда информации нет):
 Вопрос: Какова средняя зарплата в отделе закупок?
-Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${directivesBlock}${standardsRegistryBlock}${spuPromptBlock}
+Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${directivesBlock}${standardsRegistryBlock}${sgkRegistryBlock}${spuPromptBlock}
 
 === СТАВКА НДС ===
 
