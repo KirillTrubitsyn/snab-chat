@@ -148,6 +148,24 @@ function migrationRequired(res: Response, which: string) {
   });
 }
 
+/**
+ * Gemini иногда возвращает JSON, обёрнутый в ```json ... ``` fence, или
+ * с префиксом в духе "Вот результат:". responseMimeType=application/json
+ * обычно это предотвращает, но не всегда — защищаемся.
+ */
+function parseLLMJson(raw: string | null | undefined): unknown {
+  const text = (raw ?? "").trim();
+  if (!text) return {};
+  // Strip markdown fences if present
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1].trim() : text;
+  // Берём подстроку от первой { до последней } — отрезаем префикс/суффикс LLM'а.
+  const first = candidate.indexOf("{");
+  const last = candidate.lastIndexOf("}");
+  const body = first >= 0 && last > first ? candidate.slice(first, last + 1) : candidate;
+  return JSON.parse(body);
+}
+
 /* ══════════════════════════════════════════════════════════════
    GET /api/admin/kg-eval?limit=N
    История прогонов + размер золотого датасета.
@@ -277,7 +295,10 @@ router.post("/api/admin/kg-eval", async (req: Request, res: Response) => {
             responseMimeType: "application/json",
           },
         });
-        const parsed = JSON.parse(resp.text || "{}");
+        const parsed = parseLLMJson(resp.text) as {
+          entities?: EvalEntity[];
+          relations?: EvalRelation[];
+        };
         predicted = {
           entities: Array.isArray(parsed.entities) ? parsed.entities : [],
           relations: Array.isArray(parsed.relations) ? parsed.relations : [],
@@ -508,7 +529,10 @@ router.post("/api/admin/kg-eval/seed-gold", async (req: Request, res: Response) 
               responseMimeType: "application/json",
             },
           });
-          const raw = JSON.parse(resp.text || "{}");
+          const raw = parseLLMJson(resp.text) as {
+            entities?: EvalEntity[];
+            relations?: EvalRelation[];
+          };
           parsed = {
             entities: Array.isArray(raw.entities) ? raw.entities : [],
             relations: Array.isArray(raw.relations) ? raw.relations : [],
