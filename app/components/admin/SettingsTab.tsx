@@ -58,6 +58,8 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
   const [runsError, setRunsError] = useState<string | null>(null);
   const [evalRunning, setEvalRunning] = useState(false);
   const [evalResult, setEvalResult] = useState<string | null>(null);
+  const [seedRunning, setSeedRunning] = useState(false);
+  const [seedResult, setSeedResult] = useState<string | null>(null);
   const [diagQuery, setDiagQuery] = useState("");
   const [diagLoading, setDiagLoading] = useState(false);
   const [diagResp, setDiagResp] = useState<DiagResponse | null>(null);
@@ -65,11 +67,15 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
 
   const headers = getAdminHeaders(adminCode);
 
+  // kg-eval / rag-diagnostics / kg-eval/seed-gold живут ТОЛЬКО в Next.js
+  // app/api (server-only доступ к Supabase + Google AI). apiUrl() уводит
+  // запросы на Railway backend, где этих маршрутов нет — поэтому ходим
+  // same-origin относительными путями.
   const loadRuns = async () => {
     setRunsLoading(true);
     setRunsError(null);
     try {
-      const res = await fetch(apiUrl("/api/admin/kg-eval?limit=20"), { headers });
+      const res = await fetch("/api/admin/kg-eval?limit=20", { headers });
       const data = await res.json();
       if (!res.ok) {
         setRunsError(data.error || "Ошибка загрузки");
@@ -93,7 +99,7 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
     setEvalRunning(true);
     setEvalResult(null);
     try {
-      const res = await fetch(apiUrl("/api/admin/kg-eval"), {
+      const res = await fetch("/api/admin/kg-eval", {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ limit: 50, notes: "Запуск из админки" }),
@@ -101,6 +107,12 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
       const data = await res.json();
       if (!res.ok) {
         setEvalResult(`❌ ${data.error || "Ошибка прогона"}`);
+        return;
+      }
+      if (data.totalChunks === 0) {
+        setEvalResult(
+          `⚠️ Золотой датасет пуст (${data.message || "kg_eval_gold пуст"}). Сначала нажмите «Сгенерировать золотой датасет».`
+        );
         return;
       }
       setEvalResult(
@@ -114,6 +126,36 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
     }
   };
 
+  const runSeedGold = async () => {
+    setSeedRunning(true);
+    setSeedResult(null);
+    try {
+      const res = await fetch("/api/admin/kg-eval/seed-gold", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ perDomain: 10, notes: "Автогенерация из админки" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSeedResult(`❌ ${data.error || data.message || "Ошибка генерации"}`);
+        return;
+      }
+      const perDomain = (data.stats ?? [])
+        .map((s: { domain: string; extracted: number; skipped: number; failed: number }) =>
+          `${s.domain}: +${s.extracted} (пропущено ${s.skipped}, ошибок ${s.failed})`
+        )
+        .join("; ");
+      setSeedResult(
+        `✅ Добавлено ${data.totalInserted} записей (всего в gold: ${data.goldDatasetSize}). ${perDomain}`
+      );
+      await loadRuns();
+    } catch {
+      setSeedResult("❌ Сетевая ошибка");
+    } finally {
+      setSeedRunning(false);
+    }
+  };
+
   const runDiagnose = async () => {
     const q = diagQuery.trim();
     if (!q) return;
@@ -121,7 +163,7 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
     setDiagError(null);
     setDiagResp(null);
     try {
-      const res = await fetch(apiUrl("/api/admin/rag-diagnostics"), {
+      const res = await fetch("/api/admin/rag-diagnostics", {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ query: q }),
@@ -314,16 +356,36 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
           <strong>{goldSize}</strong> записей.
         </p>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="admin-btn" disabled={runsLoading} onClick={loadRuns}>
+          <button className="admin-btn admin-btn-primary" disabled={runsLoading} onClick={loadRuns}>
             {runsLoading ? "Загрузка..." : "Обновить"}
           </button>
-          <button className="admin-btn admin-btn-primary" disabled={evalRunning} onClick={runEval}>
+          <button
+            className="admin-btn admin-btn-primary"
+            disabled={evalRunning || goldSize === 0}
+            onClick={runEval}
+            title={goldSize === 0 ? "Сначала сгенерируйте золотой датасет" : ""}
+          >
             {evalRunning ? "Прогон..." : "Запустить kg-eval (50 чанков)"}
           </button>
+          <button className="admin-btn" disabled={seedRunning} onClick={runSeedGold}>
+            {seedRunning ? "Генерация..." : goldSize === 0 ? "Сгенерировать золотой датасет" : "Досыпать в датасет"}
+          </button>
         </div>
+        {goldSize === 0 && (
+          <p style={{ marginTop: 12, fontSize: 13, color: "#d97706" }}>
+            ⚠️ Золотой датасет пуст. Нажмите «Сгенерировать золотой датасет» — сильная модель
+            (gemini-3-pro-preview) разметит ~60 чанков (по 10 на каждый из 6 доменов).
+            Занимает несколько минут.
+          </p>
+        )}
         {evalResult && (
           <p style={{ marginTop: 12, fontSize: 14, whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
             {evalResult}
+          </p>
+        )}
+        {seedResult && (
+          <p style={{ marginTop: 8, fontSize: 14, whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
+            {seedResult}
           </p>
         )}
         {runsError && (
