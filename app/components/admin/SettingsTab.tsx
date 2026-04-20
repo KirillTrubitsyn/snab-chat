@@ -1,7 +1,47 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { apiUrl, getAdminHeaders } from "@/app/lib/api";
+
+interface EvalRun {
+  id: number;
+  run_at: string;
+  total_chunks: number;
+  entity_f1: number | null;
+  entity_precision: number | null;
+  entity_recall: number | null;
+  relation_f1: number | null;
+  notes: string | null;
+  gold_model: string | null;
+  metrics: {
+    domains?: Record<string, { entities: { f1: number | null }; relations: { f1: number | null }; chunks: number }>;
+  } | null;
+}
+
+interface DiagEntityReport {
+  id: number;
+  name: string;
+  canonicalName: string;
+  entityType: string;
+  chunkCount: number;
+  linkedFiles: string[];
+  authorityMatrixChunks: number;
+  outgoing: Array<{ type: string; confidence: number | null; target: string; targetType: string }>;
+  incoming: Array<{ type: string; confidence: number | null; source: string; sourceType: string }>;
+}
+
+interface DiagResponse {
+  query: string;
+  entitiesFound: number;
+  entityReports: DiagEntityReport[];
+  filenameSources: Array<{ id: number; filename: string; tags: string[]; folderPath: string | null; isAuthorityMatrix: boolean }>;
+  diagnosis: string[];
+}
+
+function fmt(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "—";
+  return (v * 100).toFixed(1) + "%";
+}
 
 export default function SettingsTab({ adminCode }: { adminCode: string }) {
   const [webhookStatus, setWebhookStatus] = useState<string | null>(null);
@@ -11,7 +51,93 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
   const [test2FAStatus, setTest2FAStatus] = useState<string | null>(null);
   const [test2FALoading, setTest2FALoading] = useState(false);
 
+  // ── RAG diagnostics state ──
+  const [runs, setRuns] = useState<EvalRun[]>([]);
+  const [goldSize, setGoldSize] = useState<number>(0);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [runsError, setRunsError] = useState<string | null>(null);
+  const [evalRunning, setEvalRunning] = useState(false);
+  const [evalResult, setEvalResult] = useState<string | null>(null);
+  const [diagQuery, setDiagQuery] = useState("");
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagResp, setDiagResp] = useState<DiagResponse | null>(null);
+  const [diagError, setDiagError] = useState<string | null>(null);
+
   const headers = getAdminHeaders(adminCode);
+
+  const loadRuns = async () => {
+    setRunsLoading(true);
+    setRunsError(null);
+    try {
+      const res = await fetch(apiUrl("/api/admin/kg-eval?limit=20"), { headers });
+      const data = await res.json();
+      if (!res.ok) {
+        setRunsError(data.error || "Ошибка загрузки");
+        return;
+      }
+      setRuns(data.runs ?? []);
+      setGoldSize(data.goldDatasetSize ?? 0);
+    } catch {
+      setRunsError("Сетевая ошибка");
+    } finally {
+      setRunsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadRuns();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const runEval = async () => {
+    setEvalRunning(true);
+    setEvalResult(null);
+    try {
+      const res = await fetch(apiUrl("/api/admin/kg-eval"), {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 50, notes: "Запуск из админки" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setEvalResult(`❌ ${data.error || "Ошибка прогона"}`);
+        return;
+      }
+      setEvalResult(
+        `✅ Прогон завершён. Чанков: ${data.totalChunks}. Entities F1: ${fmt(data.entities?.f1)}, Relations F1: ${fmt(data.relations?.f1)}.`
+      );
+      await loadRuns();
+    } catch {
+      setEvalResult("❌ Сетевая ошибка");
+    } finally {
+      setEvalRunning(false);
+    }
+  };
+
+  const runDiagnose = async () => {
+    const q = diagQuery.trim();
+    if (!q) return;
+    setDiagLoading(true);
+    setDiagError(null);
+    setDiagResp(null);
+    try {
+      const res = await fetch(apiUrl("/api/admin/rag-diagnostics"), {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setDiagError(data.error || "Ошибка диагностики");
+        return;
+      }
+      setDiagResp(data as DiagResponse);
+    } catch {
+      setDiagError("Сетевая ошибка");
+    } finally {
+      setDiagLoading(false);
+    }
+  };
 
   const registerWebhook = async () => {
     setWebhookLoading(true);
@@ -174,6 +300,215 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
           <p style={{ marginTop: 12, fontSize: 14, whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
             {test2FAStatus}
           </p>
+        )}
+      </div>
+
+      {/* ── Диагностика RAG ── */}
+      <h2 style={{ marginTop: 32 }}>Диагностика RAG</h2>
+
+      <div className="admin-card" style={{ maxWidth: 860, marginTop: 16 }}>
+        <h3 style={{ margin: "0 0 8px" }}>История прогонов kg-eval</h3>
+        <p style={{ margin: "0 0 12px", color: "var(--text-secondary)", fontSize: 14 }}>
+          Precision / Recall / F1 извлечения сущностей и связей. Сравнивайте значения после каждого
+          изменения в граф-RAG, чтобы ловить регрессии. Золотой датасет:{" "}
+          <strong>{goldSize}</strong> записей.
+        </p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className="admin-btn" disabled={runsLoading} onClick={loadRuns}>
+            {runsLoading ? "Загрузка..." : "Обновить"}
+          </button>
+          <button className="admin-btn admin-btn-primary" disabled={evalRunning} onClick={runEval}>
+            {evalRunning ? "Прогон..." : "Запустить kg-eval (50 чанков)"}
+          </button>
+        </div>
+        {evalResult && (
+          <p style={{ marginTop: 12, fontSize: 14, whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
+            {evalResult}
+          </p>
+        )}
+        {runsError && (
+          <p style={{ marginTop: 12, fontSize: 14, color: "#dc2626" }}>{runsError}</p>
+        )}
+        {runs.length > 0 && (
+          <div style={{ marginTop: 12, overflowX: "auto" }}>
+            <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border, #ddd)" }}>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Дата</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px" }}>Чанков</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px" }}>Ent F1</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px" }}>Ent P/R</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px" }}>Rel F1</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>authority_matrix F1</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Эталон</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Заметка</th>
+                </tr>
+              </thead>
+              <tbody>
+                {runs.map((r) => {
+                  const amDomain = r.metrics?.domains?.authority_matrix;
+                  return (
+                    <tr key={r.id} style={{ borderBottom: "1px solid var(--border-subtle, #eee)" }}>
+                      <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
+                        {new Date(r.run_at).toLocaleString("ru-RU")}
+                      </td>
+                      <td style={{ padding: "6px 8px", textAlign: "right" }}>{r.total_chunks}</td>
+                      <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 600 }}>
+                        {fmt(r.entity_f1)}
+                      </td>
+                      <td style={{ padding: "6px 8px", textAlign: "right", fontSize: 12 }}>
+                        {fmt(r.entity_precision)} / {fmt(r.entity_recall)}
+                      </td>
+                      <td style={{ padding: "6px 8px", textAlign: "right" }}>{fmt(r.relation_f1)}</td>
+                      <td style={{ padding: "6px 8px" }}>
+                        {amDomain
+                          ? `ent ${fmt(amDomain.entities.f1)} / rel ${fmt(amDomain.relations.f1)} (${amDomain.chunks} ч.)`
+                          : "—"}
+                      </td>
+                      <td style={{ padding: "6px 8px", fontSize: 12 }}>{r.gold_model || "manual"}</td>
+                      <td style={{ padding: "6px 8px", fontSize: 12 }}>{r.notes || ""}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="admin-card" style={{ maxWidth: 860, marginTop: 16 }}>
+        <h3 style={{ margin: "0 0 8px" }}>Диагностика по организации / запросу</h3>
+        <p style={{ margin: "0 0 12px", color: "var(--text-secondary)", fontSize: 14 }}>
+          Введите название организации (например, <em>Новомосковская ГРЭС</em>) или фрагмент запроса.
+          Покажет: какие сущности знает knowledge graph, сколько чанков к ним привязано, есть ли среди
+          них матрица полномочий, какие документы подходят по имени файла. Полезно для разбора жалоб
+          на неверные ответы.
+        </p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <input
+            type="text"
+            placeholder="Например: Новомосковская ГРЭС"
+            value={diagQuery}
+            onChange={(e) => setDiagQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !diagLoading) runDiagnose();
+            }}
+            style={{
+              flex: "1 1 260px",
+              minWidth: 200,
+              padding: "8px 10px",
+              border: "1px solid var(--border, #ccc)",
+              borderRadius: 6,
+              fontSize: 14,
+            }}
+          />
+          <button
+            className="admin-btn admin-btn-primary"
+            disabled={diagLoading || !diagQuery.trim()}
+            onClick={runDiagnose}
+          >
+            {diagLoading ? "Проверка..." : "Проверить"}
+          </button>
+        </div>
+        {diagError && (
+          <p style={{ marginTop: 12, fontSize: 14, color: "#dc2626" }}>{diagError}</p>
+        )}
+        {diagResp && (
+          <div style={{ marginTop: 12, fontSize: 14 }}>
+            <p style={{ margin: "0 0 6px" }}>
+              <strong>Найдено сущностей:</strong> {diagResp.entitiesFound}
+            </p>
+            {diagResp.diagnosis.length > 0 && (
+              <ul style={{ margin: "0 0 12px 20px", color: "var(--text-secondary)" }}>
+                {diagResp.diagnosis.map((d, i) => (
+                  <li key={i}>{d}</li>
+                ))}
+              </ul>
+            )}
+            {diagResp.entityReports.map((e) => (
+              <div
+                key={e.id}
+                style={{
+                  padding: 12,
+                  border: "1px solid var(--border-subtle, #eee)",
+                  borderRadius: 6,
+                  marginBottom: 8,
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>
+                  {e.name}{" "}
+                  <span style={{ color: "var(--text-secondary)", fontWeight: 400 }}>
+                    ({e.entityType}) · #{e.id}
+                  </span>
+                </div>
+                <div style={{ marginTop: 4, fontSize: 13 }}>
+                  Чанков: <strong>{e.chunkCount}</strong>
+                  {" · "}
+                  Матрица полномочий:{" "}
+                  <strong style={{ color: e.authorityMatrixChunks > 0 ? "#059669" : "#dc2626" }}>
+                    {e.authorityMatrixChunks}
+                  </strong>
+                </div>
+                {e.linkedFiles.length > 0 && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-secondary)" }}>
+                    Файлы: {e.linkedFiles.slice(0, 6).join(", ")}
+                    {e.linkedFiles.length > 6 ? " …" : ""}
+                  </div>
+                )}
+                {e.outgoing.length > 0 && (
+                  <details style={{ marginTop: 6 }}>
+                    <summary style={{ cursor: "pointer", fontSize: 12 }}>
+                      Исходящие связи ({e.outgoing.length})
+                    </summary>
+                    <ul style={{ margin: "4px 0 0 20px", fontSize: 12 }}>
+                      {e.outgoing.map((r, i) => (
+                        <li key={i}>
+                          {r.type} → {r.target} ({r.targetType})
+                          {r.confidence !== null ? ` · conf ${r.confidence.toFixed(2)}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+                {e.incoming.length > 0 && (
+                  <details style={{ marginTop: 4 }}>
+                    <summary style={{ cursor: "pointer", fontSize: 12 }}>
+                      Входящие связи ({e.incoming.length})
+                    </summary>
+                    <ul style={{ margin: "4px 0 0 20px", fontSize: 12 }}>
+                      {e.incoming.map((r, i) => (
+                        <li key={i}>
+                          {r.source} ({r.sourceType}) → {r.type}
+                          {r.confidence !== null ? ` · conf ${r.confidence.toFixed(2)}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            ))}
+            {diagResp.filenameSources.length > 0 && (
+              <>
+                <p style={{ margin: "12px 0 6px" }}>
+                  <strong>Файлы в sources по совпадению имени ({diagResp.filenameSources.length}):</strong>
+                </p>
+                <ul style={{ margin: "0 0 0 20px", fontSize: 13 }}>
+                  {diagResp.filenameSources.map((s) => (
+                    <li key={s.id}>
+                      {s.filename}
+                      {s.isAuthorityMatrix ? " — матрица полномочий ✅" : ""}
+                      {s.tags.length > 0 && (
+                        <span style={{ color: "var(--text-secondary)", fontSize: 12 }}>
+                          {" · "}
+                          {s.tags.slice(0, 5).join(", ")}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
         )}
       </div>
     </div>
