@@ -171,15 +171,40 @@ export async function traverseGraph(
 
 /* ── 3. Сбор chunk_id из сущностей (scope для поиска) ── */
 
-export async function getScopedChunkIds(entityIds: string[]): Promise<number[]> {
+export async function getScopedChunkIds(
+  entityIds: string[],
+  excludeTag: string | null = null,
+): Promise<number[]> {
   const supabase = createServiceClient();
 
-  const { data, error } = await supabase.rpc("kg_get_scoped_chunks", {
+  // B3 (recovery plan от 2026-04-20): передаём p_exclude_tag для регим-фильтра
+  // прямо в БД. Если SQL-миграция ещё не применена, param будет проигнорирован
+  // Postgres-ом (DEFAULT NULL), поэтому код безопасен и до применения миграции.
+  const rpcArgs: Record<string, unknown> = {
     entity_ids: entityIds,
     max_chunks: MAX_SCOPED_CHUNKS,
-  });
+  };
+  if (excludeTag) {
+    rpcArgs.p_exclude_tag = excludeTag;
+  }
+
+  const { data, error } = await supabase.rpc("kg_get_scoped_chunks", rpcArgs);
 
   if (error) {
+    // Fallback: если миграция не применена и RPC падает на p_exclude_tag —
+    // повторяем без этого параметра, filter применится в пост-обработке.
+    if (excludeTag && error.message?.includes("p_exclude_tag")) {
+      console.warn("[kg] kg_get_scoped_chunks p_exclude_tag not supported yet, retrying without it");
+      const retry = await supabase.rpc("kg_get_scoped_chunks", {
+        entity_ids: entityIds,
+        max_chunks: MAX_SCOPED_CHUNKS,
+      });
+      if (retry.error) {
+        console.error("kg_get_scoped_chunks retry error:", retry.error.message);
+        return [];
+      }
+      return (retry.data || []).map((r: { chunk_id: number }) => r.chunk_id);
+    }
     console.error("kg_get_scoped_chunks error:", error.message);
     return [];
   }
@@ -256,7 +281,8 @@ export interface GraphScopedResult {
 
 export async function graphScopedSearch(
   query: string,
-  matchCount: number = 15
+  matchCount: number = 15,
+  excludeTag: string | null = null
 ): Promise<GraphScopedResult> {
   try {
     // Step 1: Find named + semantic entities
@@ -325,7 +351,7 @@ export async function graphScopedSearch(
         const allIds = [...new Set([...entityIds, ...connected.map(c => c.entity_id)])];
 
         // Get scoped chunks for this group (graph-derived)
-        const graphChunkIds = await getScopedChunkIds(allIds);
+        const graphChunkIds = await getScopedChunkIds(allIds, excludeTag);
 
         // Supplement with filename-based discovery:
         // Query chunks whose source_filename contains the group name (case-insensitive).
@@ -377,7 +403,7 @@ export async function graphScopedSearch(
     const startIds = allEntities.map(e => e.entity_id);
     const connected = await traverseGraph(startIds, DEFAULT_MAX_HOPS);
     const uniqueIds = [...new Set([...startIds, ...connected.map(c => c.entity_id)])];
-    const allChunkIds = await getScopedChunkIds(uniqueIds);
+    const allChunkIds = await getScopedChunkIds(uniqueIds, excludeTag);
 
     // Заполняем chunkSignals: стартовые сущности → hop=0, conf=1.0
     // по их source_chunk_ids; связи → hop/confidence ребра по его source_chunk_id.

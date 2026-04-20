@@ -740,7 +740,11 @@ router.post("/api/chat", async (req: Request, res: Response) => {
     // from each named entity group (e.g. both СГК-Алтай AND НТСК).
     let graphPreSeededCount = 0;
     try {
-      const graphResult = await graphAwareSearch(searchQuery, 15, searchHints);
+      // B3: thread regime exclude tag so graph scope excludes opposite-regime at DB level
+      const graphExcludeTag = intentResult.fz_type === "223" ? "вне 223-фз"
+                             : intentResult.fz_type === "non-223" ? "223-фз"
+                             : null;
+      const graphResult = await graphAwareSearch(searchQuery, 15, searchHints, graphExcludeTag);
       if (graphResult.hasGraphResults && graphResult.results.length > 0) {
         for (const r of graphResult.results) {
           if (!agenticCtx.chunks.has(r.id)) {
@@ -850,7 +854,11 @@ ${sanitizeUserInput(userMessage.content)}
     : Promise.resolve([]);
 
   // Graph-aware search: параллельно с остальными поисками
-  const graphSearchPromise = graphAwareSearch(searchQuery, 15, searchHints).catch((err) => {
+  // B3: передаём регим-фильтр в граф, чтобы противоположный регим не попадал в scope.
+  const graphExcludeTagDet = intentResult.fz_type === "223" ? "вне 223-фз"
+                             : intentResult.fz_type === "non-223" ? "223-фз"
+                             : null;
+  const graphSearchPromise = graphAwareSearch(searchQuery, 15, searchHints, graphExcludeTagDet).catch((err) => {
     console.error("[chat] graphAwareSearch error (non-fatal):", err);
     return { results: [] as SearchResult[], groupCount: 0, hasGraphResults: false };
   });

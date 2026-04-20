@@ -110,6 +110,16 @@ export function intentAwareRerank(
     const oppositeTag = intent.fz_type === "223" ? "вне 223-фз" : "223-фз";
 
     working = working.map((r) => {
+      // B4 (recovery plan): pre-seeded chunks (explicitly fetched by filename hint
+      // или detector из sgk-registry) не штрафуем за «противоположный» режимный тег.
+      // Их включение было авторитетным решением и пенальти 0.85 сводит на нет
+      // эффект pre-seed — именно это наблюдалось в регрессии НМГРЭС 2026-04-20.
+      if (r.preseeded) {
+        if (r.tags.includes(targetTag)) {
+          return { ...r, similarity: r.similarity * 1.15 };
+        }
+        return r;
+      }
       if (r.tags.includes(targetTag)) {
         return { ...r, similarity: r.similarity * 1.15 };
       }
@@ -849,12 +859,13 @@ export interface GraphAwareResult {
 export async function graphAwareSearch(
   query: string,
   matchCount: number = 20,
-  filterTags: string[] | null = null
+  filterTags: string[] | null = null,
+  excludeRegimeTag: string | null = null
 ): Promise<GraphAwareResult> {
   const supabase = createServiceClient();
 
   const [graphResult, standardResults] = await Promise.all([
-    graphScopedSearch(query, matchCount).catch((): GraphScopedResult => ({
+    graphScopedSearch(query, matchCount, excludeRegimeTag).catch((): GraphScopedResult => ({
       chunkIds: [],
       groups: [],
       hasGraphResults: false,
