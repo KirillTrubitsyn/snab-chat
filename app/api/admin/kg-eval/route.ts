@@ -78,6 +78,7 @@ interface GoldRow {
   domain: string;
   expected_entities: EvalEntity[];
   expected_relations: EvalRelation[];
+  source?: string;
 }
 
 interface ChunkRow {
@@ -102,7 +103,7 @@ export async function POST(request: NextRequest) {
     // 1. Загрузить gold
     let goldQuery = supabase
       .from('kg_eval_gold')
-      .select('id, chunk_id, domain, expected_entities, expected_relations')
+      .select('id, chunk_id, domain, expected_entities, expected_relations, source')
       .order('id', { ascending: true })
       .limit(limit);
     if (domainFilter) goldQuery = goldQuery.eq('domain', domainFilter);
@@ -240,6 +241,12 @@ export async function POST(request: NextRequest) {
       spuriousSamples,
     };
 
+    // Определяем источник эталона: если все строки из одного источника —
+    // используем его; если смешаны — 'mixed'.
+    const sourceSet = new Set(gold.map(g => g.source ?? 'manual'));
+    const goldModel =
+      sourceSet.size === 1 ? [...sourceSet][0] : 'mixed';
+
     // Сохраняем run
     const { data: run, error: runErr } = await supabase
       .from('kg_eval_run')
@@ -253,6 +260,7 @@ export async function POST(request: NextRequest) {
         relation_f1: relMetrics.f1,
         metrics: metricsJson,
         notes,
+        gold_model: goldModel,
       })
       .select('id, run_at')
       .single();
@@ -288,7 +296,7 @@ export async function GET(request: NextRequest) {
     const supabase = createServiceClient();
     const { data, error } = await supabase
       .from('kg_eval_run')
-      .select('id, run_at, total_chunks, entity_precision, entity_recall, entity_f1, relation_precision, relation_recall, relation_f1, metrics, notes, model')
+      .select('id, run_at, total_chunks, entity_precision, entity_recall, entity_f1, relation_precision, relation_recall, relation_f1, metrics, notes, model, gold_model')
       .order('run_at', { ascending: false })
       .limit(limit);
     if (error) throw error;
