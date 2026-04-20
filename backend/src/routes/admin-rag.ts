@@ -272,9 +272,15 @@ router.post("/api/admin/kg-eval", async (req: Request, res: Response) => {
     const missingSamples: Array<{ chunkId: number; entity: EvalEntity }> = [];
     const spuriousSamples: Array<{ chunkId: number; entity: EvalEntity }> = [];
 
+    console.log(`[kg-eval] start: ${gold.length} чанков из gold${domainFilter ? ` (domain=${domainFilter})` : ""}`);
+    const t0 = Date.now();
+    let processed = 0;
+
     for (const g of gold) {
       const chunk = chunksMap.get(g.chunk_id);
       if (!chunk) continue;
+      processed += 1;
+      const tChunk = Date.now();
 
       const ont = resolveOntologyForTags(chunk.tags);
       const addendum = buildDomainPromptAddendum(ont);
@@ -347,8 +353,12 @@ router.post("/api/admin/kg-eval", async (req: Request, res: Response) => {
         if (spuriousSamples.length < 20) spuriousSamples.push({ chunkId: g.chunk_id, entity: s });
       }
 
+      console.log(
+        `[kg-eval] ${processed}/${gold.length}: chunk=${g.chunk_id} domain=${g.domain} ent=${predicted.entities.length} rel=${predicted.relations.length} (${Date.now() - tChunk}ms)`
+      );
       await new Promise((r) => setTimeout(r, 200));
     }
+    console.log(`[kg-eval] done: ${processed} чанков, elapsed=${Date.now() - t0}ms`);
 
     const entMetrics = toMetrics(entConf);
     const relMetrics = toMetrics(relConf);
@@ -457,6 +467,9 @@ router.post("/api/admin/kg-eval/seed-gold", async (req: Request, res: Response) 
     const stats: SeedStats[] = [];
     let totalInserted = 0;
 
+    console.log(`[seed-gold] start: domains=${ontologies.map((o) => o.name).join(",")}, perDomain=${perDomain}, model=${goldModel}`);
+    const t0 = Date.now();
+
     for (const ont of ontologies) {
       const stat: SeedStats = {
         domain: ont.name,
@@ -465,6 +478,7 @@ router.post("/api/admin/kg-eval/seed-gold", async (req: Request, res: Response) 
         skipped: 0,
         failed: 0,
       };
+      const tDomain = Date.now();
 
       const { data: chunksRaw, error: chErr } = await supabase
         .from("chunks")
@@ -501,11 +515,16 @@ router.post("/api/admin/kg-eval/seed-gold", async (req: Request, res: Response) 
         (existing || []).map((r) => [r.chunk_id as number, (r.source as string) ?? "manual"])
       );
 
+      console.log(`[seed-gold] ${ont.name}: ${candidates.length} кандидатов, уже в gold: ${existingMap.size}`);
+
+      let idx = 0;
       for (const chunk of candidates) {
+        idx += 1;
         const existingSource = existingMap.get(chunk.id);
         if (existingSource) {
           if (existingSource === "manual" || !overwrite) {
             stat.skipped += 1;
+            console.log(`[seed-gold] ${ont.name} ${idx}/${candidates.length}: chunk=${chunk.id} skipped (${existingSource})`);
             continue;
           }
         }
@@ -518,6 +537,7 @@ router.post("/api/admin/kg-eval/seed-gold", async (req: Request, res: Response) 
           entities: [],
           relations: [],
         };
+        const tChunk = Date.now();
 
         try {
           const resp = await ai.models.generateContent({
@@ -596,12 +616,19 @@ router.post("/api/admin/kg-eval/seed-gold", async (req: Request, res: Response) 
 
         stat.extracted += 1;
         totalInserted += 1;
+        console.log(
+          `[seed-gold] ${ont.name} ${idx}/${candidates.length}: chunk=${chunk.id} +ent=${entities.length} +rel=${relations.length} (${Date.now() - tChunk}ms)`
+        );
 
         await new Promise((r) => setTimeout(r, 400));
       }
 
+      console.log(
+        `[seed-gold] ${ont.name} done: +${stat.extracted}, skipped ${stat.skipped}, failed ${stat.failed} (${Date.now() - tDomain}ms)`
+      );
       stats.push(stat);
     }
+    console.log(`[seed-gold] total done: inserted=${totalInserted}, elapsed=${Date.now() - t0}ms`);
 
     const { count: goldCount } = await supabase
       .from("kg_eval_gold")
