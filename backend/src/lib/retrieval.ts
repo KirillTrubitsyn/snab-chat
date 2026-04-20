@@ -17,6 +17,14 @@ export interface SearchResult {
   similarity: number;
   tags: string[];
   image_paths: string[];  // NEW: paths to images in chunk-images bucket
+  /**
+   * Marks a chunk as deliberately pre-seeded via filename match (fetchChunksByDocument
+   * or detectors such as detectNmgresAuthorityQuery). Pre-seeded chunks represent a
+   * document the user explicitly referenced (by name, by org-registry hit, or by local
+   * directive). They must bypass the regime post-filter and any opposite-regime penalty,
+   * since their inclusion was already an authoritative decision.
+   */
+  preseeded?: boolean;
 }
 
 /* ── Relevance filtering constants ── */

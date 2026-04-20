@@ -15,7 +15,7 @@ import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgentic
 import { expandByRelationships } from "../lib/relationships.js";
 import { getMatchingDirectives, generateDirectivesPromptBlock } from "../lib/directives-registry.js";
 import { shouldInjectStandardsRegistry, generateStandardsRegistryBlock } from "../lib/standards-registry.js";
-import { shouldInjectSgkRegistry, generateSgkRegistryPromptBlock, detectNmgresAuthorityQuery } from "../lib/sgk-registry.js";
+import { shouldInjectSgkRegistry, generateSgkRegistryPromptBlock, detectNmgresAuthorityQuery, resolveFzTypeFromRegistry } from "../lib/sgk-registry.js";
 import { classifyDocumentIntent, getDocumentIntentPrompt } from "../lib/document-intent.js";
 
 const router = Router();
@@ -464,6 +464,28 @@ router.post("/api/chat", async (req: Request, res: Response) => {
   ]);
   console.log(`[chat][timing] Phase 1 (intent+context): ${Date.now() - t0}ms`);
 
+  // ── A3: Registry-based fz_type override ──
+  // LLM-классификатор иногда ошибается на режиме (например, путает НМГРЭС с филиалом
+  // ПАО "Квадра" и ставит fz_type="223"). Авторитетный источник — хардкод-реестр
+  // SGK_REGISTRY. Если в запросе упоминается сущность из реестра с однозначным режимом,
+  // перетираем intentResult.fz_type и пишем в лог для наблюдаемости.
+  try {
+    const registryResolution = resolveFzTypeFromRegistry(searchQuery);
+    if (
+      registryResolution.fzType !== "unknown" &&
+      registryResolution.fzType !== intentResult.fz_type
+    ) {
+      console.log(
+        `[chat][fz-override] registry=${registryResolution.fzType} vs intent=${intentResult.fz_type}; ` +
+        `entities=[${registryResolution.entities.map((e) => e.name).join(", ")}]; ` +
+        `reason="${registryResolution.reason}"`
+      );
+      intentResult.fz_type = registryResolution.fzType;
+    }
+  } catch (e) {
+    console.error("[chat][fz-override] registry resolution failed (non-fatal):", e);
+  }
+
   // Off-topic: fire-and-forget — classify + notify admin, never block the response
   if (!isAdminCode(invite.code)) {
     classifyOffTopic(userMessage.content, messages.slice(0, -1))
@@ -672,7 +694,8 @@ router.post("/api/chat", async (req: Request, res: Response) => {
             const boostedSim = r.similarity >= 0.25
               ? Math.max(r.similarity, 0.75)
               : r.similarity;
-            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim });
+            // Mark as pre-seeded so downstream regime filters do not drop it.
+            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim, preseeded: true });
             regAdded++;
           }
         }
@@ -697,7 +720,9 @@ router.post("/api/chat", async (req: Request, res: Response) => {
         for (const r of nmResults) {
           if (!agenticCtx.chunks.has(r.id)) {
             const boostedSim = r.similarity >= 0.2 ? Math.max(r.similarity, 0.80) : r.similarity;
-            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim });
+            // Mark as pre-seeded (A1) so the regime filter keeps НМГРЭС matrix chunks
+            // even when intent classifier incorrectly picks fz_type=223.
+            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim, preseeded: true });
             nmAdded++;
           }
         }
@@ -1146,7 +1171,9 @@ ${sanitizeUserInput(userMessage.content)}
           const isOrgRegistry = mentionsOrg && (fnameLower.includes("перечень_компаний") || fnameLower.includes("перечень компаний"));
           const isNmAuthority = !!nmgresAuthorityHintsDet && (fnameLower.includes("нмгрэс") || fnameLower.includes("355-од") || fnameLower.includes("355_од"));
           if (isOrgRegistry || isNmAuthority) {
-            combinedResults.unshift(r.similarity >= 0.2 ? { ...r, similarity: Math.max(r.similarity, 0.80) } : r);
+            // Mark as pre-seeded so the regime post-filter keeps it (A1 recovery plan).
+            const boosted = r.similarity >= 0.2 ? Math.max(r.similarity, 0.80) : r.similarity;
+            combinedResults.unshift({ ...r, similarity: boosted, preseeded: true });
           } else {
             combinedResults.push(r);
           }
@@ -1159,17 +1186,31 @@ ${sanitizeUserInput(userMessage.content)}
     // Post-filter: when regime is strictly determined, remove opposite-regime chunks
     // This is the final safety net — prevents wrong-regime documents from leaking
     // into the answer context regardless of how they got in (hybrid search, variants, etc.)
+    //
+    // Whitelist: pre-seeded chunks (explicitly retrieved by filename match — e.g. НМГРЭС
+    // authority matrix, org registry, directive) bypass the filter. Their inclusion was
+    // already an authoritative decision; re-filtering them by regime tag would undo the
+    // whole point of pre-seeding and revert behaviour to pre-3cc94c9. See recovery plan
+    // A1 (report from 2026-04-20).
     if (isStrictRegime && oppositeRegimeTag) {
       const beforeCount = combinedResults.length;
+      let preseededKept = 0;
       combinedResults = combinedResults.filter((r) => {
+        if (r.preseeded) {
+          preseededKept++;
+          return true;
+        }
         const tags = r.tags.map((t) => t.toLowerCase());
         // Keep if: no regime tag at all OR has the correct regime tag
         // Remove only if: explicitly tagged with the OPPOSITE regime
         return !tags.includes(oppositeRegimeTag!);
       });
       const removed = beforeCount - combinedResults.length;
-      if (removed > 0) {
-        console.log(`[chat] Regime post-filter: removed ${removed} opposite-regime chunks (strict ${intentResult.fz_type})`);
+      if (removed > 0 || preseededKept > 0) {
+        console.log(
+          `[chat] Regime post-filter: removed ${removed} opposite-regime chunks, ` +
+          `preserved ${preseededKept} pre-seeded chunks (strict ${intentResult.fz_type})`
+        );
       }
     }
   }

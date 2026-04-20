@@ -143,6 +143,60 @@ export function findAllEntities(query: string): SgkEntity[] {
   return found;
 }
 
+/* ── Authoritative regime resolution (A3 recovery plan) ── */
+
+/**
+ * Result of resolving fz_type from SGK registry alone, independent of the LLM
+ * intent classifier's suggestion. Used to override the classifier when the query
+ * unambiguously references entities that belong to the same regime, so that the
+ * regime post-filter does not silently drop pre-seeded opposite-regime chunks
+ * (e.g. НМГРЭС matrix tagged "вне 223-фз" when the classifier guessed "223"
+ * from pre-training bias about АО «Квадра»).
+ */
+export interface RegistryRegimeResolution {
+  fzType: "223" | "non-223" | "both" | "unknown";
+  /** Entities matched in the query. Empty array means no override. */
+  entities: SgkEntity[];
+  /** Human-readable explanation for logs. */
+  reason: string;
+}
+
+export function resolveFzTypeFromRegistry(query: string): RegistryRegimeResolution {
+  const entities = findAllEntities(query);
+  if (entities.length === 0) {
+    return { fzType: "unknown", entities: [], reason: "no registry match" };
+  }
+
+  // Only juridical entities and their filial/branch structures carry a regime.
+  // If ALL mentions are of one regime, override to that regime. If they span
+  // both regimes (e.g. "сравнение Новосибирской ТЭЦ и НМГРЭС"), return "both".
+  const has223 = entities.some((e) => e.regime === "223-fz");
+  const hasNon223 = entities.some((e) => e.regime === "non-223-fz");
+
+  if (has223 && hasNon223) {
+    return {
+      fzType: "both",
+      entities,
+      reason: `mentioned both regimes (${entities.map((e) => e.name).join(", ")})`,
+    };
+  }
+  if (has223) {
+    return {
+      fzType: "223",
+      entities,
+      reason: `all entities are 223-fz (${entities.map((e) => e.name).join(", ")})`,
+    };
+  }
+  if (hasNon223) {
+    return {
+      fzType: "non-223",
+      entities,
+      reason: `all entities are non-223-fz (${entities.map((e) => e.name).join(", ")})`,
+    };
+  }
+  return { fzType: "unknown", entities, reason: "entities matched but no regime" };
+}
+
 /* ── Trigger logic ── */
 
 const SGK_REGISTRY_KEYWORD_PATTERNS: RegExp[] = [
