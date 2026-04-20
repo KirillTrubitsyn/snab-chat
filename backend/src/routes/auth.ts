@@ -726,6 +726,25 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// Resolve IP → "City, Country" with a tight timeout. ipapi.co is a third-party
+// dependency; if it is slow, we just skip the location rather than block login.
+async function lookupLocation(ipAddress: string): Promise<string> {
+  if (!ipAddress || ipAddress === "unknown") return "";
+  try {
+    const geoRes = await fetch(`https://ipapi.co/${ipAddress}/json/`, {
+      headers: { "User-Agent": "snabchat/1.0" },
+      signal: AbortSignal.timeout(1500),
+    });
+    if (!geoRes.ok) return "";
+    const geo = await geoRes.json() as { city?: string; country_name?: string; error?: boolean };
+    if (geo.error) return "";
+    return [geo.city, geo.country_name].filter(Boolean).join(", ");
+  } catch (e) {
+    console.log(`[geo] Failed for ${ipAddress}:`, e instanceof Error ? e.message : e);
+    return "";
+  }
+}
+
 // POST /api/auth/request-login-approval
 router.post("/api/auth/request-login-approval", async (req: Request, res: Response) => {
   try {
@@ -759,35 +778,22 @@ router.post("/api/auth/request-login-approval", async (req: Request, res: Respon
     const ipAddress = getClientIP(req);
     const userAgent = req.headers["user-agent"] || "";
 
-    // Определить геолокацию по IP
-    let location = "";
-    if (ipAddress && ipAddress !== "unknown") {
-      try {
-        const geoRes = await fetch(`https://ipapi.co/${ipAddress}/json/`, {
-          headers: { "User-Agent": "snabchat/1.0" },
-          signal: AbortSignal.timeout(3000),
-        });
-        if (geoRes.ok) {
-          const geo = await geoRes.json() as { city?: string; country_name?: string; error?: boolean };
-          if (!geo.error && (geo.city || geo.country_name)) {
-            location = [geo.city, geo.country_name].filter(Boolean).join(", ");
-          }
-        }
-      } catch (e) {
-        console.log(`[geo] Failed for ${ipAddress}:`, e instanceof Error ? e.message : e);
-      }
-    }
-
-    // Создать новый запрос на подтверждение
-    const { data: approval, error: insertError } = await supabase
-      .from("login_approvals")
-      .insert({
-        invite_code_id: invite.id,
-        ip_address: ipAddress,
-        user_agent: userAgent,
-      })
-      .select("id")
-      .single();
+    // Run geolocation lookup and approval insert in parallel — the geo call hits
+    // a third-party API that is frequently slow, and blocking the insert on it
+    // was adding 1–3s to the login-approval response.
+    const [location, insertResult] = await Promise.all([
+      lookupLocation(ipAddress),
+      supabase
+        .from("login_approvals")
+        .insert({
+          invite_code_id: invite.id,
+          ip_address: ipAddress,
+          user_agent: userAgent,
+        })
+        .select("id")
+        .single(),
+    ]);
+    const { data: approval, error: insertError } = insertResult;
 
     if (insertError || !approval) {
       console.error("[request-login-approval] DB error:", insertError?.message);
@@ -960,16 +966,19 @@ router.post("/api/auth/login-password", async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Неверный пароль" });
     }
 
-    let matched: typeof users[0] | null = null;
-    // N3 fix: always compare ALL users to prevent timing leak on user position
-    for (const user of users) {
-      if (!user.password_hash) continue;
-      const valid = await bcrypt.compare(password, user.password_hash);
-      if (valid && !matched) {
-        matched = user;
-        // Don't break — continue comparing to prevent timing leak
-      }
-    }
+    // N3 fix: compare ALL users in parallel to prevent timing leak on user position.
+    // Parallel execution lets bcryptjs interleave chunked async work — drops login
+    // latency from O(n × bcrypt) to ~O(bcrypt) in practice, while preserving
+    // constant-time property (we await every comparison before responding).
+    const compareResults = await Promise.all(
+      users.map(u =>
+        u.password_hash
+          ? bcrypt.compare(password, u.password_hash).catch(() => false)
+          : Promise.resolve(false)
+      )
+    );
+    const matchedIndex = compareResults.findIndex(Boolean);
+    const matched: typeof users[0] | null = matchedIndex >= 0 ? users[matchedIndex] : null;
 
     if (!matched) {
       console.warn(`[auth] Failed password login from IP: ${clientIp}`);
@@ -1332,35 +1341,21 @@ router.post("/api/auth/admin/request-login-approval", async (req: Request, res: 
     const ipAddress = getClientIP(req);
     const userAgent = req.headers["user-agent"] || "";
 
-    // Geo lookup
-    let location = "";
-    if (ipAddress && ipAddress !== "unknown") {
-      try {
-        const geoRes = await fetch(`https://ipapi.co/${ipAddress}/json/`, {
-          headers: { "User-Agent": "snabchat/1.0" },
-          signal: AbortSignal.timeout(3000),
-        });
-        if (geoRes.ok) {
-          const geo = await geoRes.json() as { city?: string; country_name?: string; error?: boolean };
-          if (!geo.error && (geo.city || geo.country_name)) {
-            location = [geo.city, geo.country_name].filter(Boolean).join(", ");
-          }
-        }
-      } catch (e) {
-        console.log(`[geo] Failed for ${ipAddress}:`, e instanceof Error ? e.message : e);
-      }
-    }
-
-    // Create approval record
-    const { data: approval, error: insertError } = await supabase
-      .from("admin_login_approvals")
-      .insert({
-        admin_number: adminNumber,
-        ip_address: ipAddress,
-        user_agent: userAgent,
-      })
-      .select("id")
-      .single();
+    // Run geolocation lookup and approval insert in parallel — see note in
+    // /api/auth/request-login-approval for rationale.
+    const [location, insertResult] = await Promise.all([
+      lookupLocation(ipAddress),
+      supabase
+        .from("admin_login_approvals")
+        .insert({
+          admin_number: adminNumber,
+          ip_address: ipAddress,
+          user_agent: userAgent,
+        })
+        .select("id")
+        .single(),
+    ]);
+    const { data: approval, error: insertError } = insertResult;
 
     if (insertError || !approval) {
       console.error("[admin/request-login-approval] DB error:", insertError?.message);

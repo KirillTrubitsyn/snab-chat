@@ -17,7 +17,10 @@ export async function sendSMS(phone: string, message: string): Promise<{ ok: boo
       msg: message,
       json: "1",
     });
-    const res = await fetch(`https://sms.ru/sms/send?${params.toString()}`);
+    // Bound the call so a slow SMS.ru response can't block the login request.
+    const res = await fetch(`https://sms.ru/sms/send?${params.toString()}`, {
+      signal: AbortSignal.timeout(8000),
+    });
     const data = await res.json() as {
       status: string;
       status_code: number;

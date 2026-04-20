@@ -37,6 +37,10 @@ export function getAdminByChatId(chatId: string): { number: number; name: string
   return ADMIN_BY_CHAT_ID[chatId] ?? null;
 }
 
+// Bound all Telegram API calls so a slow/unresponsive server can't block
+// request handlers (e.g. login) for the default undici ~30s hang.
+const TELEGRAM_FETCH_TIMEOUT_MS = 5000;
+
 /** Отправить сообщение одному получателю */
 export async function sendTelegramMessage(
   text: string,
@@ -56,6 +60,7 @@ export async function sendTelegramMessage(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
     });
     if (!res.ok) {
       const err = await res.text();
@@ -83,6 +88,7 @@ export async function answerCallbackQuery(callbackQueryId: string, text?: string
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
+      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
     });
   } catch { /* ignore */ }
 }
@@ -108,6 +114,7 @@ export async function send2FAMessage(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
     });
     if (!res.ok) {
       const err = await res.text();
@@ -130,6 +137,7 @@ export async function answer2FACallbackQuery(callbackQueryId: string, text?: str
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
+      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
     });
   } catch { /* ignore */ }
 }
@@ -152,6 +160,7 @@ export async function edit2FAMessage(
         text,
         parse_mode: "HTML",
       }),
+      signal: AbortSignal.timeout(TELEGRAM_FETCH_TIMEOUT_MS),
     });
   } catch { /* ignore */ }
 }
