@@ -16,6 +16,22 @@
     "app/api/chat/route.ts": {
       "maxDuration": 120,
       "memory": 1024
+    },
+    "app/api/admin/kg-eval/route.ts": {
+      "maxDuration": 300,
+      "memory": 1024
+    },
+    "app/api/admin/kg-eval/seed-gold/route.ts": {
+      "maxDuration": 300,
+      "memory": 1024
+    },
+    "app/api/admin/extract-entities/route.ts": {
+      "maxDuration": 300,
+      "memory": 1024
+    },
+    "app/api/admin/rag-diagnostics/route.ts": {
+      "maxDuration": 60,
+      "memory": 512
     }
   }
 }

@@ -132,31 +132,76 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
     }
   };
 
+  // Сид по одному домену за раз — каждый запрос укладывается в Vercel
+  // 300s timeout (10 чанков × ~5с Pro-модели ≈ 50с). Если раньше
+  // пытались размечать все 60 сразу, ловили 504.
+  const GOLD_DOMAINS = [
+    "standards",
+    "provisions",
+    "contracts",
+    "authority_matrix",
+    "registries",
+    "legislation",
+  ];
+
   const runSeedGold = async () => {
     setSeedRunning(true);
-    setSeedResult(null);
+    setSeedResult("Запуск…");
+    let totalInserted = 0;
+    const statsLines: string[] = [];
+    let finalGoldSize = goldSize;
     try {
-      const res = await fetch("/api/admin/kg-eval/seed-gold", {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ perDomain: 10, notes: "Автогенерация из админки" }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setSeedResult(`❌ ${data.error || data.message || "Ошибка генерации"}`);
-        return;
+      for (let i = 0; i < GOLD_DOMAINS.length; i++) {
+        const domain = GOLD_DOMAINS[i];
+        setSeedResult(
+          `Разметка ${i + 1}/${GOLD_DOMAINS.length}: ${domain}… (уже добавлено: ${totalInserted})`,
+        );
+        const res = await fetch("/api/admin/kg-eval/seed-gold", {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            perDomain: 10,
+            domains: [domain],
+            notes: "Автогенерация из админки",
+          }),
+        });
+        let data: {
+          error?: string;
+          message?: string;
+          totalInserted?: number;
+          goldDatasetSize?: number;
+          stats?: Array<{ domain: string; extracted: number; skipped: number; failed: number }>;
+        } = {};
+        try {
+          data = await res.json();
+        } catch {
+          data = {};
+        }
+        if (!res.ok) {
+          const msg = data.error || data.message || `HTTP ${res.status}`;
+          setSeedResult(
+            `⚠️ Остановка на домене ${domain}: ${msg}. Добавлено до остановки: ${totalInserted}.`,
+          );
+          await loadRuns();
+          return;
+        }
+        totalInserted += data.totalInserted ?? 0;
+        finalGoldSize = data.goldDatasetSize ?? finalGoldSize;
+        for (const s of data.stats ?? []) {
+          statsLines.push(
+            `${s.domain}: +${s.extracted} (пропущено ${s.skipped}, ошибок ${s.failed})`,
+          );
+        }
       }
-      const perDomain = (data.stats ?? [])
-        .map((s: { domain: string; extracted: number; skipped: number; failed: number }) =>
-          `${s.domain}: +${s.extracted} (пропущено ${s.skipped}, ошибок ${s.failed})`
-        )
-        .join("; ");
       setSeedResult(
-        `✅ Добавлено ${data.totalInserted} записей (всего в gold: ${data.goldDatasetSize}). ${perDomain}`
+        `✅ Готово. Добавлено ${totalInserted} записей (всего в gold: ${finalGoldSize}). ${statsLines.join("; ")}`,
       );
       await loadRuns();
     } catch {
-      setSeedResult("❌ Сетевая ошибка");
+      setSeedResult(
+        `❌ Сетевая ошибка (добавлено до сбоя: ${totalInserted}). Нажмите «Досыпать в датасет», чтобы продолжить.`,
+      );
+      await loadRuns();
     } finally {
       setSeedRunning(false);
     }
@@ -381,7 +426,8 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
           <p style={{ marginTop: 12, fontSize: 13, color: "#d97706" }}>
             ⚠️ Золотой датасет пуст. Нажмите «Сгенерировать золотой датасет» — сильная модель
             (gemini-3.1-pro-preview) разметит ~60 чанков (по 10 на каждый из 6 доменов).
-            Занимает несколько минут.
+            Запросы идут последовательно, по одному домену, чтобы уложиться в Vercel-таймаут.
+            Всего 3–6 минут.
           </p>
         )}
         {evalResult && (
