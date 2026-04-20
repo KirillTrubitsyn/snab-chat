@@ -299,7 +299,21 @@ export async function GET(request: NextRequest) {
       .select('id, run_at, total_chunks, entity_precision, entity_recall, entity_f1, relation_precision, relation_recall, relation_f1, metrics, notes, model, gold_model')
       .order('run_at', { ascending: false })
       .limit(limit);
-    if (error) throw error;
+    if (error) {
+      // PostgreSQL code 42P01 = undefined_table → миграция не применена.
+      const code = (error as { code?: string }).code;
+      if (code === '42P01' || /relation ".*" does not exist/i.test(error.message)) {
+        return NextResponse.json(
+          {
+            error:
+              'Таблица kg_eval_run не найдена. Примените миграцию supabase/migration_kg_eval.sql в Supabase SQL Editor.',
+            migrationRequired: true,
+          },
+          { status: 503 },
+        );
+      }
+      throw error;
+    }
 
     // Также отдадим размер gold
     const { count: goldCount } = await supabase

@@ -19,13 +19,13 @@ import type { EvalEntity, EvalRelation } from '@/app/lib/kg-eval';
 //
 // Body:
 //   perDomain?:    number   — сколько чанков брать из каждого домена (default 10, max 50)
-//   goldModel?:    string   — модель для генерации эталона (default gemini-3-pro-preview)
+//   goldModel?:    string   — модель для генерации эталона (default gemini-3.1-pro-preview)
 //   domains?:      string[] — ограничить список доменов (default — все)
 //   overwrite?:    boolean  — перезаписывать существующие auto-seed записи (default false)
 //   notes?:        string   — заметка, проставится всем новым строкам
 // ============================================================
 
-const DEFAULT_GOLD_MODEL = 'gemini-3-pro-preview';
+const DEFAULT_GOLD_MODEL = 'gemini-3.1-pro-preview';
 
 const GOLD_PROMPT = `Ты — эксперт-разметчик для создания эталонного датасета извлечения сущностей и связей.
 

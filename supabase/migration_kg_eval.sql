@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS kg_eval_gold (
   -- Формат expected_relations: [{source, target, type}]
   expected_relations   JSONB NOT NULL DEFAULT '[]'::jsonb,
   -- Источник эталона: 'manual' — ручная разметка, либо имя модели
-  -- ('gemini-3-pro' и т.п.) при auto-seed через сильную модель.
+  -- ('gemini-3.1-pro-preview' и т.п.) при auto-seed через сильную модель.
   source               TEXT NOT NULL DEFAULT 'manual',
   notes                TEXT DEFAULT '',
   created_at           TIMESTAMPTZ DEFAULT now(),
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS kg_eval_run (
   metrics              JSONB NOT NULL DEFAULT '{}'::jsonb,
   notes                TEXT DEFAULT '',
   model                TEXT DEFAULT 'gemini-3-flash-preview',
-  -- Модель-эталон, против которой сравнивался model (manual / gemini-3-pro / ...).
+  -- Модель-эталон, против которой сравнивался model (manual / gemini-3.1-pro-preview / ...).
   gold_model           TEXT DEFAULT 'manual'
 );
 

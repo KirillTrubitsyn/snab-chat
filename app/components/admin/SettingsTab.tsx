@@ -78,7 +78,13 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
       const res = await fetch("/api/admin/kg-eval?limit=20", { headers });
       const data = await res.json();
       if (!res.ok) {
-        setRunsError(data.error || "Ошибка загрузки");
+        if (data.migrationRequired) {
+          setRunsError(
+            `⚠️ ${data.error} Откройте Supabase → SQL Editor → вставьте содержимое файла supabase/migration_kg_eval.sql и запустите.`,
+          );
+        } else {
+          setRunsError(data.error || "Ошибка загрузки");
+        }
         return;
       }
       setRuns(data.runs ?? []);
@@ -367,14 +373,14 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
           >
             {evalRunning ? "Прогон..." : "Запустить kg-eval (50 чанков)"}
           </button>
-          <button className="admin-btn" disabled={seedRunning} onClick={runSeedGold}>
+          <button className="admin-btn-secondary" disabled={seedRunning} onClick={runSeedGold}>
             {seedRunning ? "Генерация..." : goldSize === 0 ? "Сгенерировать золотой датасет" : "Досыпать в датасет"}
           </button>
         </div>
         {goldSize === 0 && (
           <p style={{ marginTop: 12, fontSize: 13, color: "#d97706" }}>
             ⚠️ Золотой датасет пуст. Нажмите «Сгенерировать золотой датасет» — сильная модель
-            (gemini-3-pro-preview) разметит ~60 чанков (по 10 на каждый из 6 доменов).
+            (gemini-3.1-pro-preview) разметит ~60 чанков (по 10 на каждый из 6 доменов).
             Занимает несколько минут.
           </p>
         )}
