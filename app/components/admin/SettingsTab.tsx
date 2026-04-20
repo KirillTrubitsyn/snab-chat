@@ -132,31 +132,77 @@ export default function SettingsTab({ adminCode }: { adminCode: string }) {
     }
   };
 
+  // Один запрос на все 6 доменов занимает 3-7 мин и висит без фидбэка;
+  // браузер может закрыть idle-соединение, пользователь не понимает,
+  // идёт ли процесс. Делаем 6 последовательных запросов по одному
+  // домену (≈10 чанков, ~60-90с каждый), показываем живой прогресс.
+  const GOLD_DOMAINS = [
+    "standards",
+    "provisions",
+    "contracts",
+    "authority_matrix",
+    "registries",
+    "legislation",
+  ];
+
   const runSeedGold = async () => {
     setSeedRunning(true);
-    setSeedResult(null);
+    setSeedResult("Запуск…");
+    let totalInserted = 0;
+    let finalGoldSize = goldSize;
+    const statsLines: string[] = [];
     try {
-      const res = await fetch(apiUrl("/api/admin/kg-eval/seed-gold"), {
-        method: "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ perDomain: 10, notes: "Автогенерация из админки" }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setSeedResult(`❌ ${data.error || data.message || "Ошибка генерации"}`);
-        return;
+      for (let i = 0; i < GOLD_DOMAINS.length; i++) {
+        const domain = GOLD_DOMAINS[i];
+        setSeedResult(
+          `Разметка ${i + 1}/${GOLD_DOMAINS.length}: ${domain}… (добавлено: ${totalInserted})`,
+        );
+        const res = await fetch(apiUrl("/api/admin/kg-eval/seed-gold"), {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            perDomain: 10,
+            domains: [domain],
+            notes: "Автогенерация из админки",
+          }),
+        });
+        let data: {
+          error?: string;
+          message?: string;
+          totalInserted?: number;
+          goldDatasetSize?: number;
+          stats?: Array<{ domain: string; extracted: number; skipped: number; failed: number }>;
+        } = {};
+        try {
+          data = await res.json();
+        } catch {
+          data = {};
+        }
+        if (!res.ok) {
+          const msg = data.error || data.message || `HTTP ${res.status}`;
+          setSeedResult(
+            `⚠️ Остановка на домене ${domain}: ${msg}. Добавлено до остановки: ${totalInserted}.`,
+          );
+          await loadRuns();
+          return;
+        }
+        totalInserted += data.totalInserted ?? 0;
+        finalGoldSize = data.goldDatasetSize ?? finalGoldSize;
+        for (const s of data.stats ?? []) {
+          statsLines.push(
+            `${s.domain}: +${s.extracted} (пропущено ${s.skipped}, ошибок ${s.failed})`,
+          );
+        }
+        await loadRuns();
       }
-      const perDomain = (data.stats ?? [])
-        .map((s: { domain: string; extracted: number; skipped: number; failed: number }) =>
-          `${s.domain}: +${s.extracted} (пропущено ${s.skipped}, ошибок ${s.failed})`
-        )
-        .join("; ");
       setSeedResult(
-        `✅ Добавлено ${data.totalInserted} записей (всего в gold: ${data.goldDatasetSize}). ${perDomain}`
+        `✅ Готово. Добавлено ${totalInserted} записей (всего в gold: ${finalGoldSize}). ${statsLines.join("; ")}`,
+      );
+    } catch {
+      setSeedResult(
+        `❌ Сетевая ошибка (добавлено до сбоя: ${totalInserted}). Нажмите «Досыпать в датасет», чтобы продолжить.`,
       );
       await loadRuns();
-    } catch {
-      setSeedResult("❌ Сетевая ошибка");
     } finally {
       setSeedRunning(false);
     }
