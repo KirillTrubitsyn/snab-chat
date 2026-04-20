@@ -15,11 +15,18 @@ CREATE TABLE IF NOT EXISTS kg_eval_gold (
   expected_entities    JSONB NOT NULL DEFAULT '[]'::jsonb,
   -- Формат expected_relations: [{source, target, type}]
   expected_relations   JSONB NOT NULL DEFAULT '[]'::jsonb,
+  -- Источник эталона: 'manual' — ручная разметка, либо имя модели
+  -- ('gemini-3-pro' и т.п.) при auto-seed через сильную модель.
+  source               TEXT NOT NULL DEFAULT 'manual',
   notes                TEXT DEFAULT '',
   created_at           TIMESTAMPTZ DEFAULT now(),
   updated_at           TIMESTAMPTZ DEFAULT now(),
   CONSTRAINT uq_kg_eval_gold_chunk UNIQUE (chunk_id)
 );
+
+-- Идемпотентное добавление колонки для существующих установок.
+ALTER TABLE kg_eval_gold
+  ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
 
 CREATE INDEX IF NOT EXISTS idx_kg_eval_gold_domain
   ON kg_eval_gold(domain);
@@ -42,8 +49,14 @@ CREATE TABLE IF NOT EXISTS kg_eval_run (
   -- Детализация: {domains: {standards: {...}, ...}, entityTypes: {standard: {...}, ...}}
   metrics              JSONB NOT NULL DEFAULT '{}'::jsonb,
   notes                TEXT DEFAULT '',
-  model                TEXT DEFAULT 'gemini-3-flash-preview'
+  model                TEXT DEFAULT 'gemini-3-flash-preview',
+  -- Модель-эталон, против которой сравнивался model (manual / gemini-3-pro / ...).
+  gold_model           TEXT DEFAULT 'manual'
 );
+
+-- Идемпотентное добавление колонки для существующих установок.
+ALTER TABLE kg_eval_run
+  ADD COLUMN IF NOT EXISTS gold_model TEXT DEFAULT 'manual';
 
 CREATE INDEX IF NOT EXISTS idx_kg_eval_run_at
   ON kg_eval_run(run_at DESC);
