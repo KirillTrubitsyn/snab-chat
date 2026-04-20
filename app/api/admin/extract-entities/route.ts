@@ -79,6 +79,10 @@ const RELATION_TYPES = [
   'penalized_by',       // obligation → threshold (штраф, неустойка)
   'approves',           // role / approval_level → procedure / threshold
   'escalates_to',       // approval_level → approval_level (эскалация)
+  // B1/B2: soft-link для близких, но не идентичных сущностей (cross-doc semantic
+  // match отклонён из-за несовпадения canonical_name или из-за конфликта режима
+  // 223-фз vs вне 223-фз). Используется ПРОГРАММНО, не от LLM.
+  'related_to',
 ];
 
 const EXTRACTION_PROMPT = `Ты — эксперт по извлечению сущностей и связей из документов в области закупочной деятельности.
@@ -158,26 +162,74 @@ function normalize(name: string): string {
     .replace(/\bзк\b/g, 'закупочная комиссия');
 }
 
-// Доп. safety check: даже при высокой cosine-similarity не мёржим, если канонические
-// имена радикально расходятся по длине или не имеют общих токенов длиной >=3.
-// Это спасает от ложных merge'ев вроде "ГОСТ 12.1.005" ↔ "ГОСТ 12.1.007".
+// B1 (recovery plan от 2026-04-20): ужесточённый safety check.
+// Старая версия пропускала мёрж при любом общем токене длиной >=3 и length ratio до 2.5x,
+// из-за чего «СГК-Алтай» и «СГК-Новосибирск» могли быть объединены (общий токен «сгк»),
+// а «Филиал НАК Азот НМГРЭС» — с «НМГРЭС Квадра» (общий токен «нмгрэс»).
+//
+// Новая политика (STRICT):
+//   1. Точное совпадение нормализованных имён — мёрж разрешён.
+//   2. Иначе — требуем Jaccard на значимых токенах (длина >=4) >= 0.75
+//      И разницу длин не более 1.5x.
+//   3. Цифровые токены (номера ГОСТ/СТО/пунктов) должны совпадать все до единого.
+// Этим мы почти полностью отсекаем ложные merge'ы при сохранении точных
+// повторений (разные варианты написания одной и той же сущности).
+//
+// Если функция вернула false, но cosine similarity высокий — вызывающая сторона
+// создаёт новую сущность и связь related_to вместо молчаливого объединения.
 function canonicalNamesCompatible(a: string, b: string): boolean {
   if (!a || !b) return false;
   if (a === b) return true;
 
+  // Жёсткий лимит по длине: 1.5x вместо прежних 2.5x.
   const longer = a.length >= b.length ? a : b;
   const shorter = a.length >= b.length ? b : a;
   if (shorter.length === 0) return false;
-  if (longer.length / shorter.length > 2.5) return false;
+  if (longer.length / shorter.length > 1.5) return false;
 
-  if (longer.includes(shorter) || shorter.includes(longer)) return true;
+  const tokenize = (s: string) =>
+    s.split(/[\s\-\.,;:/()]+/).filter(Boolean);
 
-  const tokens = (s: string) =>
-    new Set(s.split(/[\s\-\.,;:/()]+/).filter(t => t.length >= 3));
-  const ta = tokens(a);
-  const tb = tokens(b);
-  for (const t of ta) if (tb.has(t)) return true;
-  return false;
+  // Все цифровые/идентификаторные токены должны совпадать.
+  // Это защита для стандартов/пунктов/номеров постановлений: «12.1.005» != «12.1.007».
+  const digitLike = (t: string) => /\d/.test(t);
+  const digitsA = new Set(tokenize(a).filter(digitLike));
+  const digitsB = new Set(tokenize(b).filter(digitLike));
+  if (digitsA.size !== digitsB.size) return false;
+  for (const d of digitsA) if (!digitsB.has(d)) return false;
+
+  // Jaccard на значимых текстовых токенах (длина >=4).
+  // Порог 0.75 отсекает случаи с одним общим токеном среди нескольких разных.
+  const significant = (t: string) => t.length >= 4 && !digitLike(t);
+  const setA = new Set(tokenize(a).filter(significant));
+  const setB = new Set(tokenize(b).filter(significant));
+  if (setA.size === 0 && setB.size === 0) {
+    // Оба имени состоят из очень коротких или цифровых токенов — полагаемся
+    // только на цифровой чек (он уже пройден) и равенство строк (не прошло).
+    return false;
+  }
+  const union = new Set([...setA, ...setB]);
+  let inter = 0;
+  for (const t of setA) if (setB.has(t)) inter++;
+  const jaccard = union.size > 0 ? inter / union.size : 0;
+  return jaccard >= 0.75;
+}
+
+// B2 (recovery plan от 2026-04-20): определение режима (223-ФЗ vs вне 223-ФЗ)
+// по тегам набора чанков. Если явных тегов нет или они смешаны — возвращает null
+// (режим «неопределён» → блокировку merge не применяем).
+type RegimeLabel = '223' | 'non-223';
+function detectRegime(tags: Array<string[] | null | undefined>): RegimeLabel | null {
+  let has223 = false;
+  let hasNon223 = false;
+  for (const t of tags) {
+    if (!t) continue;
+    if (t.includes('223-фз')) has223 = true;
+    if (t.includes('вне 223-фз')) hasNon223 = true;
+  }
+  if (has223 && !hasNon223) return '223';
+  if (hasNon223 && !has223) return 'non-223';
+  return null;
 }
 
 interface ExtractedEntity {
@@ -345,6 +397,13 @@ export async function POST(request: NextRequest) {
         // 5. Upsert сущностей
         const batchEntityMap = new Map<string, string>(); // name → entity_id
         let batchResolvedByEmbedding = 0;
+        let batchSoftLinked = 0;
+        let batchRegimeConflicts = 0;
+
+        // B2: режим пачки (223-ФЗ / вне 223-ФЗ / неопределённо) определяется
+        // по тегам исходных чанков. Если батч однороден — используется для блокировки
+        // merge'ев с сущностями противоположного режима.
+        const batchRegime = detectRegime(batch.map(c => c.tags));
 
         for (const ent of extraction.entities) {
           if (!ent.name || !ent.type || !ENTITY_TYPES.includes(ent.type)) continue;
@@ -363,8 +422,14 @@ export async function POST(request: NextRequest) {
           }
 
           // --- 5b. Cross-document резолюция по эмбеддингу (semantic merge) ---
+          // B1/B2: кандидаты из kg_search_entities классифицируются на:
+          //   • merge   — canonical совпадает и режим не конфликтует;
+          //   • related — высокая cosine, но отклонено canonical-чеком или режимом;
+          //                создаём связь related_to вместо слияния;
+          //   • reject  — ниже порога, игнор.
           let entityId: string | null = null;
           let entityEmbedding: number[] | null = null;
+          const softRelated: string[] = []; // entity_id кандидатов, не прошедших merge
 
           if (
             crossDocResolution &&
@@ -388,10 +453,29 @@ export async function POST(request: NextRequest) {
                   source_chunk_ids: string[] | null;
                   source_ids: string[] | null;
                 }>) {
-                  if (
-                    m.similarity >= resolveSimilarityThreshold &&
-                    canonicalNamesCompatible(canonical, m.canonical_name)
-                  ) {
+                  if (m.similarity < resolveSimilarityThreshold) continue;
+
+                  const canonicalOk = canonicalNamesCompatible(canonical, m.canonical_name);
+
+                  // B2: определяем режим кандидата по тегам его source chunks.
+                  let candidateRegime: RegimeLabel | null = null;
+                  if (m.source_chunk_ids && m.source_chunk_ids.length > 0) {
+                    try {
+                      const { data: candChunks } = await supabase
+                        .from('chunks')
+                        .select('tags')
+                        .in('id', m.source_chunk_ids.slice(0, 20));
+                      candidateRegime = detectRegime((candChunks || []).map(c => c.tags));
+                    } catch {
+                      // игнорируем — candidateRegime останется null, merge не блокируется
+                    }
+                  }
+                  const regimeConflict =
+                    batchRegime !== null &&
+                    candidateRegime !== null &&
+                    batchRegime !== candidateRegime;
+
+                  if (canonicalOk && !regimeConflict) {
                     const resolved = {
                       id: m.entity_id,
                       source_chunk_ids: m.source_chunk_ids || [],
@@ -405,6 +489,12 @@ export async function POST(request: NextRequest) {
                     batchResolvedByEmbedding++;
                     break;
                   }
+
+                  // Merge отклонён: копим кандидата в soft-related (≤2 штуки).
+                  if (softRelated.length < 2 && softRelated.indexOf(m.entity_id) === -1) {
+                    softRelated.push(m.entity_id);
+                  }
+                  if (regimeConflict) batchRegimeConflicts++;
                 }
               }
             } catch (err) {
@@ -445,12 +535,32 @@ export async function POST(request: NextRequest) {
             batchEntityMap.set(ent.name, inserted.id);
             if (!entityEmbedding) newEntityIds.push(inserted.id);
             totalEntities++;
+
+            // B1/B2: связываем новую сущность с близкими, но отклонёнными кандидатами
+            // через related_to. Это сохраняет семантическую связь в графе без
+            // потери различимости двух сущностей.
+            for (const targetId of softRelated) {
+              if (targetId === inserted.id) continue;
+              const { error: relErr } = await supabase
+                .from('kg_relations')
+                .insert({
+                  source_entity_id: inserted.id,
+                  target_entity_id: targetId,
+                  relation_type: 'related_to',
+                  description:
+                    'Семантически близкая сущность (cross-doc); merge отклонён canonical-чеком или режимным фасетом',
+                  confidence: 0.6,
+                  source_chunk_id: chunkIds[0] ?? null,
+                  source_id: sourceIds[0] ?? null,
+                });
+              if (!relErr) batchSoftLinked++;
+            }
           }
         }
 
-        if (batchResolvedByEmbedding > 0) {
+        if (batchResolvedByEmbedding > 0 || batchSoftLinked > 0 || batchRegimeConflicts > 0) {
           console.log(
-            `[extract-entities] batch ${i} (domain=${ontologyKey}): ${batchResolvedByEmbedding} сущностей смёржено через cross-doc resolution`,
+            `[extract-entities] batch ${i} (domain=${ontologyKey}): merged=${batchResolvedByEmbedding}, soft-linked=${batchSoftLinked}, regime-conflicts=${batchRegimeConflicts}, batchRegime=${batchRegime ?? 'unknown'}`,
           );
         }
 
