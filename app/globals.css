@@ -1,5 +1,7 @@
 @import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700&family=Source+Sans+3:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap");
+/* display=block (не swap): пока иконочный шрифт грузится, глиф невидим,
+   а не показывается как литеральный текст лигатуры ("monitoring", "chat" …). */
+@import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block");
 
 .material-symbols-outlined {
   font-family: 'Material Symbols Outlined';
@@ -14,8 +16,15 @@
   word-wrap: normal;
   direction: ltr;
   -webkit-font-feature-settings: 'liga';
+  font-feature-settings: 'liga';
   -webkit-font-smoothing: antialiased;
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Страховка на случай, если font-display block не успел (очень медленная сеть
+   или сбой CDN): скрываем сырой текст до готовности через Font Loading API. */
+html:not(.icons-ready) .material-symbols-outlined {
+  visibility: hidden;
 }
 
 /* ── Corporate Calm — light theme ── */
