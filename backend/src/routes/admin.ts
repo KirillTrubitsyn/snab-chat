@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { requireAdmin, getAdminNumber } from "../lib/auth.js";
+import { requireAdmin, getAdminNumber, ADMIN_NAMES_BY_NUMBER } from "../lib/auth.js";
 import { createServiceClient } from "../lib/supabase.js";
 import { logAuditEvent } from "../lib/audit-log.js";
 import { notifySupportReply } from "../lib/telegram.js";
@@ -79,6 +79,14 @@ async function buildConvsAndCodesMap(
   return { convsMap, codesMap, lookupOk };
 }
 
+// Maps stored "Админ N" legacy names to the current real name from ADMIN_CODES_JSON
+function resolveAdminName(stored: string | null): string {
+  if (!stored) return "Админ";
+  const m = stored.match(/^Админ (\d+)$/);
+  if (m) return ADMIN_NAMES_BY_NUMBER[parseInt(m[1], 10)] ?? stored;
+  return stored;
+}
+
 function resolveUser(
   conversationId: string,
   convsMap: Record<string, ConvInfo>,
@@ -95,7 +103,7 @@ function resolveUser(
     };
   }
   return {
-    user_name: conv.admin_name || "Админ",
+    user_name: resolveAdminName(conv.admin_name),
     organization: "Админ",
   };
 }
@@ -331,8 +339,7 @@ router.get("/api/admin/activity", async (req: Request, res: Response) => {
         user_name = code.name || "Неизвестный";
         organization = code.organization || "";
       } else if (ig.admin_name) {
-        // Admin-created infographic (invite_code_id is null for admins)
-        user_name = ig.admin_name;
+        user_name = resolveAdminName(ig.admin_name);
         organization = "Админ";
       }
       return {
