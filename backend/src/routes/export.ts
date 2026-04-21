@@ -1,12 +1,9 @@
 import { Router, Request, Response } from "express";
-import * as fs from "fs";
-import * as path from "path";
 import {
   Document,
   Packer,
   Paragraph,
   TextRun,
-  ImageRun,
   AlignmentType,
   BorderStyle,
   Header,
@@ -16,6 +13,7 @@ import {
   TableCell,
   WidthType,
   ShadingType,
+  LevelFormat,
 } from "docx";
 import ExcelJS from "exceljs";
 import { parseMarkdownTables } from "../lib/markdown-tables.js";
@@ -25,24 +23,16 @@ const router = Router();
 
 type BlockElement = Paragraph | Table;
 
-/* ── Brand constants ── */
+/* ── Palette (monochrome, document-style) ── */
 
-const BRAND_NAVY = "003A7A";
-const BRAND_CYAN = "0099CC";
+const TEXT_HEAD = "1F2937";    // h1/h2 — near-black
+const TEXT_BODY = "111827";    // h3/h4, body emphasis
+const TEXT_MUTED = "6B7280";   // labels, dates, bullets, meta
+const BORDER_LIGHT = "D1D5DB"; // separators, quote bar
 const FONT_DISPLAY = "Plus Jakarta Sans";
 const FONT_BODY = "Source Sans 3";
 const DATE_LOCALE = "ru-RU";
-
-/* ── Logo loader ── */
-
-function loadLogo(): Buffer | null {
-  try {
-    const logoPath = path.join(process.cwd(), "public", "icons", "icon-192.png");
-    return fs.readFileSync(logoPath);
-  } catch {
-    return null;
-  }
-}
+const BULLET_REF = "snabchat-bullets";
 
 /* ── Markdown to DOCX paragraphs ── */
 
@@ -87,7 +77,7 @@ function parseMarkdownToParagraphs(text: string): BlockElement[] {
               bold: true,
               size: 28,
               font: FONT_DISPLAY,
-              color: BRAND_NAVY,
+              color: TEXT_HEAD,
             }),
           ],
           spacing: { before: 240, after: 120 },
@@ -107,7 +97,7 @@ function parseMarkdownToParagraphs(text: string): BlockElement[] {
               bold: true,
               size: 26,
               font: FONT_DISPLAY,
-              color: BRAND_NAVY,
+              color: TEXT_HEAD,
             }),
           ],
           spacing: { before: 200, after: 100 },
@@ -127,7 +117,7 @@ function parseMarkdownToParagraphs(text: string): BlockElement[] {
               bold: true,
               size: 24,
               font: FONT_DISPLAY,
-              color: BRAND_NAVY,
+              color: TEXT_BODY,
             }),
           ],
           spacing: { before: 160, after: 80 },
@@ -147,7 +137,7 @@ function parseMarkdownToParagraphs(text: string): BlockElement[] {
               bold: true,
               size: 22,
               font: FONT_DISPLAY,
-              color: BRAND_NAVY,
+              color: TEXT_BODY,
             }),
           ],
           spacing: { before: 120, after: 60 },
@@ -171,7 +161,7 @@ function parseMarkdownToParagraphs(text: string): BlockElement[] {
                 bold: true,
                 size: 24,
                 font: FONT_DISPLAY,
-                color: BRAND_NAVY,
+                color: TEXT_HEAD,
               }),
             ],
             spacing: { before: 200, after: 100 },
@@ -185,10 +175,13 @@ function parseMarkdownToParagraphs(text: string): BlockElement[] {
     // Bullet/list items
     const bulletMatch = line.match(/^[\s]*[-•*]\s+(.+)/);
     if (bulletMatch) {
+      // Demote leading "**Label:**" bold markers in bullets — the LLM
+      // routinely emits them and they make every item visually shout.
+      const demoted = bulletMatch[1].replace(/^\*\*([^*\n]+?):\*\*(\s*)/, "$1:$2");
       paragraphs.push(
         new Paragraph({
-          children: parseInlineFormatting(bulletMatch[1]),
-          bullet: { level: 0 },
+          children: parseInlineFormatting(demoted),
+          numbering: { reference: BULLET_REF, level: 0 },
           spacing: { after: 40 },
           alignment: AlignmentType.JUSTIFIED,
         })
@@ -258,12 +251,11 @@ function parseMarkdownToParagraphs(text: string): BlockElement[] {
                       alignment: AlignmentType.JUSTIFIED,
                     }),
                   ],
-                  shading: { type: ShadingType.CLEAR, fill: "EDF4FB" },
                   borders: {
                     top: { style: BorderStyle.NONE, size: 0 },
                     bottom: { style: BorderStyle.NONE, size: 0 },
                     right: { style: BorderStyle.NONE, size: 0 },
-                    left: { style: BorderStyle.SINGLE, size: 12, color: BRAND_CYAN },
+                    left: { style: BorderStyle.SINGLE, size: 8, color: BORDER_LIGHT },
                   },
                   margins: { top: 80, bottom: 80, left: 200, right: 120 },
                   width: { size: 100, type: WidthType.PERCENTAGE },
@@ -414,19 +406,25 @@ function parseTable(lines: string[]): BlockElement[] {
                       bold: true,
                       font: FONT_BODY,
                       size: 20,
-                      color: "FFFFFF",
+                      color: TEXT_BODY,
                     }),
                   ],
-                  alignment: AlignmentType.CENTER,
+                  alignment: AlignmentType.LEFT,
                 }),
               ],
-              shading: { type: ShadingType.CLEAR, fill: BRAND_NAVY },
+              borders: {
+                top: { style: BorderStyle.SINGLE, size: 4, color: TEXT_BODY },
+                bottom: { style: BorderStyle.SINGLE, size: 4, color: TEXT_BODY },
+                left: { style: BorderStyle.NONE, size: 0 },
+                right: { style: BorderStyle.NONE, size: 0 },
+              },
+              margins: { top: 80, bottom: 80, left: 100, right: 100 },
             })
         ),
       }),
       // Data rows
       ...rows.map(
-        (row, rowIdx) =>
+        (row) =>
           new TableRow({
             children: Array.from({ length: colCount }, (_, colIdx) => {
               const cellText = row[colIdx] || "";
@@ -437,7 +435,13 @@ function parseTable(lines: string[]): BlockElement[] {
                     alignment: AlignmentType.LEFT,
                   }),
                 ],
-                shading: rowIdx % 2 === 1 ? { type: ShadingType.CLEAR, fill: "F5F5F0" } : undefined,
+                borders: {
+                  top: { style: BorderStyle.NONE, size: 0 },
+                  bottom: { style: BorderStyle.SINGLE, size: 1, color: BORDER_LIGHT },
+                  left: { style: BorderStyle.NONE, size: 0 },
+                  right: { style: BorderStyle.NONE, size: 0 },
+                },
+                margins: { top: 60, bottom: 60, left: 100, right: 100 },
               });
             }),
           })
@@ -505,7 +509,6 @@ function stripResidualMarkdown(text: string): string {
 /* ── Main DOCX generator ── */
 
 async function generateDocx(question: string, answer: string): Promise<Buffer> {
-  const logo = loadLogo();
   const now = new Date();
   const dateStr = now.toLocaleDateString(DATE_LOCALE, {
     day: "numeric",
@@ -517,50 +520,24 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
   // markers and bold markers parse reliably (no literal `##` / `**` leaking).
   const cleanedAnswer = normalizeMarkdownInput(stripSourcesSection(answer));
 
-  // Build header with logo and brand name
-  const headerChildren: Paragraph[] = [];
-
-  if (logo) {
-    headerChildren.push(
-      new Paragraph({
-        children: [
-          new ImageRun({
-            data: logo,
-            transformation: { width: 36, height: 36 },
-            type: "png",
-          }),
-        ],
-        alignment: AlignmentType.LEFT,
-        spacing: { after: 0 },
-      })
-    );
-  }
-
-  headerChildren.push(
+  const headerChildren: Paragraph[] = [
     new Paragraph({
       children: [
         new TextRun({
-          text: "Снаб",
+          text: "СнабЧат",
           bold: true,
           font: FONT_DISPLAY,
           size: 20,
-          color: BRAND_NAVY,
-        }),
-        new TextRun({
-          text: "Чат",
-          bold: true,
-          font: FONT_DISPLAY,
-          size: 20,
-          color: BRAND_CYAN,
+          color: TEXT_HEAD,
         }),
       ],
       alignment: AlignmentType.LEFT,
       spacing: { after: 0 },
       border: {
-        bottom: { style: BorderStyle.SINGLE, size: 1, color: "E5E7EB" },
+        bottom: { style: BorderStyle.SINGLE, size: 1, color: BORDER_LIGHT },
       },
-    })
-  );
+    }),
+  ];
 
   // Build document body
   const bodyChildren: BlockElement[] = [];
@@ -570,11 +547,12 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
     new Paragraph({
       children: [
         new TextRun({
-          text: "Вопрос",
+          text: "ВОПРОС",
           bold: true,
           font: FONT_DISPLAY,
-          size: 22,
-          color: BRAND_CYAN,
+          size: 18,
+          color: TEXT_MUTED,
+          characterSpacing: 40,
         }),
       ],
       spacing: { before: 120, after: 60 },
@@ -594,7 +572,7 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
       ],
       spacing: { after: 40 },
       border: {
-        left: { style: BorderStyle.SINGLE, size: 3, color: BRAND_CYAN, space: 8 },
+        left: { style: BorderStyle.SINGLE, size: 3, color: BORDER_LIGHT, space: 8 },
       },
       indent: { left: 200 },
     })
@@ -605,7 +583,7 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
     new Paragraph({
       children: [],
       border: {
-        bottom: { style: BorderStyle.SINGLE, size: 1, color: "E5E7EB" },
+        bottom: { style: BorderStyle.SINGLE, size: 1, color: BORDER_LIGHT },
       },
       spacing: { before: 160, after: 160 },
     })
@@ -616,11 +594,12 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
     new Paragraph({
       children: [
         new TextRun({
-          text: "Ответ",
+          text: "ОТВЕТ",
           bold: true,
           font: FONT_DISPLAY,
-          size: 22,
-          color: BRAND_NAVY,
+          size: 18,
+          color: TEXT_MUTED,
+          characterSpacing: 40,
         }),
       ],
       spacing: { after: 120 },
@@ -636,7 +615,7 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
     new Paragraph({
       children: [],
       border: {
-        bottom: { style: BorderStyle.SINGLE, size: 1, color: "E5E7EB" },
+        bottom: { style: BorderStyle.SINGLE, size: 1, color: BORDER_LIGHT },
       },
       spacing: { before: 240, after: 80 },
     })
@@ -648,9 +627,8 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
         new TextRun({
           text: `Дата: ${dateStr}`,
           font: FONT_BODY,
-          size: 18,
-          italics: true,
-          color: "9CA3AF",
+          size: 16,
+          color: TEXT_MUTED,
         }),
       ],
       alignment: AlignmentType.RIGHT,
@@ -666,9 +644,29 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
           run: {
             font: FONT_BODY,
             size: 22,
+            color: TEXT_BODY,
           },
         },
       },
+    },
+    numbering: {
+      config: [
+        {
+          reference: BULLET_REF,
+          levels: [
+            {
+              level: 0,
+              format: LevelFormat.BULLET,
+              text: "—", // em dash
+              alignment: AlignmentType.LEFT,
+              style: {
+                run: { font: FONT_BODY, size: 22, color: TEXT_MUTED },
+                paragraph: { indent: { left: 360, hanging: 220 } },
+              },
+            },
+          ],
+        },
+      ],
     },
     sections: [
       {
@@ -697,32 +695,10 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
               new Paragraph({
                 children: [
                   new TextRun({
-                    text: "Документ подготовлен ",
+                    text: "Документ подготовлен СнабЧат · Дирекция по закупкам",
                     font: FONT_BODY,
                     size: 16,
-                    italics: true,
-                    color: "9CA3AF",
-                  }),
-                  new TextRun({
-                    text: "Снаб",
-                    bold: true,
-                    font: FONT_DISPLAY,
-                    size: 16,
-                    color: BRAND_NAVY,
-                  }),
-                  new TextRun({
-                    text: "Чат",
-                    bold: true,
-                    font: FONT_DISPLAY,
-                    size: 16,
-                    color: BRAND_CYAN,
-                  }),
-                  new TextRun({
-                    text: " · Дирекция по закупкам",
-                    font: FONT_BODY,
-                    size: 16,
-                    italics: true,
-                    color: "9CA3AF",
+                    color: TEXT_MUTED,
                   }),
                 ],
                 alignment: AlignmentType.CENTER,
