@@ -160,7 +160,15 @@ export async function saveMessage(
   };
   if (metadata) row.metadata = metadata;
 
-  await supabase.from("messages").insert(row);
+  // Supabase-js returns `{ error }` instead of throwing on DB errors; without
+  // this check a failed insert is silently ignored and we end up with orphan
+  // assistant replies and missing user questions in history.
+  const { error: insertError } = await supabase.from("messages").insert(row);
+  if (insertError) {
+    throw new Error(
+      `saveMessage insert failed (role=${role}, conv=${conversationId}): ${insertError.message}`
+    );
+  }
 
   await supabase
     .from("conversations")
