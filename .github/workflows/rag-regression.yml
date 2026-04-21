@@ -1,0 +1,83 @@
+name: RAG Regression
+
+# Прогоняет регрессионный набор вопросов через продакшн /api/chat,
+# защищает от повторения случаев уровня «Квадра-галлюцинация для НМГРЭС»
+# (инцидент 2026-04-20).
+#
+# Требуемые GitHub Secrets:
+#   RAG_INVITE_CODE  — инвайт-код СнабЧат
+#   RAG_AUTH_TOKEN   — HMAC-подписанный auth-токен (обновлять раз в 30 дней)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "supabase/**"
+      - "app/api/admin/extract-entities/**"
+      - "scripts/rag_regression.py"
+      - ".github/workflows/rag-regression.yml"
+  schedule:
+    # Ежедневно в 07:00 UTC (10:00 МСК) — ловим дрейф продакшена.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      delay_sec:
+        description: "Пауза между вопросами (сек.)"
+        required: false
+        default: "3"
+
+concurrency:
+  group: rag-regression
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    name: RAG regression (prod /api/chat)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RAG_API_HOST: snab-chat-production.up.railway.app
+      RAG_API_ORIGIN: https://www.snabchat.app
+      RAG_INVITE_CODE: ${{ secrets.RAG_INVITE_CODE }}
+      RAG_AUTH_TOKEN: ${{ secrets.RAG_AUTH_TOKEN }}
+      RAG_TEST_DELAY_SEC: ${{ github.event.inputs.delay_sec || '3' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify secrets present
+        run: |
+          if [ -z "$RAG_INVITE_CODE" ] || [ -z "$RAG_AUTH_TOKEN" ]; then
+            echo "::error::Missing RAG_INVITE_CODE or RAG_AUTH_TOKEN secret."
+            echo "Set these in: Settings > Secrets and variables > Actions."
+            exit 2
+          fi
+
+      - name: Wait for Railway deploy (post-push only)
+        if: github.event_name == 'push'
+        run: |
+          # После push в main ждём, пока Railway пересоберёт и поднимет новый
+          # контейнер. Опрашиваем /health, fail через 5 минут.
+          echo "Ожидание Railway /health..."
+          for i in $(seq 1 30); do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" \
+              "https://${RAG_API_HOST}/health" || echo "000")
+            echo "  try $i: HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "Backend готов."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Railway backend не ответил 200 на /health за 5 минут."
+          exit 1
+
+      - name: Run RAG regression
+        run: python3 scripts/rag_regression.py
