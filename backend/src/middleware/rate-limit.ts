@@ -163,6 +163,10 @@ const RATE_LIMITS: Record<string, [number, number]> = {
   "/api/auth/login": [10, 60_000],
   "/api/auth/register": [5, 60_000],
   "/api/support":    [10, 60_000],
+  // Extract-entities: тяжёлая LLM-операция (1-3 мин на прогон).
+  // 20 запросов в час с запасом перекрывают реальное использование
+  // (реально 5-10 прогонов в сутки) и отсекают любой брутфорс.
+  "/api/admin/extract-entities": [20, 60 * 60_000],
 };
 
 const DEFAULT_LIMIT: [number, number] = [60, 60_000];

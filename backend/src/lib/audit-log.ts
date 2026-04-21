@@ -17,7 +17,8 @@ export type AuditAction =
   | "telegram.setup_webhook"
   | "user.disconnect"
   | "infographic.generate"
-  | "document.upload";
+  | "document.upload"
+  | "kg.extract_entities";
 
 /**
  * Log an admin action for audit trail.

@@ -78,8 +78,9 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
 
   useEffect(() => { loadSources(); }, [loadSources]);
 
-  // Запуск POST /api/admin/extract-entities (живёт на Vercel — относительный путь,
-  // НЕ через apiUrl(), который указывает на Railway).
+  // Запуск POST /api/admin/extract-entities на Railway (перенесён с Vercel
+  // с service-auth путём в backend/src/routes/admin-extract-entities.ts).
+  // Browser-ветка авторизации: admin-code + 2FA-сессия + валидный Origin.
   const runExtractEntities = useCallback(async () => {
     if (kgBusy) return;
     setKgBusy(true);
@@ -89,7 +90,7 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean);
-      const res = await fetch("/api/admin/extract-entities", {
+      const res = await fetch(apiUrl("/api/admin/extract-entities"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

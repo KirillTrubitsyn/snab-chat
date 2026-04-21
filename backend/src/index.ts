@@ -1,8 +1,10 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import { timingSafeEqual } from "crypto";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { errorHandler } from "./middleware/error-handler.js";
+import { isDocumentAdmin } from "./lib/auth.js";
 
 // Route imports
 import healthRouter from "./routes/health.js";
@@ -12,6 +14,7 @@ import supportRouter from "./routes/support.js";
 import errorsRouter from "./routes/errors.js";
 import adminRouter from "./routes/admin.js";
 import adminRagRouter from "./routes/admin-rag.js";
+import adminExtractEntitiesRouter from "./routes/admin-extract-entities.js";
 import sourcesRouter from "./routes/sources.js";
 import searchRouter from "./routes/search.js";
 import uploadRouter from "./routes/upload.js";
@@ -88,6 +91,38 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "x-invite-code", "x-admin-code", "x-device-id", "x-auth-token", "x-api-key", "x-admin-session"],
 }));
 
+// ── Service-auth path exception (для межсервисных вызовов без браузерного Origin) ──
+// Точечное исключение из Origin-middleware для /api/admin/extract-entities:
+// если запрос предъявляет валидный EXTRACTION_SERVICE_KEY + isDocAdmin-код,
+// Origin-проверка для этого пути скипается. Все остальные слои защиты
+// (admin-code проверка, audit-log, rate-limit) остаются в силе —
+// они прогоняются внутри роута authorize().
+//
+// SECURITY: сравнение ключа делается timing-safe. Любая ошибка (неверная длина,
+// отсутствие ключа, отсутствие переменной окружения) возвращает false без деталей.
+const EXTRACTION_SERVICE_PATH = "/api/admin/extract-entities";
+function isValidServiceAuth(req: express.Request): boolean {
+  const serviceKey = process.env.EXTRACTION_SERVICE_KEY;
+  if (!serviceKey || serviceKey.length < 32) return false;
+
+  const providedKey = (req.headers["x-api-key"] as string) ?? "";
+  if (!providedKey) return false;
+
+  const aBuf = Buffer.from(providedKey);
+  const bBuf = Buffer.from(serviceKey);
+  if (aBuf.length !== bBuf.length) return false;
+  try {
+    if (!timingSafeEqual(aBuf, bBuf)) return false;
+  } catch {
+    return false;
+  }
+
+  const adminCode = (req.headers["x-admin-code"] as string) ?? "";
+  if (!adminCode || !isDocumentAdmin(adminCode)) return false;
+
+  return true;
+}
+
 // ── Origin validation for mutation requests ──
 // Block POST/PATCH/DELETE without a valid Origin header (prevents curl/Postman/scripts)
 const ORIGIN_EXEMPT_PATHS = ["/health", "/api/telegram/webhook"];
@@ -99,6 +134,14 @@ app.use((req, res, next) => {
   if (ORIGIN_EXEMPT_PATHS.some((p) => path.startsWith(p))) {
     return next();
   }
+
+  // Service-auth exception: только для точного пути /api/admin/extract-entities.
+  // Если ключ + код валидны — пропускаем Origin-проверку.
+  if (path === EXTRACTION_SERVICE_PATH && isValidServiceAuth(req)) {
+    console.log(`[Origin] Service-auth bypass for ${req.method} ${path}`);
+    return next();
+  }
+
   const origin = req.headers.origin;
   if (!origin) {
     console.warn(`[Origin] Blocked no-origin ${req.method} ${path} from ${req.ip}`);
@@ -116,7 +159,14 @@ app.use((req, res, next) => {
 // all API requests (except /health and webhook) must include x-api-key header.
 // This prevents direct API access even if the backend URL leaks.
 const BACKEND_API_KEY = process.env.BACKEND_API_KEY || "";
-const API_KEY_EXEMPT_PATHS = ["/health", "/api/telegram/webhook"];
+// /api/admin/extract-entities исключён, потому что он использует собственный,
+// более строгий EXTRACTION_SERVICE_KEY через isValidServiceAuth() и route-level
+// authorize(). BACKEND_API_KEY был бы слабее (плоский shared secret без isDocAdmin).
+const API_KEY_EXEMPT_PATHS = [
+  "/health",
+  "/api/telegram/webhook",
+  EXTRACTION_SERVICE_PATH,
+];
 if (BACKEND_API_KEY) {
   app.use((req, res, next) => {
     if (API_KEY_EXEMPT_PATHS.some((p) => req.path.startsWith(p))) return next();
@@ -145,6 +195,7 @@ app.use(supportRouter);
 app.use(errorsRouter);
 app.use(adminRouter);
 app.use(adminRagRouter);
+app.use(adminExtractEntitiesRouter);
 app.use(sourcesRouter);
 app.use(searchRouter);
 app.use(uploadRouter);
