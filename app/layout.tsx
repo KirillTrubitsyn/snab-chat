@@ -39,6 +39,18 @@ export default async function RootLayout({
   return (
     <html lang="ru">
       <body>
+        {/* Отмечаем <html class="icons-ready"> как только загружен Material
+            Symbols. До этого момента страховочное `visibility: hidden` в
+            globals.css скрывает сырые лигатуры ("monitoring", "chat"…), чтобы
+            они не мигали текстом при медленной загрузке иконочного шрифта.
+            Таймаут 3 с гарантирует, что иконки не останутся скрыты, если CDN
+            шрифтов недоступен. */}
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{
+            __html: `(function(){var h=document.documentElement;var r=function(){h.classList.add('icons-ready')};if(document.fonts&&document.fonts.load){document.fonts.load('24px "Material Symbols Outlined"').then(r,r);if(document.fonts.ready&&document.fonts.ready.then){document.fonts.ready.then(r)}}else{r()}setTimeout(r,3000)})();`,
+          }}
+        />
         {children}
         <script
           nonce={nonce}
