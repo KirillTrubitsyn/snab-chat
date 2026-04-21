@@ -49,21 +49,6 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
   const [showDocFormatModal, setShowDocFormatModal] = useState(false);
   const [docFormatFileName, setDocFormatFileName] = useState("");
 
-  // Knowledge Graph controls (B5 recovery plan): запуск extract-entities
-  // с произвольным filterTags через UI (раньше требовало ручного curl).
-  const [kgExpanded, setKgExpanded] = useState(false);
-  const [kgFilterTags, setKgFilterTags] = useState<string>("матрица полномочий");
-  const [kgBusy, setKgBusy] = useState(false);
-  const [kgResult, setKgResult] = useState<{
-    processed?: number;
-    newEntities?: number;
-    newRelations?: number;
-    remaining?: number;
-    embeddedEntities?: number;
-    ontologyUsage?: Record<string, number>;
-    error?: string;
-  } | null>(null);
-
   const headers = { ...getAuthHeaders(), "x-admin-code": encodeURIComponent(adminCode), "x-invite-code": encodeURIComponent(adminCode) };
 
   const loadSources = useCallback(async () => {
@@ -77,39 +62,6 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
   }, [adminCode]);
 
   useEffect(() => { loadSources(); }, [loadSources]);
-
-  // Запуск POST /api/admin/extract-entities на Railway (перенесён с Vercel
-  // с service-auth путём в backend/src/routes/admin-extract-entities.ts).
-  // Browser-ветка авторизации: admin-code + 2FA-сессия + валидный Origin.
-  const runExtractEntities = useCallback(async () => {
-    if (kgBusy) return;
-    setKgBusy(true);
-    setKgResult(null);
-    try {
-      const filterTags = kgFilterTags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
-      const res = await fetch(apiUrl("/api/admin/extract-entities"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...getAdminHeaders(adminCode),
-        },
-        body: JSON.stringify({ filterTags, batchSize: 5, limit: 50 }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setKgResult({ error: data?.error || `HTTP ${res.status}` });
-      } else {
-        setKgResult(data);
-      }
-    } catch (e) {
-      setKgResult({ error: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setKgBusy(false);
-    }
-  }, [adminCode, kgBusy, kgFilterTags]);
 
   useEffect(() => {
     if (!openMenuId) return;
@@ -416,142 +368,6 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
             )}
           </div>
         </div>
-
-        {/* Knowledge Graph controls (видно только doc-админу) */}
-        {isDocAdmin && (
-          <div
-            style={{
-              border: "1px solid var(--admin-border, #e5e7eb)",
-              borderRadius: 12,
-              padding: kgExpanded ? 16 : "10px 16px",
-              marginBottom: 16,
-              background: "var(--admin-surface, #fff)",
-              transition: "padding 120ms ease",
-            }}
-          >
-            <div
-              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", userSelect: "none" }}
-              onClick={() => setKgExpanded((v) => !v)}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--admin-primary, #3b82f6)" }}>hub</span>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>Граф знаний — извлечение сущностей</div>
-                  <div style={{ fontSize: 12, color: "var(--admin-muted, #6b7280)", marginTop: 2 }}>
-                    Запуск LLM-extraction по тегам. Партия 5 чанков × 10 LLM-вызовов (≤50 чанков за прогон).
-                  </div>
-                </div>
-              </div>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: "var(--admin-muted, #6b7280)" }}>
-                {kgExpanded ? "expand_less" : "expand_more"}
-              </span>
-            </div>
-
-            {kgExpanded && (
-              <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-                <label style={{ fontSize: 12, color: "var(--admin-muted, #6b7280)" }}>
-                  Теги для фильтрации чанков (через запятую). Пусто = дефолтный whitelist (стандарт, положения, договоры, матрица полномочий).
-                </label>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {[
-                    "матрица полномочий",
-                    "стандарт",
-                    "положения",
-                    "договоры",
-                    "законодательство",
-                  ].map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      className="admin-doc-pill"
-                      onClick={() => setKgFilterTags(t)}
-                      style={{ fontSize: 12 }}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-                <input
-                  type="text"
-                  value={kgFilterTags}
-                  onChange={(e) => setKgFilterTags(e.target.value)}
-                  placeholder="например: матрица полномочий"
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    border: "1px solid var(--admin-border, #e5e7eb)",
-                    borderRadius: 8,
-                    fontSize: 13,
-                    background: "var(--admin-surface-2, #f9fafb)",
-                  }}
-                  disabled={kgBusy}
-                />
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <button
-                    className="admin-btn-primary"
-                    onClick={runExtractEntities}
-                    disabled={kgBusy}
-                    style={{ minWidth: 160 }}
-                  >
-                    {kgBusy ? (
-                      <>
-                        <div className="admin-spinner" style={{ width: 14, height: 14 }} />
-                        Обработка...
-                      </>
-                    ) : (
-                      <>
-                        <span className="material-symbols-outlined">play_arrow</span>
-                        Запустить
-                      </>
-                    )}
-                  </button>
-                  <span style={{ fontSize: 12, color: "var(--admin-muted, #6b7280)" }}>
-                    Занимает 1–3 минуты. После каждого прогона проверяй «Осталось» и запускай повторно.
-                  </span>
-                </div>
-
-                {kgResult && (
-                  <div
-                    style={{
-                      marginTop: 4,
-                      padding: 12,
-                      borderRadius: 8,
-                      fontSize: 13,
-                      background: kgResult.error ? "rgba(239,68,68,0.08)" : "rgba(59,130,246,0.08)",
-                      border: `1px solid ${kgResult.error ? "rgba(239,68,68,0.3)" : "rgba(59,130,246,0.3)"}`,
-                    }}
-                  >
-                    {kgResult.error ? (
-                      <div style={{ color: "var(--admin-danger, #ef4444)" }}>
-                        <strong>Ошибка:</strong> {kgResult.error}
-                      </div>
-                    ) : (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                        <div>
-                          Обработано чанков: <strong>{kgResult.processed ?? 0}</strong>
-                          {" · "}
-                          Новых сущностей: <strong>{kgResult.newEntities ?? 0}</strong>
-                          {" · "}
-                          Новых связей: <strong>{kgResult.newRelations ?? 0}</strong>
-                        </div>
-                        <div>
-                          Эмбеддингов сгенерировано: <strong>{kgResult.embeddedEntities ?? 0}</strong>
-                          {" · "}
-                          Осталось: <strong>{kgResult.remaining ?? 0}</strong>
-                        </div>
-                        {kgResult.ontologyUsage && Object.keys(kgResult.ontologyUsage).length > 0 && (
-                          <div style={{ fontSize: 12, color: "var(--admin-muted, #6b7280)" }}>
-                            Онтологии: {Object.entries(kgResult.ontologyUsage).map(([k, v]) => `${k}:${v}`).join(", ")}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Category filter pills */}
         <div className="admin-doc-pills">
