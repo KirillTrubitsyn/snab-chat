@@ -307,7 +307,7 @@ router.post("/api/chat", async (req: Request, res: Response) => {
       const msgSaves = conversationId
         ? saveMessage(conversationId, "user", userMessage.content)
             .then(() => saveMessage(conversationId, "assistant", clarificationMsg))
-            .catch(() => {})
+            .catch((e) => console.error("[InvalidInput] Failed to save chat messages:", e))
         : Promise.resolve();
       Promise.all([
         msgSaves,
@@ -379,7 +379,7 @@ router.post("/api/chat", async (req: Request, res: Response) => {
         const msgSaves = conversationId
           ? saveMessage(conversationId, "user", userMessage.content)
               .then(() => saveMessage(conversationId, "assistant", vagueMsg))
-              .catch(() => {})
+              .catch((e) => console.error("[VagueQuery] Failed to save chat messages:", e))
           : Promise.resolve();
         Promise.all([
           msgSaves,
@@ -452,7 +452,9 @@ router.post("/api/chat", async (req: Request, res: Response) => {
           hasNewAttachments
             ? { attached_files: rawAttached.map((d: { filename: string }) => d.filename) }
             : undefined
-        )
+        ).catch((e) => {
+          console.error("[chat] Failed to save user message (continuing with response):", e);
+        })
       : Promise.resolve(),
     conversationId
       ? loadConversationContext(conversationId).catch((e) => {
