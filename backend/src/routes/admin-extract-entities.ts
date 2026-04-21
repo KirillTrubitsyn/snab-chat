@@ -424,11 +424,22 @@ router.post(
       const supabase = createServiceClient();
       const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
 
-      // 1. Список уже обработанных чанков
-      const { data: processed } = await supabase
-        .from("kg_extraction_log")
-        .select("chunk_id");
-      const processedIds = new Set((processed || []).map((r) => r.chunk_id));
+      // 1. Список уже обработанных чанков.
+      // PostgREST ограничивает ответ 1000 строк по умолчанию, поэтому
+      // при разрастании лога >1000 часть свежих чанков выпадала из
+      // processedIds и обрабатывалась повторно. Пагинируем через range.
+      const processedIds = new Set<string>();
+      const pageSize = 1000;
+      for (let from = 0; ; from += pageSize) {
+        const { data: page, error: logErr } = await supabase
+          .from("kg_extraction_log")
+          .select("chunk_id")
+          .range(from, from + pageSize - 1);
+        if (logErr) throw logErr;
+        if (!page || page.length === 0) break;
+        for (const r of page) processedIds.add(r.chunk_id);
+        if (page.length < pageSize) break;
+      }
 
       // 2. Чанки с нужными тегами, ещё не обработанные
       let query = supabase
@@ -456,23 +467,30 @@ router.post(
         });
       }
 
-      // 3. Загрузить существующие сущности для дедупликации
-      const { data: existingEntities } = await supabase
-        .from("kg_entities")
-        .select(
-          "id, canonical_name, entity_type, source_chunk_ids, source_ids",
-        );
-
+      // 3. Загрузить существующие сущности для дедупликации.
+      // Также пагинируем — при >1000 сущностей часть выпадала бы из
+      // entityCache и создавала бы дубликаты при cross-doc merge.
       const entityCache = new Map<
         string,
         { id: string; source_chunk_ids: string[]; source_ids: string[] }
       >();
-      for (const e of existingEntities || []) {
-        entityCache.set(`${e.canonical_name}::${e.entity_type}`, {
-          id: e.id,
-          source_chunk_ids: e.source_chunk_ids || [],
-          source_ids: e.source_ids || [],
-        });
+      for (let from = 0; ; from += pageSize) {
+        const { data: entPage, error: entErr } = await supabase
+          .from("kg_entities")
+          .select(
+            "id, canonical_name, entity_type, source_chunk_ids, source_ids",
+          )
+          .range(from, from + pageSize - 1);
+        if (entErr) throw entErr;
+        if (!entPage || entPage.length === 0) break;
+        for (const e of entPage) {
+          entityCache.set(`${e.canonical_name}::${e.entity_type}`, {
+            id: e.id,
+            source_chunk_ids: e.source_chunk_ids || [],
+            source_ids: e.source_ids || [],
+          });
+        }
+        if (entPage.length < pageSize) break;
       }
 
       let totalEntities = 0;
