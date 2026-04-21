@@ -271,8 +271,9 @@ function linkifyTextNode(
       return child;
     }
 
-    // Normalize dashes and homoglyphs in the text fragment
-    const text = normalizeCyrillicHomoglyphs(normalizeDashes(child));
+    // Normalize dashes and homoglyphs in the text fragment, then strip any
+    // residual markdown symbols (##, **, etc.) that survived rendering.
+    const text = stripResidualMarkdown(normalizeCyrillicHomoglyphs(normalizeDashes(child)));
 
     // Find all cipher codes
     const parts: ReactNode[] = [];
@@ -333,34 +334,56 @@ function normalizeLLMMarkdown(text: string): string {
   if (!text) return text;
   let t = text;
 
-  // 1. Strip zero-width and BOM
   t = t.replace(/[\u200B-\u200D\uFEFF]/g, "");
-
-  // 2. CRLF / CR → LF
   t = t.replace(/\r\n?/g, "\n");
-
-  // 3. Convert NBSP and narrow spaces to regular space
   t = t.replace(/[\u00A0\u2007\u202F]/g, " ");
+  t = t.replace(/^[ \t]+(?=#{1,6})/gm, "");
+  t = t.replace(/(^|\n)\\(#{1,6})/g, "$1$2");
 
-  // 4. Strip leading whitespace (>0 chars) before a heading marker
-  t = t.replace(/^[ \t]+(?=#{1,6}\s)/gm, "");
+  // Ensure single space between `##` marker and heading text (`##Text` → `## Text`)
+  t = t.replace(/^(#{1,6})(?=\S)/gm, "$1 ");
 
-  // 5. Unescape `\#` at line start (LLM sometimes over-escapes)
-  t = t.replace(/(^|\n)\\(#{1,6}\s)/g, "$1$2");
-
-  // 6a. Ensure blank line BEFORE heading (if glued to previous line)
   t = t.replace(/([^\n])\n(#{1,6}\s)/g, "$1\n\n$2");
-  // 6b. Ensure blank line AFTER heading (if glued to following text that's not another heading)
   t = t.replace(/(\n#{1,6}[^\n]*)\n(?!\n|#{1,6}\s|$)/g, "$1\n\n");
 
-  // 7. Strip `**...**` that wraps an entire heading text — the heading style
-  //    already makes it bold; the extra asterisks sometimes survive parsing
+  // Strip trailing `#` on ATX-closed headings (`## Title ##` → `## Title`)
+  t = t.replace(/^(#{1,6}\s+.+?)\s+#+\s*$/gm, "$1");
+
+  // Strip `**...**` wrapping an entire heading text
   t = t.replace(/^(#{1,6})\s+\*\*\s*(.+?)\s*\*\*\s*$/gm, "$1 $2");
 
-  // 8. Collapse accidental triple+ blank lines
+  // Fix `** text **` / `* text *` with inner whitespace so bold/italic parse
+  t = t.replace(/\*\*[ \t]+([^*\n]+?)[ \t]+\*\*/g, "**$1**");
+  t = t.replace(/(^|[^*])\*[ \t]+([^*\n]+?)[ \t]+\*(?!\*)/g, "$1*$2*");
+
+  // Drop orphan `**` tokens that never close on a line
+  t = t.split("\n").map((line) => {
+    const occurrences = (line.match(/\*\*/g) || []).length;
+    if (occurrences % 2 === 1) {
+      let seen = 0;
+      return line.replace(/\*\*/g, () => (++seen === occurrences ? "" : "**"));
+    }
+    return line;
+  }).join("\n");
+
   t = t.replace(/\n{3,}/g, "\n\n");
 
   return t;
+}
+
+/**
+ * Final safety net: strip Markdown tokens from plain-text fragments that
+ * survived ReactMarkdown rendering (edge cases where the parser left `##` or
+ * `**` inside a heading or paragraph text node).
+ */
+function stripResidualMarkdown(text: string): string {
+  let s = text;
+  s = s.replace(/(^|\n)\s*#{1,6}\s+/g, "$1");
+  // Strip bold (**) and bold-italic (***) markers; single `*` left alone to
+  // avoid mangling arithmetic expressions like `5*3`.
+  s = s.replace(/\*{2,3}/g, "");
+  s = s.replace(/~~/g, "");
+  return s;
 }
 
 function linkifyContent(text: string, allSources: Source[]): string {
@@ -569,6 +592,30 @@ export default function MessageBubble({
             ),
             li: ({ children, ...props }) => (
               <li {...props}>{linkifyTextNode(children, allSources, onViewSource)}</li>
+            ),
+            h1: ({ children, ...props }) => (
+              <h1 {...props}>{linkifyTextNode(children, allSources, onViewSource)}</h1>
+            ),
+            h2: ({ children, ...props }) => (
+              <h2 {...props}>{linkifyTextNode(children, allSources, onViewSource)}</h2>
+            ),
+            h3: ({ children, ...props }) => (
+              <h3 {...props}>{linkifyTextNode(children, allSources, onViewSource)}</h3>
+            ),
+            h4: ({ children, ...props }) => (
+              <h4 {...props}>{linkifyTextNode(children, allSources, onViewSource)}</h4>
+            ),
+            h5: ({ children, ...props }) => (
+              <h5 {...props}>{linkifyTextNode(children, allSources, onViewSource)}</h5>
+            ),
+            h6: ({ children, ...props }) => (
+              <h6 {...props}>{linkifyTextNode(children, allSources, onViewSource)}</h6>
+            ),
+            strong: ({ children, ...props }) => (
+              <strong {...props}>{linkifyTextNode(children, allSources, onViewSource)}</strong>
+            ),
+            em: ({ children, ...props }) => (
+              <em {...props}>{linkifyTextNode(children, allSources, onViewSource)}</em>
             ),
             a: ({ children, href }) => {
               if (href?.startsWith("source:")) {

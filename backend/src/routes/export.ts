@@ -76,14 +76,14 @@ function parseMarkdownToParagraphs(text: string): BlockElement[] {
       continue;
     }
 
-    // Headers
-    const h1Match = line.match(/^# (.+)/);
-    if (h1Match) {
+    // Headers (tolerate missing space after `#` just in case normalization missed it)
+    const h1Match = line.match(/^#\s*(.+)/);
+    if (h1Match && /^#\s/.test(line) && !/^##/.test(line)) {
       paragraphs.push(
         new Paragraph({
           children: [
             new TextRun({
-              text: h1Match[1],
+              text: stripResidualMarkdown(h1Match[1]),
               bold: true,
               size: 28,
               font: FONT_DISPLAY,
@@ -97,13 +97,13 @@ function parseMarkdownToParagraphs(text: string): BlockElement[] {
       continue;
     }
 
-    const h2Match = line.match(/^## (.+)/);
-    if (h2Match) {
+    const h2Match = line.match(/^##\s*(.+)/);
+    if (h2Match && !/^###/.test(line)) {
       paragraphs.push(
         new Paragraph({
           children: [
             new TextRun({
-              text: h2Match[1],
+              text: stripResidualMarkdown(h2Match[1]),
               bold: true,
               size: 26,
               font: FONT_DISPLAY,
@@ -117,13 +117,13 @@ function parseMarkdownToParagraphs(text: string): BlockElement[] {
       continue;
     }
 
-    const h3Match = line.match(/^### (.+)/);
-    if (h3Match) {
+    const h3Match = line.match(/^###\s*(.+)/);
+    if (h3Match && !/^####/.test(line)) {
       paragraphs.push(
         new Paragraph({
           children: [
             new TextRun({
-              text: h3Match[1],
+              text: stripResidualMarkdown(h3Match[1]),
               bold: true,
               size: 24,
               font: FONT_DISPLAY,
@@ -137,13 +137,13 @@ function parseMarkdownToParagraphs(text: string): BlockElement[] {
       continue;
     }
 
-    const h4Match = line.match(/^#### (.+)/);
+    const h4Match = line.match(/^####\s*(.+)/);
     if (h4Match) {
       paragraphs.push(
         new Paragraph({
           children: [
             new TextRun({
-              text: h4Match[1],
+              text: stripResidualMarkdown(h4Match[1]),
               bold: true,
               size: 22,
               font: FONT_DISPLAY,
@@ -167,7 +167,7 @@ function parseMarkdownToParagraphs(text: string): BlockElement[] {
           new Paragraph({
             children: [
               new TextRun({
-                text: `${sectionMatch[1]}. ${title}`,
+                text: stripResidualMarkdown(`${sectionMatch[1]}. ${title}`),
                 bold: true,
                 size: 24,
                 font: FONT_DISPLAY,
@@ -313,33 +313,30 @@ function parseMarkdownToParagraphs(text: string): BlockElement[] {
 
 function parseInlineFormatting(text: string): TextRun[] {
   const runs: TextRun[] = [];
-  // Remove [doc:N] references
-  const cleaned = text.replace(/\[doc:\d+\]/g, "").replace(/\[[\w\s.-]+\.(docx?|pdf|xlsx?)\]/gi, "");
+  // Remove [doc:N] references and normalize inline markdown glitches
+  const cleaned = normalizeMarkdownInput(
+    text.replace(/\[doc:\d+\]/g, "").replace(/\[[\w\s.-]+\.(docx?|pdf|xlsx?)\]/gi, "")
+  );
 
   // Pattern: **bold**, *italic*, ***bold italic***, `code`
   const regex = /(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|([^*`]+))/g;
   let match;
   while ((match = regex.exec(cleaned)) !== null) {
     if (match[2]) {
-      // bold italic
-      runs.push(new TextRun({ text: match[2], bold: true, italics: true, font: FONT_BODY, size: 22 }));
+      runs.push(new TextRun({ text: stripResidualMarkdown(match[2]), bold: true, italics: true, font: FONT_BODY, size: 22 }));
     } else if (match[3]) {
-      // bold
-      runs.push(new TextRun({ text: match[3], bold: true, font: FONT_BODY, size: 22 }));
+      runs.push(new TextRun({ text: stripResidualMarkdown(match[3]), bold: true, font: FONT_BODY, size: 22 }));
     } else if (match[4]) {
-      // italic
-      runs.push(new TextRun({ text: match[4], italics: true, font: FONT_BODY, size: 22 }));
+      runs.push(new TextRun({ text: stripResidualMarkdown(match[4]), italics: true, font: FONT_BODY, size: 22 }));
     } else if (match[5]) {
-      // code
       runs.push(new TextRun({ text: match[5], font: "IBM Plex Mono", size: 20, shading: { type: ShadingType.CLEAR, fill: "F3F4F6" } }));
     } else if (match[6]) {
-      // plain text
-      runs.push(new TextRun({ text: match[6], font: FONT_BODY, size: 22 }));
+      runs.push(new TextRun({ text: stripResidualMarkdown(match[6]), font: FONT_BODY, size: 22 }));
     }
   }
 
   if (runs.length === 0) {
-    runs.push(new TextRun({ text: cleaned, font: FONT_BODY, size: 22 }));
+    runs.push(new TextRun({ text: stripResidualMarkdown(cleaned), font: FONT_BODY, size: 22 }));
   }
 
   return runs;
@@ -349,26 +346,28 @@ function parseInlineFormatting(text: string): TextRun[] {
 
 function parseQuoteFormatting(text: string): TextRun[] {
   const runs: TextRun[] = [];
-  const cleaned = text.replace(/\[doc:\d+\]/g, "").replace(/\[[\w\s.-]+\.(docx?|pdf|xlsx?)\]/gi, "");
+  const cleaned = normalizeMarkdownInput(
+    text.replace(/\[doc:\d+\]/g, "").replace(/\[[\w\s.-]+\.(docx?|pdf|xlsx?)\]/gi, "")
+  );
 
   const regex = /(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|([^*`]+))/g;
   let match;
   while ((match = regex.exec(cleaned)) !== null) {
     if (match[2]) {
-      runs.push(new TextRun({ text: match[2], bold: true, italics: true, font: FONT_BODY, size: 21, color: "374151" }));
+      runs.push(new TextRun({ text: stripResidualMarkdown(match[2]), bold: true, italics: true, font: FONT_BODY, size: 21, color: "374151" }));
     } else if (match[3]) {
-      runs.push(new TextRun({ text: match[3], bold: true, italics: true, font: FONT_BODY, size: 21, color: "374151" }));
+      runs.push(new TextRun({ text: stripResidualMarkdown(match[3]), bold: true, italics: true, font: FONT_BODY, size: 21, color: "374151" }));
     } else if (match[4]) {
-      runs.push(new TextRun({ text: match[4], italics: true, font: FONT_BODY, size: 21, color: "374151" }));
+      runs.push(new TextRun({ text: stripResidualMarkdown(match[4]), italics: true, font: FONT_BODY, size: 21, color: "374151" }));
     } else if (match[5]) {
       runs.push(new TextRun({ text: match[5], italics: true, font: "IBM Plex Mono", size: 20, color: "374151" }));
     } else if (match[6]) {
-      runs.push(new TextRun({ text: match[6], italics: true, font: FONT_BODY, size: 21, color: "374151" }));
+      runs.push(new TextRun({ text: stripResidualMarkdown(match[6]), italics: true, font: FONT_BODY, size: 21, color: "374151" }));
     }
   }
 
   if (runs.length === 0) {
-    runs.push(new TextRun({ text: cleaned, italics: true, font: FONT_BODY, size: 21, color: "374151" }));
+    runs.push(new TextRun({ text: stripResidualMarkdown(cleaned), italics: true, font: FONT_BODY, size: 21, color: "374151" }));
   }
 
   return runs;
@@ -411,7 +410,7 @@ function parseTable(lines: string[]): BlockElement[] {
                 new Paragraph({
                   children: [
                     new TextRun({
-                      text: cell,
+                      text: stripResidualMarkdown(cell),
                       bold: true,
                       font: FONT_BODY,
                       size: 20,
@@ -460,6 +459,49 @@ function stripSourcesSection(text: string): string {
   return text.replace(/\n+(?:#{0,3}\s*)?(?:Источники|ИСТОЧНИКИ|Sources)\s*:?\s*\n[\s\S]*$/i, "").trim();
 }
 
+/* ── Markdown normalization (mirrors chat-side rules) ── */
+
+function normalizeMarkdownInput(text: string): string {
+  if (!text) return text;
+  let t = text;
+
+  t = t.replace(/[\u200B-\u200D\uFEFF]/g, "");
+  t = t.replace(/\r\n?/g, "\n");
+  t = t.replace(/[\u00A0\u2007\u202F]/g, " ");
+  t = t.replace(/^[ \t]+(?=#{1,6})/gm, "");
+  t = t.replace(/(^|\n)\\(#{1,6})/g, "$1$2");
+  // `##Text` without separating space → `## Text`
+  t = t.replace(/^(#{1,6})(?=\S)/gm, "$1 ");
+  // Closed-ATX trailing hashes: `## Title ##` → `## Title`
+  t = t.replace(/^(#{1,6}\s+.+?)\s+#+\s*$/gm, "$1");
+  // Heading text wrapped in `**...**`
+  t = t.replace(/^(#{1,6})\s+\*\*\s*(.+?)\s*\*\*\s*$/gm, "$1 $2");
+  // `** text **` / `* text *` with stray inner whitespace
+  t = t.replace(/\*\*[ \t]+([^*\n]+?)[ \t]+\*\*/g, "**$1**");
+  t = t.replace(/(^|[^*])\*[ \t]+([^*\n]+?)[ \t]+\*(?!\*)/g, "$1*$2*");
+
+  // Drop orphan `**` per line
+  t = t.split("\n").map((line) => {
+    const occurrences = (line.match(/\*\*/g) || []).length;
+    if (occurrences % 2 === 1) {
+      let seen = 0;
+      return line.replace(/\*\*/g, () => (++seen === occurrences ? "" : "**"));
+    }
+    return line;
+  }).join("\n");
+
+  return t;
+}
+
+/** Strip markdown tokens that survived inline parsing (defence-in-depth). */
+function stripResidualMarkdown(text: string): string {
+  let s = text;
+  s = s.replace(/(^|\n)\s*#{1,6}\s+/g, "$1");
+  s = s.replace(/\*{2,3}/g, "");
+  s = s.replace(/~~/g, "");
+  return s;
+}
+
 /* ── Main DOCX generator ── */
 
 async function generateDocx(question: string, answer: string): Promise<Buffer> {
@@ -471,8 +513,9 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
     year: "numeric",
   });
 
-  // Clean answer
-  const cleanedAnswer = stripSourcesSection(answer);
+  // Clean answer: strip sources section, then normalize markdown so header
+  // markers and bold markers parse reliably (no literal `##` / `**` leaking).
+  const cleanedAnswer = normalizeMarkdownInput(stripSourcesSection(answer));
 
   // Build header with logo and brand name
   const headerChildren: Paragraph[] = [];
