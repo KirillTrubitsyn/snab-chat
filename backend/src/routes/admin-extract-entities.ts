@@ -254,6 +254,21 @@ interface AuthContext {
   authMethod: "browser" | "service";
 }
 
+/**
+ * Безопасное извлечение заголовка с URI-декодированием (для кириллических
+ * админ-кодов, которые HTTP-клиенты URL-кодируют). Клон auth.getHeader,
+ * не экспортируется там.
+ */
+function readHeader(req: Request, name: string): string {
+  const raw = req.headers[name] as string | undefined;
+  if (!raw) return "";
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 // ── Авторизация (две ветки) ──────────────────────────────────────────
 
 /**
@@ -269,7 +284,7 @@ function tryServiceAuth(req: Request): AuthContext | null {
   const serviceKey = process.env.EXTRACTION_SERVICE_KEY;
   if (!serviceKey || serviceKey.length < 32) return null;
 
-  const providedKey = (req.headers["x-api-key"] as string) ?? "";
+  const providedKey = readHeader(req, "x-api-key");
   if (!providedKey) return null;
 
   // Timing-safe compare: длины должны совпадать для корректности timingSafeEqual.
@@ -282,8 +297,8 @@ function tryServiceAuth(req: Request): AuthContext | null {
     return null;
   }
 
-  // Второй фактор: админ-код с isDocAdmin.
-  const adminCode = (req.headers["x-admin-code"] as string) ?? "";
+  // Второй фактор: админ-код с isDocAdmin. URL-декодируем для кириллицы.
+  const adminCode = readHeader(req, "x-admin-code");
   if (!adminCode || !isDocumentAdmin(adminCode)) return null;
 
   return {
@@ -308,7 +323,7 @@ async function authorize(
   if (!browser) return null;
 
   // Для extract-entities дополнительно требуем isDocAdmin даже по browser-пути.
-  const adminCode = (req.headers["x-admin-code"] as string) ?? "";
+  const adminCode = readHeader(req, "x-admin-code");
   if (!isDocumentAdmin(adminCode)) {
     res.status(403).json({ error: "Требуются права администратора документов" });
     return null;

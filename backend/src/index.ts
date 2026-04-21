@@ -101,11 +101,19 @@ app.use(cors({
 // SECURITY: сравнение ключа делается timing-safe. Любая ошибка (неверная длина,
 // отсутствие ключа, отсутствие переменной окружения) возвращает false без деталей.
 const EXTRACTION_SERVICE_PATH = "/api/admin/extract-entities";
+function decodeHeader(raw: string | undefined): string {
+  if (!raw) return "";
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
 function isValidServiceAuth(req: express.Request): boolean {
   const serviceKey = process.env.EXTRACTION_SERVICE_KEY;
   if (!serviceKey || serviceKey.length < 32) return false;
 
-  const providedKey = (req.headers["x-api-key"] as string) ?? "";
+  const providedKey = decodeHeader(req.headers["x-api-key"] as string);
   if (!providedKey) return false;
 
   const aBuf = Buffer.from(providedKey);
@@ -117,7 +125,7 @@ function isValidServiceAuth(req: express.Request): boolean {
     return false;
   }
 
-  const adminCode = (req.headers["x-admin-code"] as string) ?? "";
+  const adminCode = decodeHeader(req.headers["x-admin-code"] as string);
   if (!adminCode || !isDocumentAdmin(adminCode)) return false;
 
   return true;
