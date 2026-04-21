@@ -135,7 +135,8 @@
 
 ### 3.5 Knowledge Graph Extraction
 
-Таблицы `kg_entities` и `kg_relations` заполняются через API `POST /api/admin/extract-entities`.
+Таблицы `kg_entities` и `kg_relations` заполняются через API `POST /api/admin/extract-entities`
+(Railway, `backend/src/routes/admin-extract-entities.ts`).
 
 **Параметры запроса:**
 - `filterTags?: string[]` — whitelist тегов чанков. Если не указан, используется preset
