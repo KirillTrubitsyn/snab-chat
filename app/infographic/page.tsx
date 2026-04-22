@@ -31,6 +31,7 @@ export default function InfographicPage() {
   const [documentText, setDocumentText] = useState("");
   const [conversationId, setConversationId] = useState("");
   const [is3D, setIs3D] = useState(false);
+  const [highQuality, setHighQuality] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<{ name: string; markdown: string } | null>(null);
   const [fileParsing, setFileParsing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -173,6 +174,7 @@ export default function InfographicPage() {
           style,
           aspectRatio,
           is3D,
+          highQuality,
           documentText: [documentText, uploadedFile?.markdown].filter(Boolean).join("\n\n"),
           conversationId: conversationId || undefined,
         }),
@@ -403,6 +405,27 @@ export default function InfographicPage() {
                   >
                     <span className="infographic-toggle-icon">3D</span>
                     <span className="infographic-toggle-label">Объёмный</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Quality toggle */}
+              <div className="infographic-field">
+                <label className="infographic-label">Качество</label>
+                <div className="infographic-toggle-group">
+                  <button
+                    className={`infographic-toggle-btn ${!highQuality ? "active" : ""}`}
+                    onClick={() => setHighQuality(false)}
+                  >
+                    <span className="infographic-toggle-icon">1K</span>
+                    <span className="infographic-toggle-label">Стандарт</span>
+                  </button>
+                  <button
+                    className={`infographic-toggle-btn ${highQuality ? "active" : ""}`}
+                    onClick={() => setHighQuality(true)}
+                  >
+                    <span className="infographic-toggle-icon">2K</span>
+                    <span className="infographic-toggle-label">Высокое</span>
                   </button>
                 </div>
               </div>
