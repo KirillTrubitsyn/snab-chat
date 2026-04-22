@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { createServiceClient } from "../lib/supabase.js";
-import { getInviteCodeFromHeader, isAdminCode } from "../lib/auth.js";
+import { getInviteCodeFromHeader, isAdminCode, normalizeAdminName } from "../lib/auth.js";
 import { logAuditEvent } from "../lib/audit-log.js";
 import {
   unauthorizedResponse,
@@ -37,8 +37,9 @@ router.get("/api/conversations", async (req: Request, res: Response) => {
       .limit(50);
 
     // Фильтрация: каждый видит только свои диалоги
+    const adminName = normalizeAdminName(invite.name) || invite.name;
     if (isAdminCode(invite.code)) {
-      query = query.eq("admin_name", invite.name);
+      query = query.eq("admin_name", adminName);
     } else {
       query = query.eq("invite_code_id", invite.id);
     }
@@ -68,7 +69,7 @@ router.get("/api/conversations", async (req: Request, res: Response) => {
           .order("updated_at", { ascending: false })
           .limit(50);
         if (isAdminCode(invite.code)) {
-          query = query.eq("admin_name", invite.name);
+          query = query.eq("admin_name", adminName);
         } else {
           query = query.eq("invite_code_id", invite.id);
         }
@@ -120,13 +121,14 @@ router.post("/api/conversations", async (req: Request, res: Response) => {
     // Для админов invite_code_id = null (они не привязаны к инвайт-кодам в БД)
     const isAdmin = isAdminCode(invite.code);
     const inviteCodeId = isAdmin ? null : invite.id;
+    const adminName = isAdmin ? (normalizeAdminName(invite.name) || invite.name) : null;
 
     let insertData: Record<string, unknown> = {
       title,
       invite_code_id: inviteCodeId,
     };
     if (isAdmin) {
-      insertData.admin_name = invite.name;
+      insertData.admin_name = adminName;
     }
 
     // Retry logic for transient Supabase errors (TypeError: fetch failed)
@@ -201,6 +203,7 @@ router.delete("/api/conversations", async (req: Request, res: Response) => {
 
     const id = req.query.id as string | undefined;
     const all = req.query.all as string | undefined;
+    const adminName = normalizeAdminName(invite.name) || invite.name;
 
     // Delete all conversations
     if (all === "true") {
@@ -209,7 +212,7 @@ router.delete("/api/conversations", async (req: Request, res: Response) => {
         const { data: ownedConvs } = await supabase
           .from("conversations")
           .select("id")
-          .eq("admin_name", invite.name);
+          .eq("admin_name", adminName);
 
         const ownedIds = (ownedConvs || []).map(
           (c: { id: string }) => c.id
@@ -227,7 +230,7 @@ router.delete("/api/conversations", async (req: Request, res: Response) => {
             console.error("DB error:", error.message);
             return serverError(res);
           }
-          logAuditEvent({ action: "conversations.delete", adminName: invite.name, details: { type: "delete_all", count: ownedIds.length } });
+          logAuditEvent({ action: "conversations.delete", adminName, details: { type: "delete_all", count: ownedIds.length } });
         }
       } else {
         // Обычный пользователь удаляет только свои диалоги
@@ -252,7 +255,7 @@ router.delete("/api/conversations", async (req: Request, res: Response) => {
             console.error("DB error:", error.message);
             return serverError(res);
           }
-          logAuditEvent({ action: "conversations.delete", adminName: invite.name, details: { type: "delete_all_user", count: ownedIds.length } });
+          logAuditEvent({ action: "conversations.delete", adminName, details: { type: "delete_all_user", count: ownedIds.length } });
         }
       }
       return ok(res);
@@ -292,7 +295,7 @@ router.delete("/api/conversations", async (req: Request, res: Response) => {
           console.error("DB error:", error.message);
           return serverError(res);
         }
-        logAuditEvent({ action: "conversations.delete", adminName: invite.name, details: { type: "bulk", count: idsToDelete.length } });
+        logAuditEvent({ action: "conversations.delete", adminName, details: { type: "bulk", count: idsToDelete.length } });
         return ok(res);
       }
 
@@ -324,7 +327,7 @@ router.delete("/api/conversations", async (req: Request, res: Response) => {
       return serverError(res);
     }
 
-    logAuditEvent({ action: "conversations.delete", adminName: invite.name, targetId: id });
+    logAuditEvent({ action: "conversations.delete", adminName, targetId: id });
     return res.json({ ok: true });
   } catch (err) {
     console.error("[conversations] DELETE error:", err);

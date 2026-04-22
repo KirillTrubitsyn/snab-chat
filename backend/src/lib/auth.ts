@@ -80,6 +80,22 @@ export const ADMIN_NAMES_BY_NUMBER: Record<number, string> = new Proxy(
   }
 );
 
+/**
+ * Преобразует legacy-имя вида "Админ N" в реальное имя из ADMIN_CODES_JSON.
+ * Применяется и на запись (чтобы не копить legacy в БД), и на чтение.
+ */
+export function normalizeAdminName(stored: string | null | undefined): string | null {
+  if (!stored) return null;
+  const trimmed = stored.trim().replace(/ /g, " ");
+  const m = trimmed.match(/^Админ\s+(\d+)$/);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    const map = getAdminNamesByNumber();
+    if (map[n]) return map[n];
+  }
+  return stored;
+}
+
 // Timing-safe admin entry lookup — iterates all entries to prevent timing leaks
 function findAdminEntry(code: string): AdminEntry | null {
   const upperCode = code.toUpperCase();
