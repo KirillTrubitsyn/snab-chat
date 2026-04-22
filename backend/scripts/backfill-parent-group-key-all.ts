@@ -28,6 +28,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { computeParentGroupKey } from "../src/lib/parent-group-key.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY =
@@ -48,32 +49,9 @@ const BATCH_SIZE = 200;
 const PAGE_SIZE = 1000;
 
 // ── Section extraction ──
-
-function normalizeSection(str: string): string {
-  return str
-    .replace(/\s+/g, "_")
-    .replace(/[«»""()]/g, "")
-    .replace(/[^а-яА-ЯёЁa-zA-Z0-9_\-.]/g, "")
-    .slice(0, 60);
-}
-
-function extractSection(content: string): string {
-  // Heuristic cascade — first match wins.
-  const patterns: RegExp[] = [
-    /^#{1,3}\s+(.{3,80}?)\s*$/m, // markdown headings
-    /(?:Стать[яеи])\s+(\d+[а-яА-Я]?(?:\.\d+)?)/i,
-    /(?:Раздел)\s+(\d+[а-яА-Я]?(?:\.\d+)?)/i,
-    /(?:Глав[ае])\s+(\d+[а-яА-Я]?)/i,
-    /(?:Пункт)\s+(\d+(?:\.\d+)+)/i,
-    /(?:Таблиц[аеы])\s+(?:№\s*)?(\d+[а-яА-Я]?(?:\.\d+)?)/i,
-    /(?:Приложени[еяю])\s+(?:№\s*)?(\d+[а-яА-Я]?)/i,
-  ];
-  for (const pattern of patterns) {
-    const m = content.match(pattern);
-    if (m && m[1]) return normalizeSection(m[1]);
-  }
-  return "общий";
-}
+// Формула и эвристики вынесены в backend/src/lib/parent-group-key.ts
+// (L2-03, 22.04.2026) — чтобы /api/ingest и этот скрипт гарантированно
+// считали один и тот же ключ для одинаковых входов.
 
 // ── Main ──
 
@@ -177,11 +155,7 @@ async function main(): Promise<void> {
 
     const updates: Array<{ id: string; key: string }> = [];
     for (const row of rows) {
-      const sourcePrefix = row.source_id
-        ? row.source_id.replace(/-/g, "").slice(0, 8)
-        : "orphan";
-      const section = extractSection(row.content ?? "");
-      const key = `${sourcePrefix}::${section}`;
+      const key = computeParentGroupKey(row.source_id, row.content);
       updates.push({ id: row.id, key });
     }
 

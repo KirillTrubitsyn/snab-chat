@@ -14,6 +14,7 @@ import {
   resolveParentByHint,
 } from "../lib/relationships.js";
 import type { DocumentRelationship } from "../lib/relationships.js";
+import { computeParentGroupKey } from "../lib/parent-group-key.js";
 
 /**
  * SHA-256 от нормализованного markdown. Нормализация (trim + collapse whitespace)
@@ -329,15 +330,28 @@ router.post(
 
         const embeddings = await embedDocuments(embedInputs);
 
-        const rows = batch.map((chunk, j) => ({
-          source_id: source.id,
-          source_filename: filename,
-          chunk_index: chunk.index,
-          content: `${preamble}\n\n${chunk.content}`,
-          embedding: JSON.stringify(embeddings[j]),
-          tags,
-          image_paths: chunkImagePaths.get(chunk.index) || [],
-        }));
+        const rows = batch.map((chunk, j) => {
+          // L2-03 (22.04.2026): parent_group_key считается при вставке,
+          // а не задним числом backfill-скриптом. Формула — shared с
+          // backend/scripts/backfill-parent-group-key-all.ts через
+          // backend/src/lib/parent-group-key.ts. Section извлекается из
+          // сырого chunk.content (preamble не включаем — он содержит
+          // имя файла, которое сбивает heuristic cascade на "Документ: ...").
+          const parentGroupKey = computeParentGroupKey(
+            source.id,
+            chunk.content,
+          );
+          return {
+            source_id: source.id,
+            source_filename: filename,
+            chunk_index: chunk.index,
+            content: `${preamble}\n\n${chunk.content}`,
+            embedding: JSON.stringify(embeddings[j]),
+            tags,
+            image_paths: chunkImagePaths.get(chunk.index) || [],
+            parent_group_key: parentGroupKey,
+          };
+        });
 
         const { error: chunkError } = await supabase
           .from("chunks")
