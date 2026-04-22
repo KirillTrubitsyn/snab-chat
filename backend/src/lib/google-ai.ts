@@ -40,13 +40,29 @@ class Semaphore {
 export const googleApiSemaphore = new Semaphore(5);
 
 /**
+ * Check if an error is a quota / rate-limit exhaustion (HTTP 429 or equivalent).
+ * Used to decide whether to fall back to a cheaper / less-loaded model.
+ */
+export function isQuotaError(err: unknown): boolean {
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    if (/429|too many requests|rate.?limit|quota|resource.?exhausted/i.test(msg)) return true;
+  }
+  // @google/genai may surface status on the error object
+  const status = (err as { status?: number; code?: number } | null | undefined)?.status
+    ?? (err as { code?: number } | null | undefined)?.code;
+  if (status === 429) return true;
+  return false;
+}
+
+/**
  * Check if an error is retryable (rate limit or transient server error).
  */
 function isRetryableError(err: unknown): boolean {
+  if (isQuotaError(err)) return true;
   if (err instanceof Error) {
     const msg = err.message.toLowerCase();
-    // Google API rate limit (429) or server errors (500, 502, 503, 504)
-    if (/429|too many requests|rate.?limit|quota/i.test(msg)) return true;
+    // Google API transient server errors (500, 502, 503, 504)
     if (/500|502|503|504|internal|unavailable|bad gateway|overloaded/i.test(msg)) return true;
     if (/econnreset|econnrefused|etimedout|socket hang up|fetch failed/i.test(msg)) return true;
   }

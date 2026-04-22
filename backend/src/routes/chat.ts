@@ -17,6 +17,7 @@ import { getMatchingDirectives, generateDirectivesPromptBlock } from "../lib/dir
 import { shouldInjectStandardsRegistry, generateStandardsRegistryBlock } from "../lib/standards-registry.js";
 import { shouldInjectSgkRegistry, generateSgkRegistryPromptBlock, detectNmgresAuthorityQuery, resolveFzTypeFromRegistry, findAllEntities } from "../lib/sgk-registry.js";
 import { classifyDocumentIntent, getDocumentIntentPrompt } from "../lib/document-intent.js";
+import { isQuotaError } from "../lib/google-ai.js";
 
 const router = Router();
 
@@ -1869,7 +1870,10 @@ ${uploadedDocsContext}`;
   // ── Generate response via @google/genai directly ──
   // @ai-sdk/google cannot parse thought_signature tokens from Gemini 3.x,
   // so we call @google/genai SDK and stream using the AI SDK data protocol.
-  const modelId = "gemini-3-flash-preview";
+  // C02: primary = gemini-3-flash-preview; fallback = gemini-3.1-flash-lite-preview on 429.
+  const PRIMARY_MODEL_ID = "gemini-3-flash-preview";
+  const FALLBACK_MODEL_ID = "gemini-3.1-flash-lite-preview";
+  let modelId = PRIMARY_MODEL_ID;
   const genaiClient = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
 
   // Convert ModelMessage[] → @google/genai Content format
@@ -1895,14 +1899,47 @@ ${uploadedDocsContext}`;
     }
   }
 
-  const genaiStream = await genaiClient.models.generateContentStream({
-    model: modelId,
-    contents: genaiContents,
-    config: {
-      systemInstruction: systemPrompt,
-      temperature: 0,
-    },
-  });
+  // C02: try primary, then fallback to Flash Lite on 429, then degraded no-LLM response.
+  type GenaiStream = Awaited<ReturnType<typeof genaiClient.models.generateContentStream>>;
+  const openStream = async (model: string): Promise<GenaiStream> =>
+    genaiClient.models.generateContentStream({
+      model,
+      contents: genaiContents,
+      config: {
+        systemInstruction: systemPrompt,
+        temperature: 0,
+      },
+    });
+
+  let genaiStream: GenaiStream | null = null;
+  let degradedNoLlm = false;
+  try {
+    genaiStream = await openStream(PRIMARY_MODEL_ID);
+  } catch (primaryErr) {
+    if (!isQuotaError(primaryErr)) throw primaryErr;
+    console.warn(`[chat] Primary model ${PRIMARY_MODEL_ID} quota-exhausted, falling back to ${FALLBACK_MODEL_ID}`);
+    logError({
+      type: "chat.fallback",
+      message: `Primary ${PRIMARY_MODEL_ID} 429, switching to ${FALLBACK_MODEL_ID}`,
+      endpoint: "/api/chat",
+      metadata: { primaryError: primaryErr instanceof Error ? primaryErr.message : String(primaryErr) },
+    }).catch(() => {});
+    try {
+      genaiStream = await openStream(FALLBACK_MODEL_ID);
+      modelId = FALLBACK_MODEL_ID;
+      lowConfidence = true; // mark response as degraded for downstream metadata
+    } catch (fallbackErr) {
+      if (!isQuotaError(fallbackErr)) throw fallbackErr;
+      console.error(`[chat] Fallback model ${FALLBACK_MODEL_ID} also quota-exhausted, degrading to no-LLM response`);
+      logError({
+        type: "chat.degraded",
+        message: `Both ${PRIMARY_MODEL_ID} and ${FALLBACK_MODEL_ID} returned 429, degraded response`,
+        endpoint: "/api/chat",
+      }).catch(() => {});
+      degradedNoLlm = true;
+      genaiStream = null;
+    }
+  }
 
   // Stream response using Express res.write() — data stream protocol
   // Protocol: "0:" prefix = text delta (JSON-encoded), "e:" = finish step, "d:" = finish message
@@ -1917,6 +1954,34 @@ ${uploadedDocsContext}`;
   if (timedOut) return; // timeout handler already sent the response
 
   let fullText = "";
+
+  // Degraded path: both primary and fallback quota-exhausted → return a static
+  // message with found document references (no LLM generation).
+  if (degradedNoLlm || genaiStream === null) {
+    clearTimeout(requestTimer);
+    const intro = "Сервис ИИ временно перегружен и не может сформировать ответ. Ниже — найденные по вашему запросу документы; откройте их напрямую для получения информации.";
+    const bullets = sourceFilenames.length > 0
+      ? sourceFilenames.map((f) => `• ${f}`).join("\n")
+      : "• По вашему запросу релевантных документов не найдено.";
+    fullText = `${intro}\n\n${bullets}`;
+    res.write(`0:${JSON.stringify(fullText)}\n`);
+    const finish = JSON.stringify({ finishReason: "stop", usage: { promptTokens: 0, completionTokens: 0 }, isContinued: false });
+    res.write(`e:${finish}\n`);
+    res.write(`d:${finish}\n`);
+    res.end();
+    console.log(`[chat][timing] Total request (degraded no-LLM): ${Date.now() - t0}ms`);
+
+    if (conversationId) {
+      const metadata: Record<string, unknown> = { model: "degraded", degraded: true };
+      if (sourceFilenames.length > 0) metadata.sources = sourceFilenames;
+      metadata.lowConfidence = true;
+      saveMessage(conversationId, "assistant", fullText,
+        Object.keys(metadata).length > 0 ? metadata : undefined
+      ).catch((e) => console.error("[chat] Failed to save assistant message:", e));
+    }
+    return;
+  }
+
   try {
     for await (const chunk of genaiStream) {
       if (timedOut) break; // stop reading if request timed out
@@ -1941,6 +2006,7 @@ ${uploadedDocsContext}`;
       if (lowConfidence) metadata.lowConfidence = true;
       if (totalImagesIncluded > 0) metadata.imagesUsed = totalImagesIncluded;
       if (chunkImageUrls.length > 0) metadata.chunkImages = chunkImageUrls;
+      if (modelId === FALLBACK_MODEL_ID) metadata.degradedModel = true;
       saveMessage(conversationId, "assistant", fullText,
         Object.keys(metadata).length > 0 ? metadata : undefined
       ).catch((e) => console.error("[chat] Failed to save assistant message:", e));
