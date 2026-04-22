@@ -165,6 +165,10 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
       : "16:9";
     const imageSize = highQuality === true ? "2K" : "1K";
 
+    console.log(
+      `[infographic] generate: model=${IMAGE_MODEL} aspect_ratio=${safeAspectRatio} image_size=${imageSize} is3D=${is3D === true} style=${style || "business_infographic"}`
+    );
+
     try {
       const result = await Promise.race([
         client.chat.send({
