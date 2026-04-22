@@ -15,7 +15,7 @@ import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgentic
 import { expandByRelationships } from "../lib/relationships.js";
 import { getMatchingDirectives, generateDirectivesPromptBlock } from "../lib/directives-registry.js";
 import { shouldInjectStandardsRegistry, generateStandardsRegistryBlock } from "../lib/standards-registry.js";
-import { shouldInjectSgkRegistry, generateSgkRegistryPromptBlock, detectNmgresAuthorityQuery, resolveFzTypeFromRegistry } from "../lib/sgk-registry.js";
+import { shouldInjectSgkRegistry, generateSgkRegistryPromptBlock, detectNmgresAuthorityQuery, resolveFzTypeFromRegistry, findAllEntities } from "../lib/sgk-registry.js";
 import { classifyDocumentIntent, getDocumentIntentPrompt } from "../lib/document-intent.js";
 
 const router = Router();
@@ -574,12 +574,28 @@ router.post("/api/chat", async (req: Request, res: Response) => {
   let lowConfidence: boolean = false;
 
   // ── Detect entity display names from query (for multi-entity awareness) ──
+  // C04: iterate over SGK_REGISTRY (via findAllEntities) instead of hardcoded
+  // 5-name list. Прежний хардкод пропускал НМГРЭС, ЕвроХим, НАК-Азот,
+  // Абаканскую ТЭЦ, Красноярские ТЭЦ, Минусинскую, Беловскую и Барнаульскую
+  // ТЭЦ — именно эта слепота привела к регрессии «Квадра-галлюцинация»
+  // 2026-04-20 для запросов про НМГРЭС.
   const queryLowerForEntities = userMessage.content.toLowerCase();
   const detectedEntityNames: string[] = [];
-  for (const name of ["СГК-Алтай", "НТСК", "ЕТГК", "Кузбассэнерго", "СГК-Новосибирск"]) {
-    if (queryLowerForEntities.includes(name.toLowerCase())) {
-      detectedEntityNames.push(name);
+  const matchedEntities = findAllEntities(userMessage.content);
+  for (const entity of matchedEntities) {
+    // Use the longest matching alias so downstream regex-strip + per-entity
+    // hybrid search оперируют тем же токеном, который фактически встретился
+    // в запросе пользователя.
+    let bestAlias = "";
+    for (const alias of entity.aliases) {
+      if (queryLowerForEntities.includes(alias) && alias.length > bestAlias.length) {
+        bestAlias = alias;
+      }
     }
+    if (bestAlias) detectedEntityNames.push(bestAlias);
+  }
+  if (detectedEntityNames.length > 0) {
+    console.log(`[chat] Detected entities (SGK_REGISTRY): ${detectedEntityNames.join(", ")}`);
   }
 
   if (useAgenticRag) {
