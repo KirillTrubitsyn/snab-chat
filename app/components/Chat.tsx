@@ -59,7 +59,6 @@ export default function Chat() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const isAdmin = typeof window !== "undefined" && sessionStorage.getItem("snabchat_is_admin") === "true";
-  const isDocAdmin = typeof window !== "undefined" && sessionStorage.getItem("snabchat_is_doc_admin") === "true";
 
   /* ── Keep inviteCodeRef in sync ── */
   useEffect(() => {
@@ -227,8 +226,6 @@ export default function Chat() {
   const [chatPhotos, setChatPhotos] = useState<ChatPhoto[]>([]);
   // Phase 2: Session documents — keep uploaded document content across messages in the same conversation
   const sessionDocsRef = useRef<Array<{ filename: string; markdown: string }>>([]);
-  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<number>>(new Set());
-  const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
   const [convBulkMode, setConvBulkMode] = useState(false);
   const [selectedInfographicIds, setSelectedInfographicIds] = useState<Set<string>>(new Set());
@@ -936,25 +933,6 @@ export default function Chat() {
     });
   }, []);
 
-  /* ── Bulk delete sources ── */
-  const deleteSelectedSources = useCallback(async () => {
-    if (selectedSourceIds.size === 0) return;
-    const ids = Array.from(selectedSourceIds);
-    try {
-      const res = await fetch(apiUrl("/api/sources"), {
-        method: "DELETE",
-        headers: { ...getAuthHeaders(), "Content-Type": "application/json", "x-admin-code": encodeURIComponent(inviteCodeRef.current) },
-        body: JSON.stringify({ ids }),
-      });
-      if (!res.ok) return;
-      setSources((prev) => prev.filter((s) => !selectedSourceIds.has(s.id)));
-      setSelectedSourceIds(new Set());
-      setBulkSelectMode(false);
-    } catch (e) {
-      console.error("Failed to delete sources:", e);
-    }
-  }, [selectedSourceIds]);
-
   /* ── Bulk delete conversations ── */
   const deleteSelectedConversations = useCallback(async () => {
     if (selectedConvIds.size === 0) return;
@@ -1633,58 +1611,6 @@ export default function Chat() {
                 <div className="kb-header">
                   <h2 className="kb-title">База знаний</h2>
                   <span className="kb-badge">{sources.length}</span>
-                  {isDocAdmin && sources.length > 0 && (
-                    <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                      {!bulkSelectMode ? (
-                        <button
-                          className="btn-secondary"
-                          style={{ fontSize: 12, padding: "5px 12px" }}
-                          onClick={() => setBulkSelectMode(true)}
-                        >
-                          Выбрать
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            className="btn-secondary"
-                            style={{ fontSize: 12, padding: "5px 12px" }}
-                            onClick={() => {
-                              const filtered = sources.filter((s) => kbCategoryFilter === "all" || (s.folder_path || "other") === kbCategoryFilter);
-                              if (selectedSourceIds.size === filtered.length && filtered.every((s) => selectedSourceIds.has(s.id))) {
-                                setSelectedSourceIds(new Set());
-                              } else {
-                                setSelectedSourceIds(new Set(filtered.map((s) => s.id)));
-                              }
-                            }}
-                          >
-                            {(() => {
-                              const filtered = sources.filter((s) => kbCategoryFilter === "all" || (s.folder_path || "other") === kbCategoryFilter);
-                              return selectedSourceIds.size === filtered.length && filtered.every((s) => selectedSourceIds.has(s.id)) ? "Снять всё" : "Выбрать все";
-                            })()}
-                          </button>
-                          <button
-                            className="btn-secondary"
-                            style={{
-                              fontSize: 12,
-                              padding: "5px 12px",
-                              color: selectedSourceIds.size > 0 ? "var(--error)" : undefined,
-                            }}
-                            disabled={selectedSourceIds.size === 0}
-                            onClick={deleteSelectedSources}
-                          >
-                            Удалить ({selectedSourceIds.size})
-                          </button>
-                          <button
-                            className="btn-secondary"
-                            style={{ fontSize: 12, padding: "5px 12px" }}
-                            onClick={() => { setSelectedSourceIds(new Set()); setBulkSelectMode(false); }}
-                          >
-                            ✕
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
                 </div>
 
                 {(() => {
@@ -1826,37 +1752,7 @@ export default function Chat() {
                           { key: "contracts", label: "Договоры" },
                         ].find((c) => c.key === (doc.folder_path || "standards"))?.label || "Стандарты и Положения";
                         return (
-                          <div
-                            key={doc.id}
-                            className="kb-row"
-                            style={bulkSelectMode ? { cursor: "pointer" } : undefined}
-                            onClick={() => {
-                              if (bulkSelectMode) {
-                                setSelectedSourceIds((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(doc.id)) next.delete(doc.id);
-                                  else next.add(doc.id);
-                                  return next;
-                                });
-                              }
-                            }}
-                          >
-                            {bulkSelectMode && (
-                              <input
-                                type="checkbox"
-                                checked={selectedSourceIds.has(doc.id)}
-                                onChange={() => {
-                                  setSelectedSourceIds((prev) => {
-                                    const next = new Set(prev);
-                                    if (next.has(doc.id)) next.delete(doc.id);
-                                    else next.add(doc.id);
-                                    return next;
-                                  });
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                style={{ flexShrink: 0 }}
-                              />
-                            )}
+                          <div key={doc.id} className="kb-row">
                             <div className={`kb-row-icon ${ext}`}>
                               {ext === "pdf" ? "PDF" : ext === "xlsx" ? "XLS" : ext === "pptx" ? "PPT" : ext === "html" ? "HTML" : ext === "md" ? "MD" : "DOC"}
                             </div>
