@@ -94,8 +94,28 @@ export function chunkMarkdown(
     rawChunks.push({ content: current.join("\n\n"), index });
   }
 
+  // ── Post-pass: enforce MAX_CHUNK_CHARS AFTER overlap (C06 / L2-02) ──
+  // Overlap-prepended chunk может превысить лимит (lastBlock до 2000 + новый блок
+  // до ~15000 = до ~17000). Gemini Embedding 2 режет хвост молча, смысл теряется.
+  // Делаем deterministic split по границам строк/параграфов.
+  const safeChunks: { content: string; index: number }[] = [];
+  let reindex = 0;
+  for (const chunk of rawChunks) {
+    if (chunk.content.length <= MAX_CHUNK_CHARS) {
+      safeChunks.push({ content: chunk.content, index: reindex++ });
+      continue;
+    }
+    console.warn(
+      `[chunking] Chunk ${chunk.index} exceeds MAX_CHUNK_CHARS (${chunk.content.length} > ${MAX_CHUNK_CHARS}); force-splitting to protect embedding.`
+    );
+    const parts = splitOversized(chunk.content, MAX_CHUNK_CHARS);
+    for (const part of parts) {
+      safeChunks.push({ content: part, index: reindex++ });
+    }
+  }
+
   // Attach images to chunks based on marker presence
-  return rawChunks.map((chunk) => {
+  return safeChunks.map((chunk) => {
     const chunkImages: ChunkImage[] = [];
 
     for (const img of images) {
@@ -114,6 +134,31 @@ export function chunkMarkdown(
       images: chunkImages,
     };
   });
+}
+
+/**
+ * Split an oversized chunk into pieces that each fit within `maxChars`.
+ * Prefers paragraph boundaries (`\n\n`), then line boundaries (`\n`), then
+ * a hard slice as last resort. Each returned piece is ≤ maxChars.
+ */
+function splitOversized(content: string, maxChars: number): string[] {
+  if (content.length <= maxChars) return [content];
+  const pieces: string[] = [];
+  let rest = content;
+  while (rest.length > maxChars) {
+    // Look for paragraph boundary within [maxChars/2, maxChars]
+    let cut = rest.lastIndexOf("\n\n", maxChars);
+    if (cut < maxChars / 2) cut = -1;
+    // Fallback to line boundary
+    if (cut < 0) cut = rest.lastIndexOf("\n", maxChars);
+    if (cut < maxChars / 2) cut = -1;
+    // Last resort: hard slice
+    if (cut < 0) cut = maxChars;
+    pieces.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest.length > 0) pieces.push(rest);
+  return pieces;
 }
 
 /**
