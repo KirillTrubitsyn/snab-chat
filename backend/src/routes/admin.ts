@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { requireAdmin, getAdminNumber, ADMIN_NAMES_BY_NUMBER } from "../lib/auth.js";
+import { requireAdmin, getAdminNumber, normalizeAdminName } from "../lib/auth.js";
 import { createServiceClient } from "../lib/supabase.js";
 import { logAuditEvent } from "../lib/audit-log.js";
 import { notifySupportReply } from "../lib/telegram.js";
@@ -81,10 +81,7 @@ async function buildConvsAndCodesMap(
 
 // Maps stored "Админ N" legacy names to the current real name from ADMIN_CODES_JSON
 function resolveAdminName(stored: string | null): string {
-  if (!stored) return "Админ";
-  const m = stored.match(/^Админ (\d+)$/);
-  if (m) return ADMIN_NAMES_BY_NUMBER[parseInt(m[1], 10)] ?? stored;
-  return stored;
+  return normalizeAdminName(stored) || "Админ";
 }
 
 function resolveUser(

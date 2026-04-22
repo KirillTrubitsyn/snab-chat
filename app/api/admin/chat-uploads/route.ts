@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/app/lib/supabase";
-import { requireAdmin, getInviteCodeFromHeader, ADMIN_NAMES_BY_NUMBER } from "@/app/lib/auth";
+import { requireAdmin, getInviteCodeFromHeader, normalizeAdminName } from "@/app/lib/auth";
 import { badRequest, ok } from "@/app/lib/api-helpers";
-
-function resolveAdminName(stored: string | null | undefined): string | null {
-  if (!stored) return null;
-  const m = stored.match(/^Админ (\d+)$/);
-  if (m) return ADMIN_NAMES_BY_NUMBER[parseInt(m[1], 10)] ?? stored;
-  return stored;
-}
 
 // POST /api/admin/chat-uploads
 // Вызывается из Chat.tsx когда пользователь прикрепляет документ — логирует в audit_log
@@ -36,10 +29,11 @@ export async function POST(req: NextRequest) {
     typeof body.conversationId === "string" ? body.conversationId : null;
 
   const supabase = createServiceClient();
+  const resolvedName = normalizeAdminName(invite.name) || invite.name || "Пользователь";
   await supabase.from("audit_log").insert(
     filenames.map((filename) => ({
       action: "document.chat_upload",
-      admin_name: invite.name || "Пользователь",
+      admin_name: resolvedName,
       target_id: conversationId,
       details: {
         filename,
@@ -71,7 +65,7 @@ export async function GET(req: NextRequest) {
     return {
       id: row.id,
       type: "document" as const,
-      user_name: resolveAdminName(row.admin_name) || "Пользователь",
+      user_name: normalizeAdminName(row.admin_name) || "Пользователь",
       organization: (details.organization as string | null) ?? null,
       content: (details.filename as string) || "Документ",
       model: null as string | null,

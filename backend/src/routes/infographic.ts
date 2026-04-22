@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { OpenRouter } from "@openrouter/sdk";
 import { createServiceClient } from "../lib/supabase.js";
-import { getInviteCodeFromHeader, getAdminName, requireAuth } from "../lib/auth.js";
+import { getInviteCodeFromHeader, getAdminName, requireAuth, normalizeAdminName } from "../lib/auth.js";
 import { logAuditEvent } from "../lib/audit-log.js";
 
 const router = Router();
@@ -105,7 +105,7 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
   const rawCode = (req.headers["x-invite-code"] as string) || (req.headers["x-admin-code"] as string) || "";
   let decodedCode = rawCode;
   try { decodedCode = decodeURIComponent(rawCode); } catch { /* keep raw */ }
-  const adminName = authCheck.isAdmin ? (getAdminName(decodedCode) ?? "Админ") : null;
+  const adminName = authCheck.isAdmin ? (normalizeAdminName(getAdminName(decodedCode)) ?? "Админ") : null;
 
   // Enforce infographic_limit for non-admin users
   const invite = await getInviteCodeFromHeader(req);
