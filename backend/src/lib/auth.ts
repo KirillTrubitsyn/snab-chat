@@ -484,34 +484,40 @@ export async function requireDocumentAdmin(
 }
 
 /**
- * H-A fix: проверяет допустимость fastpath по админ-коду с учётом состояния 2FA.
+ * H03 (22.04.2026): validateAdminFastpath УДАЛЁН.
  *
- * Правила (в порядке приоритета):
- *  1. Если передан валидный x-admin-session, соответствующий этому админу → разрешаем.
- *  2. Если для админа НЕ настроен ни один 2FA-метод (TOTP/Telegram) → разрешаем
- *     (миграционный backwards-compat окно, чтобы не сломать первичный setup-флоу
- *     до того, как все админы пройдут настройку 2FA).
- *  3. Иначе (2FA настроено, но session отсутствует/невалиден) → отклоняем.
+ * До этого был механизм "если у админа не настроен TOTP/Telegram — пропускаем
+ * без сессии". Задумывался как миграционное окно для первичной настройки 2FA,
+ * но фактически превратился в постоянный backdoor для admin 4 (сервис-аккаунт
+ * без 2FA). Теперь сервис-аккаунт ходит через EXTRACTION_SERVICE_KEY
+ * (см. backend/src/lib/service-auth.ts), а fastpath удалён целиком.
+ *
+ * Живые админы теперь ОБЯЗАНЫ пройти 2FA для получения x-admin-session.
+ * Вызывающий код должен либо передать валидный session token, либо
+ * использовать service-auth в предназначенных для этого точках
+ * (/api/chat, /api/admin/extract-entities).
  */
-async function validateAdminFastpath(req: Request, code: string): Promise<boolean> {
-  const adminNumber = getAdminNumber(code);
-  if (adminNumber === null) return false;
 
-  const sessionToken = getHeader(req, "x-admin-session");
-  if (sessionToken) {
-    const session = await verifyAdminSessionToken(sessionToken);
-    if (session && session.adminNumber === adminNumber) {
-      return true;
-    }
-  }
-
-  const status = await getAdmin2FAStatus(adminNumber);
-  if (!status.hasAnyMethod) {
-    // 2FA ещё не настроено — временно разрешаем fastpath
-    return true;
-  }
-
-  return false;
+/**
+ * Синтезирует InviteCode-подобный объект для service-auth вызовов на /api/chat.
+ * Используется ТОЛЬКО после успешной проверки tryServiceAuth в роуте.
+ */
+export function buildServiceAuthInviteCode(
+  adminCode: string,
+  adminName: string,
+): InviteCode {
+  return {
+    id: `admin-${adminCode.toUpperCase()}`,
+    code: adminCode.toUpperCase(),
+    name: adminName,
+    organization: "Service",
+    uses_remaining: null,
+    chat_limit: null,
+    infographic_limit: null,
+    device_limit: null,
+    is_active: true,
+    created_at: new Date().toISOString(),
+  };
 }
 
 export async function getInviteCodeFromHeader(
@@ -521,27 +527,29 @@ export async function getInviteCodeFromHeader(
   if (!code) return null;
 
   if (isAdminCode(code)) {
-    // H-A fix: fastpath пропускает админ-код только если либо присутствует валидный
-    // admin session token, либо 2FA у этого админа ещё не настроено (backwards-compat).
-    const ok = await validateAdminFastpath(req, code);
-    if (!ok) {
+    // H03 (22.04.2026): admin-код через x-invite-code теперь требует ТОЛЬКО
+    // валидную 2FA-сессию. Раньше здесь был fastpath (разрешал без сессии
+    // при ненастроенном 2FA). Для межсервисных вызовов без сессии
+    // вызывающий код должен использовать service-auth ветку через
+    // x-api-key + x-admin-code (admin 4) на предназначенных эндпоинтах.
+    const adminNumber = getAdminNumber(code);
+    if (adminNumber === null) return null;
+
+    const sessionToken = getHeader(req, "x-admin-session");
+    if (!sessionToken) {
       console.warn(
-        `[auth] Rejected admin fastpath for ***${code.slice(-3).toUpperCase()}: 2FA required but session missing/invalid`
+        `[auth] Rejected admin via x-invite-code ***${code.slice(-3).toUpperCase()}: no session token`
       );
       return null;
     }
-    return {
-      id: `admin-${code.toUpperCase()}`,
-      code: code.toUpperCase(),
-      name: getAdminName(code) ?? "Админ",
-      organization: "Админ",
-      uses_remaining: null,
-      chat_limit: null,
-      infographic_limit: null,
-      device_limit: null,
-      is_active: true,
-      created_at: new Date().toISOString(),
-    };
+    const session = await verifyAdminSessionToken(sessionToken);
+    if (!session || session.adminNumber !== adminNumber) {
+      console.warn(
+        `[auth] Rejected admin via x-invite-code ***${code.slice(-3).toUpperCase()}: session invalid or mismatch`
+      );
+      return null;
+    }
+    return buildServiceAuthInviteCode(code, getAdminName(code) ?? "Админ");
   }
 
   const supabase = createServiceClient();
@@ -579,9 +587,15 @@ export async function requireAuth(
   const code = rawInvite || rawAdmin;
 
   if (isAdminCode(code)) {
-    // H-A fix: admin-fastpath только при наличии валидной admin session или до настройки 2FA.
-    const ok = await validateAdminFastpath(req, code);
-    if (!ok) {
+    // H03 (22.04.2026): admin-код требует валидную 2FA-сессию. Fastpath удалён.
+    const adminNumber = getAdminNumber(code);
+    const sessionToken = getHeader(req, "x-admin-session");
+    if (adminNumber === null || !sessionToken) {
+      res.status(401).json({ error: "Требуется 2FA авторизация администратора" });
+      return null;
+    }
+    const session = await verifyAdminSessionToken(sessionToken);
+    if (!session || session.adminNumber !== adminNumber) {
       res.status(401).json({ error: "Требуется 2FA авторизация администратора" });
       return null;
     }

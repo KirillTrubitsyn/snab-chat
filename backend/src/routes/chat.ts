@@ -5,7 +5,8 @@ import { hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySectio
 import { rerank } from "../lib/reranker.js";
 import { classifyIntent, type SpuSubIntent } from "../lib/intent-classifier.js";
 import { loadConversationContext, saveMessage } from "../lib/memory.js";
-import { getInviteCodeFromHeader, isAdminCode } from "../lib/auth.js";
+import { getInviteCodeFromHeader, isAdminCode, buildServiceAuthInviteCode } from "../lib/auth.js";
+import { tryServiceAuth } from "../lib/service-auth.js";
 import { createServiceClient } from "../lib/supabase.js";
 import { classifyOffTopic, detectGibberish, detectVagueQuery, CATEGORY_LABELS, type OffTopicCategory } from "../lib/off-topic-classifier.js";
 import { notifyOffTopic, notifyInvalidInput, notifyVagueQuery } from "../lib/telegram.js";
@@ -224,9 +225,31 @@ router.post("/api/chat", async (req: Request, res: Response) => {
  }, REQUEST_TIMEOUT_MS);
 
  try {
-  const invite = await getInviteCodeFromHeader(req);
-  if (!invite) {
-    return res.status(401).json({ error: "Требуется инвайт-код" });
+  // H03 (22.04.2026): service-auth для межсервисных вызовов /api/chat
+  // (скрипты, CI, автотесты) без браузерной 2FA-сессии.
+  //
+  // Условия успеха (проверяются в tryServiceAuth):
+  //   1. EXTRACTION_SERVICE_KEY задан в ENV, длина ≥ 32.
+  //   2. x-api-key совпадает с ним (timing-safe).
+  //   3. x-admin-code принадлежит сервис-аккаунту (admin_number === 4).
+  //
+  // Живые админы (1, 2) service-путь использовать НЕ могут — они ходят
+  // через браузер с 2FA-сессией и обычной веткой getInviteCodeFromHeader.
+  const service = tryServiceAuth(req);
+  let invite;
+  if (service) {
+    const rawCode = req.headers["x-admin-code"];
+    const adminCode = Array.isArray(rawCode) ? rawCode[0] : rawCode ?? "";
+    const decodedCode = (() => {
+      try { return decodeURIComponent(adminCode); }
+      catch { return adminCode; }
+    })();
+    invite = buildServiceAuthInviteCode(decodedCode, service.adminName);
+  } else {
+    invite = await getInviteCodeFromHeader(req);
+    if (!invite) {
+      return res.status(401).json({ error: "Требуется инвайт-код" });
+    }
   }
 
   const body = req.body;

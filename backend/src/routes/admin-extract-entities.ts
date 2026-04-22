@@ -1,13 +1,12 @@
 import { Router, Request, Response } from "express";
-import { timingSafeEqual } from "crypto";
 import { GoogleGenAI } from "@google/genai";
 import { createServiceClient } from "../lib/supabase.js";
 import { embedQuery } from "../lib/embeddings.js";
 import {
   requireAdmin,
   isDocumentAdmin,
-  getAdminName,
 } from "../lib/auth.js";
+import { tryServiceAuth } from "../lib/service-auth.js";
 import { logAuditEvent } from "../lib/audit-log.js";
 import {
   resolveOntologyForTags,
@@ -29,15 +28,17 @@ import {
 
    АВТОРИЗАЦИЯ — две независимые ветки:
 
-   A) Browser path (обычный вызов из админки):
-      x-admin-code + x-admin-session (2FA-токен) + Origin allowlist.
-      Проходит через стандартный Origin-middleware и requireAdmin().
+   A) Browser path (обычный вызов из админки — живые админы):
+      x-admin-code (admin 1/2, isDocAdmin=true) + x-admin-session (2FA-токен)
+      + Origin allowlist. Проходит через requireAdmin() + isDocumentAdmin-гейт.
 
-   B) Service path (межсервисный вызов без браузера):
+   B) Service path (межсервисный вызов, только сервис-аккаунт admin 4):
       x-api-key = process.env.EXTRACTION_SERVICE_KEY (timing-safe сравн.)
-      + x-admin-code с флагом isDocAdmin = true.
+      + x-admin-code (admin_number === 4).
       Origin-middleware для этого пути скипается в index.ts — только если
       service-условия выполнены. Иначе fallback на обычную Origin-проверку.
+      H03 (22.04.2026): раньше здесь был isDocAdmin=true (admin 1/2).
+      Сейчас — ТОЛЬКО admin 4. Живые админы через service-путь не ходят.
 
    Обе ветки пишут audit_log с auth_method.
 
@@ -289,57 +290,30 @@ function readHeader(req: Request, name: string): string {
 // ── Авторизация (две ветки) ──────────────────────────────────────────
 
 /**
- * Проверяет service-auth: timing-safe сравнение x-api-key + наличие
- * isDocAdmin-флага у кода. Возвращает null если service-путь не применим
- * (ключ или код отсутствуют/невалидны).
- *
- * SECURITY: все ответы при неудаче идентичны (401 Unauthorized без деталей),
- * чтобы закрыть канал enumeration. Вызывающая сторона решает, отдать 401
- * или попытаться browser-путь.
- */
-function tryServiceAuth(req: Request): AuthContext | null {
-  const serviceKey = process.env.EXTRACTION_SERVICE_KEY;
-  if (!serviceKey || serviceKey.length < 32) return null;
-
-  const providedKey = readHeader(req, "x-api-key");
-  if (!providedKey) return null;
-
-  // Timing-safe compare: длины должны совпадать для корректности timingSafeEqual.
-  const aBuf = Buffer.from(providedKey);
-  const bBuf = Buffer.from(serviceKey);
-  if (aBuf.length !== bBuf.length) return null;
-  try {
-    if (!timingSafeEqual(aBuf, bBuf)) return null;
-  } catch {
-    return null;
-  }
-
-  // Второй фактор: админ-код с isDocAdmin. URL-декодируем для кириллицы.
-  const adminCode = readHeader(req, "x-admin-code");
-  if (!adminCode || !isDocumentAdmin(adminCode)) return null;
-
-  return {
-    adminName: getAdminName(adminCode) ?? "service",
-    authMethod: "service",
-  };
-}
-
-/**
- * Главная функция авторизации: сначала service-путь, потом browser.
+ * Главная функция авторизации: сначала service-путь (admin 4 + api-key),
+ * потом browser (живой админ 1/2 с 2FA + isDocAdmin).
  * Возвращает null и отдаёт ответ в случае неуспеха.
+ *
+ * H03 (22.04.2026): service-путь теперь строго admin 4.
+ * Shared-логика в backend/src/lib/service-auth.ts.
  */
 async function authorize(
   req: Request,
   res: Response,
 ): Promise<AuthContext | null> {
   const service = tryServiceAuth(req);
-  if (service) return service;
+  if (service) {
+    return {
+      adminName: service.adminName,
+      authMethod: "service",
+    };
+  }
 
-  // Service-путь не применим — падаем на browser.
+  // Service-путь не применим — падаем на browser (живые админы).
   const browser = await requireAdmin(req, res);
   if (!browser) return null;
 
-  // Для extract-entities дополнительно требуем isDocAdmin даже по browser-пути.
+  // Для extract-entities в браузерном пути требуем isDocAdmin (admin 1/2).
   const adminCode = readHeader(req, "x-admin-code");
   if (!isDocumentAdmin(adminCode)) {
     res.status(403).json({ error: "Требуются права администратора документов" });

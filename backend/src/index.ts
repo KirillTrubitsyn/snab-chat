@@ -1,10 +1,9 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import { timingSafeEqual } from "crypto";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { errorHandler } from "./middleware/error-handler.js";
-import { isDocumentAdmin } from "./lib/auth.js";
+import { isValidServiceAuthFromHeaders } from "./lib/service-auth.js";
 
 // Route imports
 import healthRouter from "./routes/health.js";
@@ -92,44 +91,25 @@ app.use(cors({
 }));
 
 // ── Service-auth path exception (для межсервисных вызовов без браузерного Origin) ──
-// Точечное исключение из Origin-middleware для /api/admin/extract-entities:
-// если запрос предъявляет валидный EXTRACTION_SERVICE_KEY + isDocAdmin-код,
-// Origin-проверка для этого пути скипается. Все остальные слои защиты
-// (admin-code проверка, audit-log, rate-limit) остаются в силе —
-// они прогоняются внутри роута authorize().
+// Точечное исключение из Origin-middleware для ДВУХ путей:
+//   - /api/chat                         — чат-вызов из скриптов/тестов
+//   - /api/admin/extract-entities       — извлечение сущностей в граф
 //
-// SECURITY: сравнение ключа делается timing-safe. Любая ошибка (неверная длина,
-// отсутствие ключа, отсутствие переменной окружения) возвращает false без деталей.
-const EXTRACTION_SERVICE_PATH = "/api/admin/extract-entities";
-function decodeHeader(raw: string | undefined): string {
-  if (!raw) return "";
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    return raw;
-  }
-}
-function isValidServiceAuth(req: express.Request): boolean {
-  const serviceKey = process.env.EXTRACTION_SERVICE_KEY;
-  if (!serviceKey || serviceKey.length < 32) return false;
-
-  const providedKey = decodeHeader(req.headers["x-api-key"] as string);
-  if (!providedKey) return false;
-
-  const aBuf = Buffer.from(providedKey);
-  const bBuf = Buffer.from(serviceKey);
-  if (aBuf.length !== bBuf.length) return false;
-  try {
-    if (!timingSafeEqual(aBuf, bBuf)) return false;
-  } catch {
-    return false;
-  }
-
-  const adminCode = decodeHeader(req.headers["x-admin-code"] as string);
-  if (!adminCode || !isDocumentAdmin(adminCode)) return false;
-
-  return true;
-}
+// Для обоих путей требуется (см. backend/src/lib/service-auth.ts):
+//   1. EXTRACTION_SERVICE_KEY задан в ENV, длина ≥ 32.
+//   2. x-api-key совпадает с ним (timing-safe).
+//   3. x-admin-code принадлежит сервис-аккаунту (admin_number === 4).
+//
+// Живые админы (1, 2) service-путь использовать не могут — они ходят
+// через браузер с 2FA-сессией. Это жёсткое разделение прав:
+// сервис-ключ → только admin 4 → только два эндпоинта.
+//
+// Все остальные слои защиты (admin-code проверка, audit-log, rate-limit)
+// остаются в силе — они прогоняются внутри роутов.
+const SERVICE_AUTH_PATHS = new Set<string>([
+  "/api/chat",
+  "/api/admin/extract-entities",
+]);
 
 // ── Origin validation for mutation requests ──
 // Block POST/PATCH/DELETE without a valid Origin header (prevents curl/Postman/scripts)
@@ -143,9 +123,10 @@ app.use((req, res, next) => {
     return next();
   }
 
-  // Service-auth exception: только для точного пути /api/admin/extract-entities.
-  // Если ключ + код валидны — пропускаем Origin-проверку.
-  if (path === EXTRACTION_SERVICE_PATH && isValidServiceAuth(req)) {
+  // Service-auth exception: только для разрешённых путей и только при
+  // валидных ключе + коде admin 4. Любая частичная проверка → fallthrough
+  // на обычную Origin-проверку, как если бы ключа не было.
+  if (SERVICE_AUTH_PATHS.has(path) && isValidServiceAuthFromHeaders(req)) {
     console.log(`[Origin] Service-auth bypass for ${req.method} ${path}`);
     return next();
   }
@@ -167,13 +148,14 @@ app.use((req, res, next) => {
 // all API requests (except /health and webhook) must include x-api-key header.
 // This prevents direct API access even if the backend URL leaks.
 const BACKEND_API_KEY = process.env.BACKEND_API_KEY || "";
-// /api/admin/extract-entities исключён, потому что он использует собственный,
-// более строгий EXTRACTION_SERVICE_KEY через isValidServiceAuth() и route-level
-// authorize(). BACKEND_API_KEY был бы слабее (плоский shared secret без isDocAdmin).
+// Service-auth пути исключены, потому что они используют собственный,
+// более строгий EXTRACTION_SERVICE_KEY через isValidServiceAuthFromHeaders
+// и route-level проверки. BACKEND_API_KEY был бы слабее (плоский shared
+// secret без привязки к admin_number).
 const API_KEY_EXEMPT_PATHS = [
   "/health",
   "/api/telegram/webhook",
-  EXTRACTION_SERVICE_PATH,
+  ...SERVICE_AUTH_PATHS,
 ];
 if (BACKEND_API_KEY) {
   app.use((req, res, next) => {
