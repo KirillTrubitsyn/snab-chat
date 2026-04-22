@@ -73,15 +73,51 @@ export function parseRelationshipHints(
     }
   }
 
-  // Infer from filename patterns:
-  // "Прил_1_(к_Приказу_НМГРЭС-355_от_16.10.2025)_..." → parent is the Приказ
+  // Infer from filename patterns. Fallback-цепочка (C07 / L2-04):
+  //   1. С круглыми скобками: "Прил_1_(к_Приказу_...)_описание.pdf" — конвенциальный формат.
+  //   2. Без скобок, но с датой: "Прил_1_к_Приказу_НМГРЭС-355_от_16.10.2025_описание.pdf"
+  //      — более распространённый реальный формат от админов.
+  //   3. Без скобок и без даты: "Прил_1_к_Приказу_НМГРЭС-355_описание.pdf"
+  //      — эвристика по границе "_[заглавная_буква_описания]".
   if (!parentHint) {
-    const fnMatch = filename.match(
+    // (1) parenthesised form (existing strict convention)
+    const fnParen = filename.match(
       /Прил(?:ожение)?[_\s]*\d*[_\s]*\((?:к[_\s]+)?([^)]+)\)/i
     );
-    if (fnMatch) {
-      parentHint = fnMatch[1].replace(/_/g, " ").trim();
+    if (fnParen) {
+      parentHint = fnParen[1].replace(/_/g, " ").trim();
       type = type || "приложение";
+    } else {
+      // (2) non-parenthesised, anchor by date DD.MM.YYYY
+      const fnDate = filename.match(
+        /Прил(?:ожение)?[_\s]*\d+[_\s]*к[_\s]+(.+?\d{2}\.\d{2}\.\d{4})/i
+      );
+      if (fnDate) {
+        parentHint = fnDate[1].replace(/_/g, " ").trim();
+        type = type || "приложение";
+      } else {
+        // (3) non-parenthesised, no date — find description marker procedurally.
+        // Case-insensitive prefix match ("Прил_N_к_"), затем case-sensitive
+        // поиск границы описания "_[А-ЯЁ][а-яё]" (Title-case token —
+        // отличает "_Матрица" от "_НМГРЭС"). Иначе — до расширения.
+        const prefixMatch = filename.match(
+          /^Прил(?:ожение)?[_\s]*\d+[_\s]*к[_\s]+/i
+        );
+        if (prefixMatch) {
+          const body = filename.slice(prefixMatch[0].length);
+          // Strip extension for hint extraction
+          const withoutExt = body.replace(/\.[a-z0-9]+$/i, "");
+          // Case-SENSITIVE scan for Title-case description marker
+          const descMatch = withoutExt.match(
+            /^(.+?)_(?:[А-ЯЁ][а-яё]|описан|раздел|глава)/
+          );
+          const hint = descMatch ? descMatch[1] : withoutExt;
+          if (hint && hint.length > 0) {
+            parentHint = hint.replace(/_/g, " ").trim();
+            type = type || "приложение";
+          }
+        }
+      }
     }
   }
 
