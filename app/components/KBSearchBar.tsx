@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { apiUrl, getAuthHeaders } from "@/app/lib/api";
 
 /* ── Типы ── */
@@ -22,13 +22,9 @@ export interface KBSearchResult {
   similarity: number;
   chunk_count: number;
   match_type: "fts" | "semantic" | "both";
-  /** Ключ группы (Parent-Child) */
   parent_group_key: string | null;
-  /** Все чанки из parent-группы */
   sibling_chunks: SiblingChunk[];
-  /** Имя оригинального файла */
   original_filename: string | null;
-  /** URL для скачивания оригинала */
   original_file_url: string | null;
 }
 
@@ -37,32 +33,59 @@ interface KBSearchBarProps {
   folder?: string | null;
   onOpenDocument?: (sourceId: string, filename: string) => void;
   onDownload?: (sourceId: string, filename: string) => void;
-  /** Вызывается при клике «Скачать оригинал» */
   onDownloadOriginal?: (originalFileUrl: string, originalFilename: string) => void;
   className?: string;
   mode?: "admin" | "chat";
 }
 
-/* ── Иконки (Material Symbols outline, 20px) ── */
+/* ── Названия категорий (folder_path → human label) ── */
 
-const ICON = {
-  search: "search",
-  close: "close",
-  folder: "folder",
-  description: "description",
-  visibility: "visibility",
-  download: "download",
-  source: "attach_file",
-  tag: "label",
-  bolt: "bolt",
-  text: "text_fields",
-  join: "join",
-  expand: "expand_more",
-  collapse: "expand_less",
-  context: "account_tree",
-} as const;
+const CATEGORY_LABELS: Record<string, string> = {
+  npa: "НПА",
+  standards: "Стандарты и Положения",
+  forms: "Формы и Шаблоны",
+  schemas: "Схемы процессов",
+  instructions: "Инструкции и Методики",
+  pricing: "Ценообразование",
+  references: "Справочники и Реестры",
+  "contractor-cards": "Карточки контрагентов",
+  contracts: "Договоры",
+};
 
-/* ── Вспомогательные функции ── */
+function categoryLabel(folder: string | null): string | null {
+  if (!folder) return null;
+  return CATEGORY_LABELS[folder] ?? folder;
+}
+
+/* ── Определение расширения по filename / mime_type ── */
+
+type FileExt = "pdf" | "docx" | "xlsx" | "pptx" | "html" | "md" | "file";
+
+function detectExt(filename: string, mime: string | null): FileExt {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".md") || mime?.includes("x-denormalized")) return "md";
+  if (lower.endsWith(".pdf") || mime?.includes("pdf")) return "pdf";
+  if (
+    lower.endsWith(".xlsx") ||
+    lower.endsWith(".xls") ||
+    mime?.includes("sheet") ||
+    mime?.includes("excel")
+  )
+    return "xlsx";
+  if (
+    lower.endsWith(".pptx") ||
+    lower.endsWith(".ppt") ||
+    mime?.includes("presentationml")
+  )
+    return "pptx";
+  if (lower.endsWith(".html") || lower.endsWith(".htm") || mime?.includes("html"))
+    return "html";
+  if (lower.endsWith(".docx") || lower.endsWith(".doc") || mime?.includes("word"))
+    return "docx";
+  return "file";
+}
+
+/* ── Утилиты ── */
 
 function escapeHtml(text: string): string {
   return text
@@ -99,25 +122,123 @@ function formatDate(dateStr: string): string {
   }
 }
 
-function matchTypeLabel(type: "fts" | "semantic" | "both"): {
-  icon: string;
-  label: string;
-  color: string;
-} {
-  switch (type) {
-    case "both":
-      return { icon: ICON.join, label: "Полное совпадение", color: "#4caf50" };
-    case "semantic":
-      return { icon: ICON.bolt, label: "По смыслу", color: "#2196f3" };
-    case "fts":
-      return { icon: ICON.text, label: "По тексту", color: "#ff9800" };
-  }
+function pluralizeDocs(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "документ";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return "документа";
+  return "документов";
 }
 
 function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
   return text.slice(0, maxLen).trimEnd() + "…";
 }
+
+/**
+ * Вырезает кусок вокруг первого вхождения любого из words, чтобы
+ * совпадение оказалось видимым в усечённом превью. Если совпадений нет —
+ * возвращает обычный truncate с начала.
+ */
+function truncateAroundMatch(text: string, words: string[], maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  const lower = text.toLowerCase();
+  let firstIdx = -1;
+  for (const w of words) {
+    const i = lower.indexOf(w);
+    if (i !== -1 && (firstIdx === -1 || i < firstIdx)) firstIdx = i;
+  }
+  if (firstIdx === -1) return truncate(text, maxLen);
+
+  const half = Math.floor(maxLen / 2);
+  const start = Math.max(0, firstIdx - half);
+  const end = Math.min(text.length, start + maxLen);
+  let snippet = text.slice(start, end).trim();
+  if (start > 0) snippet = "…" + snippet;
+  if (end < text.length) snippet = snippet + "…";
+  return snippet;
+}
+
+function matchTypeMeta(type: "fts" | "semantic" | "both"): {
+  label: string;
+  cls: string;
+} {
+  switch (type) {
+    case "both":
+      return { label: "Точное совпадение", cls: "kbs-badge--both" };
+    case "semantic":
+      return { label: "По смыслу", cls: "kbs-badge--semantic" };
+    case "fts":
+      return { label: "По тексту", cls: "kbs-badge--fts" };
+  }
+}
+
+/* ── Иконки (inline SVG, lucide-style) ── */
+
+const Icon = {
+  search: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+    </svg>
+  ),
+  close: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  ),
+  folder: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+    </svg>
+  ),
+  paperclip: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 17.93 8.83l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </svg>
+  ),
+  view: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+  download: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" x2="12" y1="15" y2="3" />
+    </svg>
+  ),
+  expand: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  ),
+  context: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+      <path d="M7 14h10" />
+      <path d="M7 10h6" />
+      <path d="M7 18h13" />
+    </svg>
+  ),
+  empty: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+      <path d="M8 11h6" />
+    </svg>
+  ),
+  alert: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+    </svg>
+  ),
+};
 
 /* ── Компонент ── */
 
@@ -147,6 +268,7 @@ export default function KBSearchBar({
       if (q.trim().length < 2) {
         setResults([]);
         setSearched(false);
+        setError(null);
         return;
       }
 
@@ -182,7 +304,7 @@ export default function KBSearchBar({
         setSearched(true);
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") return;
-        setError("Не удалось выполнить поиск");
+        setError("Не удалось выполнить поиск. Попробуйте ещё раз.");
         console.error("KB search error:", err);
       } finally {
         setLoading(false);
@@ -212,6 +334,7 @@ export default function KBSearchBar({
     setResults([]);
     setSearched(false);
     setError(null);
+    abortRef.current?.abort();
     inputRef.current?.focus();
   };
 
@@ -222,70 +345,88 @@ export default function KBSearchBar({
     };
   }, []);
 
+  /* Список слов запроса — для умного усечения превью */
+  const queryWords = useMemo(
+    () =>
+      query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((w) => w.length >= 2),
+    [query]
+  );
+
   /* ── Рендер ── */
 
   const isCompact = mode === "chat";
 
   return (
-    <div className={`kb-search ${className}`}>
-      {/* ── Строка поиска ── */}
-      <div className="kb-search__input-wrap">
-        <span className="material-symbols-outlined kb-search__icon">
-          {ICON.search}
+    <div className={`kbs ${isCompact ? "kbs--compact" : ""} ${className}`}>
+      {/* Поле поиска */}
+      <div className={`kbs__field ${loading ? "is-loading" : ""}`}>
+        <span className="kbs__field-icon" aria-hidden="true">
+          {Icon.search}
         </span>
         <input
           ref={inputRef}
           type="text"
-          className="kb-search__input"
+          className="kbs__input"
           placeholder="Поиск по базе знаний…"
           value={query}
           onChange={(e) => handleInputChange(e.target.value)}
           onKeyDown={handleKeyDown}
           autoComplete="off"
           spellCheck={false}
+          aria-label="Поиск по базе знаний"
         />
-        {query && (
+        {loading && <span className="kbs__spinner" aria-hidden="true" />}
+        {query && !loading && (
           <button
-            className="kb-search__clear"
-            onClick={clearSearch}
-            title="Очистить"
             type="button"
+            className="kbs__clear"
+            onClick={clearSearch}
+            title="Очистить (Esc)"
+            aria-label="Очистить поиск"
           >
-            <span className="material-symbols-outlined">{ICON.close}</span>
+            {Icon.close}
           </button>
         )}
-        {loading && <div className="kb-search__spinner" />}
       </div>
 
-      {/* ── Результаты ── */}
+      {/* Результаты */}
       {searched && (
-        <div className="kb-search__results">
-          {error && <div className="kb-search__error">{error}</div>}
-
-          {!error && results.length === 0 && (
-            <div className="kb-search__empty">
-              Ничего не найдено по запросу «{query}»
+        <div className="kbs__results">
+          {error && (
+            <div className="kbs__state kbs__state--error" role="alert">
+              <span className="kbs__state-icon">{Icon.alert}</span>
+              <div className="kbs__state-text">{error}</div>
             </div>
           )}
 
-          {results.length > 0 && (
+          {!error && results.length === 0 && (
+            <div className="kbs__state kbs__state--empty">
+              <span className="kbs__state-icon">{Icon.empty}</span>
+              <div className="kbs__state-text">
+                <div className="kbs__state-title">Ничего не найдено</div>
+                <div className="kbs__state-hint">
+                  По запросу «{query}» совпадений нет. Попробуйте другие слова или
+                  уточните формулировку.
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!error && results.length > 0 && (
             <>
-              <div className="kb-search__count">
-                Найдено: {results.length} документ
-                {results.length % 10 === 1 && results.length % 100 !== 11
-                  ? ""
-                  : results.length % 10 >= 2 &&
-                      results.length % 10 <= 4 &&
-                      (results.length % 100 < 10 || results.length % 100 >= 20)
-                    ? "а"
-                    : "ов"}
+              <div className="kbs__count">
+                Найдено <strong>{results.length}</strong> {pluralizeDocs(results.length)}
               </div>
 
-              <div className="kb-search__list">
+              <div className="kbs__list">
                 {results.map((r) => (
                   <SearchResultCard
                     key={r.source_id}
                     result={r}
+                    queryWords={queryWords}
                     query={query}
                     compact={isCompact}
                     onOpen={onOpenDocument}
@@ -309,6 +450,7 @@ export default function KBSearchBar({
 function SearchResultCard({
   result,
   query,
+  queryWords,
   compact,
   onOpen,
   onDownload,
@@ -316,540 +458,662 @@ function SearchResultCard({
 }: {
   result: KBSearchResult;
   query: string;
+  queryWords: string[];
   compact: boolean;
   onOpen?: (sourceId: string, filename: string) => void;
   onDownload?: (sourceId: string, filename: string) => void;
   onDownloadOriginal?: (originalFileUrl: string, originalFilename: string) => void;
 }) {
   const [showSiblings, setShowSiblings] = useState(false);
-  const mt = matchTypeLabel(result.match_type);
+  const ext = detectExt(result.filename, result.mime_type);
+  const mt = matchTypeMeta(result.match_type);
   const hasSiblings = result.sibling_chunks && result.sibling_chunks.length > 1;
-  const hasOriginal = result.original_file_url && result.original_filename;
+  const hasOriginal = !!(result.original_file_url && result.original_filename);
+  const cat = categoryLabel(result.folder_path);
+
+  const previewLen = compact ? 220 : 360;
+  const preview = result.best_chunk
+    ? truncateAroundMatch(result.best_chunk, queryWords, previewLen)
+    : null;
 
   return (
-    <div className="kb-card">
-      {/* Заголовок */}
-      <div className="kb-card__header">
-        <span className="material-symbols-outlined kb-card__file-icon">
-          {ICON.description}
-        </span>
-        <div className="kb-card__title-wrap">
-          <div
-            className="kb-card__filename"
-            dangerouslySetInnerHTML={{
-              __html: highlightMatches(result.filename, query),
-            }}
+    <article className="kbs-card">
+      <header className="kbs-card__header">
+        <div className={`kbs-card__ext kbs-card__ext--${ext}`}>{ext.toUpperCase()}</div>
+
+        <div className="kbs-card__title-wrap">
+          <h4
+            className="kbs-card__title"
+            dangerouslySetInnerHTML={{ __html: highlightMatches(result.filename, query) }}
           />
-          {result.folder_path && (
-            <div className="kb-card__folder">
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-                {ICON.folder}
+          <div className="kbs-card__meta-row">
+            {cat && (
+              <span className="kbs-card__meta-item">
+                <span className="kbs-card__meta-icon">{Icon.folder}</span>
+                {cat}
               </span>
-              {result.folder_path}
-            </div>
-          )}
-          {/* Имя оригинального файла, если отличается */}
+            )}
+            <span className="kbs-card__meta-item">{formatDate(result.created_at)}</span>
+            {result.chunk_count > 0 && (
+              <span className="kbs-card__meta-item">
+                {result.chunk_count}{" "}
+                {result.chunk_count === 1 ? "совпадение" : "совпадений"}
+              </span>
+            )}
+            {result.similarity > 0 && (
+              <span className="kbs-card__meta-item">
+                {Math.round(result.similarity * 100)}%
+              </span>
+            )}
+          </div>
           {hasOriginal && result.original_filename !== result.filename && (
-            <div className="kb-card__original-name">
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-                {ICON.source}
-              </span>
+            <div className="kbs-card__original">
+              <span className="kbs-card__meta-icon">{Icon.paperclip}</span>
               Оригинал: {result.original_filename}
             </div>
           )}
         </div>
-        {/* Бейдж типа совпадения */}
-        <span className="kb-card__badge" style={{ background: mt.color }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-            {mt.icon}
-          </span>
-          {!compact && mt.label}
-        </span>
-      </div>
 
-      {/* Превью лучшего фрагмента */}
-      {result.best_chunk && (
+        <span className={`kbs-badge ${mt.cls}`} title={mt.label}>
+          {mt.label}
+        </span>
+      </header>
+
+      {preview && (
         <div
-          className="kb-card__chunk"
-          dangerouslySetInnerHTML={{
-            __html: highlightMatches(
-              truncate(result.best_chunk, compact ? 150 : 300),
-              query
-            ),
-          }}
+          className="kbs-card__snippet"
+          dangerouslySetInnerHTML={{ __html: highlightMatches(preview, query) }}
         />
       )}
 
-      {/* Кнопка раскрытия контекста (Parent-Child siblings) */}
       {hasSiblings && (
         <button
-          className="kb-card__siblings-toggle"
-          onClick={() => setShowSiblings(!showSiblings)}
           type="button"
+          className={`kbs-card__siblings-toggle ${showSiblings ? "is-open" : ""}`}
+          onClick={() => setShowSiblings(!showSiblings)}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-            {showSiblings ? ICON.collapse : ICON.expand}
-          </span>
-          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-            {ICON.context}
-          </span>
+          <span className="kbs-card__meta-icon">{Icon.context}</span>
           {showSiblings
             ? "Скрыть контекст"
-            : `Показать контекст (${result.sibling_chunks.length} фрагментов)`}
+            : `Контекст: ${result.sibling_chunks.length} фрагментов`}
+          <span className="kbs-card__chevron">{Icon.expand}</span>
         </button>
       )}
 
-      {/* Раскрытый контекст: все sibling-чанки */}
       {showSiblings && hasSiblings && (
-        <div className="kb-card__siblings">
-          {result.sibling_chunks.map((s, i) => (
-            <div
-              key={i}
-              className={`kb-card__sibling ${
-                s.content === result.best_chunk ? "kb-card__sibling--active" : ""
-              }`}
-            >
-              <span className="kb-card__sibling-index">{s.chunk_index + 1}</span>
+        <div className="kbs-card__siblings">
+          {result.sibling_chunks.map((s) => {
+            const isActive = s.content === result.best_chunk;
+            return (
               <div
-                dangerouslySetInnerHTML={{
-                  __html: highlightMatches(s.content, query),
-                }}
-              />
-            </div>
-          ))}
+                key={s.chunk_index}
+                className={`kbs-sibling ${isActive ? "is-active" : ""}`}
+              >
+                <span className="kbs-sibling__index">{s.chunk_index + 1}</span>
+                <div
+                  className="kbs-sibling__text"
+                  dangerouslySetInnerHTML={{ __html: highlightMatches(s.content, query) }}
+                />
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* Мета-информация */}
-      {!compact && (
-        <div className="kb-card__meta">
-          {result.chunk_count > 0 && (
-            <span className="kb-card__meta-item">
-              Совпадений: {result.chunk_count}
-            </span>
-          )}
-          <span className="kb-card__meta-item">
-            {formatDate(result.created_at)}
-          </span>
-          {result.similarity > 0 && (
-            <span className="kb-card__meta-item">
-              Релевантность: {Math.round(result.similarity * 100)}%
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Теги (только admin) */}
       {!compact && result.tags.length > 0 && (
-        <div className="kb-card__tags">
+        <div className="kbs-card__tags">
           {result.tags
             .filter((t) => t !== "денормализовано")
-            .slice(0, 5)
+            .slice(0, 6)
             .map((tag) => (
-              <span key={tag} className="kb-card__tag">
+              <span key={tag} className="kbs-card__tag">
                 {tag}
               </span>
             ))}
         </div>
       )}
 
-      {/* Действия */}
-      <div className="kb-card__actions">
-        {onOpen && (
-          <button
-            className="kb-card__btn kb-card__btn--preview"
-            onClick={() => onOpen(result.source_id, result.filename)}
-            type="button"
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-              {ICON.visibility}
-            </span>
-            Просмотр
-          </button>
-        )}
-        {onDownload && (
-          <button
-            className="kb-card__btn kb-card__btn--download"
-            onClick={() => onDownload(result.source_id, result.filename)}
-            type="button"
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-              {ICON.download}
-            </span>
-            Скачать
-          </button>
-        )}
-        {/* Кнопка скачивания оригинального файла */}
-        {hasOriginal && onDownloadOriginal && (
-          <button
-            className="kb-card__btn kb-card__btn--original"
-            onClick={() =>
-              onDownloadOriginal(
-                result.original_file_url!,
-                result.original_filename!
-              )
-            }
-            type="button"
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-              {ICON.source}
-            </span>
-            Скачать оригинал
-          </button>
-        )}
-      </div>
-    </div>
+      {(onOpen || onDownload || (hasOriginal && onDownloadOriginal)) && (
+        <div className="kbs-card__actions">
+          {onOpen && (
+            <button
+              type="button"
+              className="kbs-btn kbs-btn--primary"
+              onClick={() => onOpen(result.source_id, result.filename)}
+            >
+              <span className="kbs-btn__icon">{Icon.view}</span>
+              Открыть
+            </button>
+          )}
+          {onDownload && (
+            <button
+              type="button"
+              className="kbs-btn"
+              onClick={() => onDownload(result.source_id, result.filename)}
+            >
+              <span className="kbs-btn__icon">{Icon.download}</span>
+              Скачать
+            </button>
+          )}
+          {hasOriginal && onDownloadOriginal && (
+            <button
+              type="button"
+              className="kbs-btn"
+              onClick={() =>
+                onDownloadOriginal(
+                  result.original_file_url!,
+                  result.original_filename!
+                )
+              }
+            >
+              <span className="kbs-btn__icon">{Icon.paperclip}</span>
+              Оригинал
+            </button>
+          )}
+        </div>
+      )}
+    </article>
   );
 }
 
-/* ── CSS ── */
+/* ── Стили (scoped через префикс .kbs) ── */
 
 const styles = `
-/* ── Контейнер ── */
-.kb-search {
+.kbs {
+  --kbs-accent: var(--accent, #2563EB);
+  --kbs-accent-soft: var(--accent-soft, rgba(37, 99, 235, 0.08));
+  --kbs-surface: var(--bg-white, #fff);
+  --kbs-surface-dim: var(--bg-main, #FAFAFA);
+  --kbs-border: var(--border, #E5E7EB);
+  --kbs-border-hover: var(--border-hover, #D1D5DB);
+  --kbs-text: var(--text-primary, #1A1A1A);
+  --kbs-text-secondary: var(--text-secondary, #6B7280);
+  --kbs-text-muted: var(--text-muted, #9CA3AF);
+  --kbs-radius: var(--radius, 10px);
+  --kbs-radius-sm: var(--radius-sm, 8px);
+
   width: 100%;
-  position: relative;
+  font-family: var(--font-body, system-ui, sans-serif);
+  color: var(--kbs-text);
 }
 
-/* ── Строка поиска ── */
-.kb-search__input-wrap {
+/* ── Поле поиска ── */
+.kbs__field {
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: var(--surface, #f5f5f5);
-  border: 1.5px solid var(--border, #e0e0e0);
-  border-radius: 12px;
-  padding: 8px 14px;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  gap: 10px;
+  background: var(--kbs-surface);
+  border: 1px solid var(--kbs-border);
+  border-radius: var(--kbs-radius);
+  padding: 10px 14px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
 }
-.kb-search__input-wrap:focus-within {
-  border-color: var(--primary, #1976d2);
-  box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.12);
+.kbs__field:hover {
+  border-color: var(--kbs-border-hover);
 }
-.kb-search__icon {
-  font-size: 20px;
-  color: var(--text-secondary, #757575);
+.kbs__field:focus-within {
+  border-color: var(--kbs-accent);
+  box-shadow: 0 0 0 3px var(--kbs-accent-soft);
+}
+.kbs__field.is-loading {
+  border-color: var(--kbs-accent);
+}
+.kbs__field-icon {
   flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  color: var(--kbs-text-muted);
+  display: inline-flex;
 }
-.kb-search__input {
+.kbs__field-icon svg {
+  width: 100%;
+  height: 100%;
+}
+.kbs__input {
   flex: 1;
+  min-width: 0;
   border: none;
   outline: none;
   background: transparent;
-  font-size: 15px;
-  color: var(--text-primary, #212121);
-  font-family: inherit;
-  min-width: 0;
+  font: inherit;
+  font-size: 14px;
+  color: var(--kbs-text);
 }
-.kb-search__input::placeholder {
-  color: var(--text-secondary, #9e9e9e);
+.kbs__input::placeholder {
+  color: var(--kbs-text-muted);
 }
-.kb-search__clear {
-  display: flex;
+.kbs__clear {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: none;
+  background: transparent;
   border: none;
+  border-radius: 6px;
+  color: var(--kbs-text-muted);
   cursor: pointer;
-  padding: 2px;
-  border-radius: 50%;
-  color: var(--text-secondary, #757575);
-  transition: background 0.15s;
+  transition: background 150ms ease, color 150ms ease;
+  padding: 0;
 }
-.kb-search__clear:hover {
-  background: rgba(0, 0, 0, 0.08);
+.kbs__clear svg {
+  width: 14px;
+  height: 14px;
 }
-.kb-search__clear .material-symbols-outlined {
-  font-size: 18px;
+.kbs__clear:hover {
+  background: var(--kbs-surface-dim);
+  color: var(--kbs-text);
 }
-
-/* ── Спиннер ── */
-.kb-search__spinner {
-  width: 18px;
-  height: 18px;
-  border: 2px solid var(--border, #e0e0e0);
-  border-top-color: var(--primary, #1976d2);
-  border-radius: 50%;
-  animation: kb-spin 0.6s linear infinite;
+.kbs__spinner {
   flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--kbs-border);
+  border-top-color: var(--kbs-accent);
+  border-radius: 50%;
+  animation: kbs-spin 0.7s linear infinite;
 }
-@keyframes kb-spin {
+@keyframes kbs-spin {
   to { transform: rotate(360deg); }
 }
 
 /* ── Результаты ── */
-.kb-search__results {
-  margin-top: 12px;
+.kbs__results {
+  margin-top: 14px;
 }
-.kb-search__error {
-  padding: 12px;
-  background: #fce4ec;
-  color: #c62828;
-  border-radius: 8px;
-  font-size: 14px;
-}
-.kb-search__empty {
-  padding: 20px 12px;
-  text-align: center;
-  color: var(--text-secondary, #757575);
-  font-size: 14px;
-}
-.kb-search__count {
-  font-size: 13px;
-  color: var(--text-secondary, #757575);
-  margin-bottom: 8px;
+.kbs__count {
+  font-size: 12px;
+  color: var(--kbs-text-secondary);
+  margin-bottom: 10px;
   padding-left: 2px;
+  letter-spacing: 0.01em;
 }
-.kb-search__list {
+.kbs__count strong {
+  color: var(--kbs-text);
+  font-weight: 600;
+}
+.kbs__list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-/* ── Карточка документа ── */
-.kb-card {
-  background: var(--surface, #ffffff);
-  border: 1px solid var(--border, #e0e0e0);
-  border-radius: 10px;
-  padding: 12px 14px;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.kb-card:hover {
-  border-color: var(--primary, #1976d2);
-  box-shadow: 0 2px 8px rgba(25, 118, 210, 0.08);
-}
-
-/* Заголовок */
-.kb-card__header {
-  display: flex;
-  align-items: flex-start;
   gap: 10px;
 }
-.kb-card__file-icon {
-  font-size: 22px;
-  color: var(--primary, #1976d2);
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-.kb-card__title-wrap {
-  flex: 1;
-  min-width: 0;
-}
-.kb-card__filename {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary, #212121);
-  word-break: break-word;
-}
-.kb-card__filename mark {
-  background: #fff3cd;
-  color: inherit;
-  border-radius: 2px;
-  padding: 0 1px;
-}
-.kb-card__folder {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--text-secondary, #757575);
-  margin-top: 2px;
-}
-.kb-card__original-name {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--text-secondary, #9e9e9e);
-  margin-top: 2px;
-  font-style: italic;
-}
-.kb-card__badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  color: #fff;
-  padding: 2px 8px;
-  border-radius: 10px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
 
-/* Фрагмент */
-.kb-card__chunk {
-  margin-top: 8px;
-  font-size: 13px;
-  color: var(--text-secondary, #616161);
-  line-height: 1.5;
-  padding: 8px 10px;
-  background: var(--surface-dim, #f9f9f9);
-  border-radius: 6px;
-  border-left: 3px solid var(--primary, #1976d2);
-}
-.kb-card__chunk mark {
-  background: #fff3cd;
-  color: inherit;
-  border-radius: 2px;
-  padding: 0 1px;
-}
-
-/* Кнопка раскрытия контекста */
-.kb-card__siblings-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 6px;
-  padding: 4px 10px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--primary, #1976d2);
-  background: rgba(25, 118, 210, 0.06);
-  border: 1px solid rgba(25, 118, 210, 0.15);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s;
-  font-family: inherit;
-}
-.kb-card__siblings-toggle:hover {
-  background: rgba(25, 118, 210, 0.12);
-}
-
-/* Раскрытый контекст (sibling-чанки) */
-.kb-card__siblings {
-  margin-top: 8px;
+/* ── Состояния (empty / error) ── */
+.kbs__state {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 400px;
-  overflow-y: auto;
-  border: 1px solid var(--border, #e8e8e8);
-  border-radius: 8px;
-  padding: 6px;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 20px;
+  border-radius: var(--kbs-radius);
+  background: var(--kbs-surface);
+  border: 1px solid var(--kbs-border);
 }
-.kb-card__sibling {
-  display: flex;
-  gap: 8px;
-  padding: 6px 8px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-secondary, #616161);
-  border-radius: 4px;
-  transition: background 0.1s;
+.kbs__state--error {
+  background: #FEF2F2;
+  border-color: #FECACA;
+  color: #B91C1C;
 }
-.kb-card__sibling:hover {
-  background: rgba(0, 0, 0, 0.03);
+.kbs__state--empty {
+  color: var(--kbs-text-secondary);
 }
-.kb-card__sibling--active {
-  background: rgba(25, 118, 210, 0.06);
-  border-left: 2px solid var(--primary, #1976d2);
-}
-.kb-card__sibling-index {
+.kbs__state-icon {
   flex-shrink: 0;
   width: 22px;
   height: 22px;
+  display: inline-flex;
+  color: currentColor;
+  opacity: 0.7;
+}
+.kbs__state-icon svg {
+  width: 100%;
+  height: 100%;
+}
+.kbs__state-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.kbs__state-title {
+  font-weight: 600;
+  color: var(--kbs-text);
+  margin-bottom: 2px;
+}
+.kbs__state-hint {
+  font-size: 13px;
+  color: var(--kbs-text-secondary);
+}
+
+/* ── Карточка ── */
+.kbs-card {
+  background: var(--kbs-surface);
+  border: 1px solid var(--kbs-border);
+  border-radius: var(--kbs-radius);
+  padding: 14px 16px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.kbs-card:hover {
+  border-color: var(--kbs-border-hover);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+}
+
+/* Заголовок карточки */
+.kbs-card__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.kbs-card__ext {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: var(--kbs-radius-sm);
   font-size: 10px;
-  font-weight: 600;
-  color: var(--text-secondary, #9e9e9e);
-  background: var(--surface-dim, #f0f0f0);
-  border-radius: 50%;
+  font-weight: 700;
+  letter-spacing: 0.4px;
 }
-.kb-card__sibling mark {
-  background: #fff3cd;
-  color: inherit;
-  border-radius: 2px;
-  padding: 0 1px;
-}
+.kbs-card__ext--pdf  { background: #FEE2E2; color: #DC2626; }
+.kbs-card__ext--docx { background: #DBEAFE; color: #2563EB; }
+.kbs-card__ext--xlsx { background: #DCFCE7; color: #16A34A; }
+.kbs-card__ext--pptx { background: #FEF3C7; color: #D97706; }
+.kbs-card__ext--html { background: #F3E8FF; color: #7C3AED; }
+.kbs-card__ext--md   { background: #CCFBF1; color: #0D9488; }
+.kbs-card__ext--file { background: var(--kbs-surface-dim); color: var(--kbs-text-secondary); }
 
-/* Мета */
-.kb-card__meta {
+.kbs-card__title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.kbs-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--kbs-text);
+  line-height: 1.4;
+  margin: 0;
+  word-break: break-word;
+}
+.kbs-card__title mark {
+  background: var(--kbs-accent-soft);
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 3px;
+  font-weight: 700;
+}
+.kbs-card__meta-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 8px;
+  gap: 4px 10px;
+  margin-top: 4px;
   font-size: 12px;
-  color: var(--text-secondary, #9e9e9e);
+  color: var(--kbs-text-muted);
 }
-.kb-card__meta-item {
+.kbs-card__meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   white-space: nowrap;
+}
+.kbs-card__meta-icon {
+  display: inline-flex;
+  width: 13px;
+  height: 13px;
+  color: currentColor;
+  opacity: 0.85;
+}
+.kbs-card__meta-icon svg {
+  width: 100%;
+  height: 100%;
+}
+.kbs-card__original {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--kbs-text-muted);
+  font-style: italic;
+}
+
+/* Бейдж типа совпадения — outline-стиль, не кричащий */
+.kbs-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+  background: transparent;
+}
+.kbs-badge--both     { color: #047857; background: #ECFDF5; border-color: #A7F3D0; }
+.kbs-badge--semantic { color: #1D4ED8; background: #EFF6FF; border-color: #BFDBFE; }
+.kbs-badge--fts      { color: #B45309; background: #FFFBEB; border-color: #FDE68A; }
+
+/* Превью лучшего фрагмента */
+.kbs-card__snippet {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--kbs-surface-dim);
+  border-left: 3px solid var(--kbs-accent);
+  border-radius: 0 var(--kbs-radius-sm) var(--kbs-radius-sm) 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--kbs-text-secondary);
+  word-break: break-word;
+}
+.kbs-card__snippet mark {
+  background: var(--kbs-accent-soft);
+  color: var(--kbs-text);
+  font-weight: 600;
+  padding: 0 2px;
+  border-radius: 3px;
+}
+
+/* Кнопка раскрытия контекста */
+.kbs-card__siblings-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 6px 10px 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--kbs-text-secondary);
+  background: transparent;
+  border: 1px solid var(--kbs-border);
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+.kbs-card__siblings-toggle:hover {
+  border-color: var(--kbs-accent);
+  color: var(--kbs-accent);
+  background: var(--kbs-accent-soft);
+}
+.kbs-card__siblings-toggle.is-open {
+  background: var(--kbs-accent-soft);
+  color: var(--kbs-accent);
+  border-color: var(--kbs-accent);
+}
+.kbs-card__chevron {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  transition: transform 200ms ease;
+}
+.kbs-card__chevron svg {
+  width: 100%;
+  height: 100%;
+}
+.kbs-card__siblings-toggle.is-open .kbs-card__chevron {
+  transform: rotate(180deg);
+}
+
+/* Раскрытый контекст: список sibling-чанков */
+.kbs-card__siblings {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 380px;
+  overflow-y: auto;
+  background: var(--kbs-surface-dim);
+  border: 1px solid var(--kbs-border);
+  border-radius: var(--kbs-radius-sm);
+  padding: 6px;
+}
+.kbs-sibling {
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--kbs-text-secondary);
+  transition: background 100ms ease;
+}
+.kbs-sibling:hover {
+  background: rgba(0, 0, 0, 0.025);
+}
+.kbs-sibling.is-active {
+  background: var(--kbs-accent-soft);
+  color: var(--kbs-text);
+}
+.kbs-sibling__index {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--kbs-text-muted);
+  background: var(--kbs-surface);
+  border: 1px solid var(--kbs-border);
+  border-radius: 50%;
+}
+.kbs-sibling.is-active .kbs-sibling__index {
+  background: var(--kbs-accent);
+  border-color: var(--kbs-accent);
+  color: #fff;
+}
+.kbs-sibling__text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+.kbs-sibling__text mark {
+  background: var(--kbs-accent-soft);
+  color: var(--kbs-text);
+  font-weight: 600;
+  padding: 0 2px;
+  border-radius: 3px;
 }
 
 /* Теги */
-.kb-card__tags {
+.kbs-card__tags {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 8px;
+  margin-top: 12px;
 }
-.kb-card__tag {
+.kbs-card__tag {
   font-size: 11px;
   padding: 2px 8px;
-  background: rgba(25, 118, 210, 0.08);
-  color: var(--primary, #1976d2);
-  border-radius: 10px;
+  background: var(--kbs-surface-dim);
+  color: var(--kbs-text-secondary);
+  border: 1px solid var(--kbs-border);
+  border-radius: 9999px;
   white-space: nowrap;
 }
 
 /* Действия */
-.kb-card__actions {
+.kbs-card__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--kbs-border);
 }
-.kb-card__btn {
+.kbs-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  font: inherit;
   font-size: 13px;
   font-weight: 500;
   padding: 6px 12px;
-  border-radius: 8px;
-  border: none;
+  border-radius: var(--kbs-radius-sm);
+  border: 1px solid var(--kbs-border);
+  background: var(--kbs-surface);
+  color: var(--kbs-text-secondary);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-  font-family: inherit;
+  transition: all 150ms ease;
 }
-.kb-card__btn--preview {
-  background: rgba(25, 118, 210, 0.08);
-  color: var(--primary, #1976d2);
+.kbs-btn:hover {
+  border-color: var(--kbs-border-hover);
+  color: var(--kbs-text);
+  background: var(--kbs-surface-dim);
 }
-.kb-card__btn--preview:hover {
-  background: rgba(25, 118, 210, 0.16);
+.kbs-btn--primary {
+  background: var(--kbs-accent);
+  color: #fff;
+  border-color: var(--kbs-accent);
 }
-.kb-card__btn--download {
-  background: rgba(76, 175, 80, 0.08);
-  color: #2e7d32;
+.kbs-btn--primary:hover {
+  background: var(--accent-hover, #1D4ED8);
+  border-color: var(--accent-hover, #1D4ED8);
+  color: #fff;
 }
-.kb-card__btn--download:hover {
-  background: rgba(76, 175, 80, 0.16);
+.kbs-btn__icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
 }
-.kb-card__btn--original {
-  background: rgba(156, 39, 176, 0.08);
-  color: #7b1fa2;
-}
-.kb-card__btn--original:hover {
-  background: rgba(156, 39, 176, 0.16);
+.kbs-btn__icon svg {
+  width: 100%;
+  height: 100%;
 }
 
-/* ── Адаптив ── */
-@media (max-width: 480px) {
-  .kb-card__actions {
-    flex-direction: column;
+/* Компактный режим (chat) — чуть плотнее */
+.kbs--compact .kbs-card {
+  padding: 12px 14px;
+}
+.kbs--compact .kbs-card__ext {
+  width: 36px;
+  height: 36px;
+}
+.kbs--compact .kbs-card__snippet {
+  margin-top: 10px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+}
+
+/* Адаптив */
+@media (max-width: 540px) {
+  .kbs-card__header {
+    flex-wrap: wrap;
   }
-  .kb-card__btn {
+  .kbs-badge {
+    order: 3;
+  }
+  .kbs-card__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .kbs-btn {
     justify-content: center;
-  }
-  .kb-card__meta {
-    flex-direction: column;
-    gap: 4px;
-  }
-  .kb-card__siblings {
-    max-height: 250px;
   }
 }
 `;
