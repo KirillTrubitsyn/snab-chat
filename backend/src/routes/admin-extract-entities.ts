@@ -54,11 +54,22 @@ const DEFAULT_FILTER_TAGS = [
   "матрица полномочий",
 ];
 
+// C09 / Audit L4-01 (22.04.2026): расширяем STRICT до 7 типов. Эти типы
+// исторически были источником ложных семантических слияний (branch →
+// одно и то же юрлицо СГК; organization → разные юрлица сливались в
+// одну; role → разные уровни согласования сливались в одну сущность).
+// Для оставшихся типов (см. canonicalNamesCompatible ниже) Jaccard
+// порог поднят с 0.75 до 0.90 — это цена за то, что kg_search_entities
+// ищет по эмбеддингу, а описание берётся из текста batch'а и может
+// переоценивать похожесть.
 const STRICT_MATCH_TYPES = new Set([
   "standard",
   "regulation",
   "threshold",
   "section",
+  "branch",
+  "organization",
+  "role",
 ]);
 
 const ENTITY_TYPES = [
@@ -208,7 +219,13 @@ function canonicalNamesCompatible(a: string, b: string): boolean {
   let inter = 0;
   for (const t of setA) if (setB.has(t)) inter++;
   const jaccard = union.size > 0 ? inter / union.size : 0;
-  return jaccard >= 0.75;
+  // C09 / Audit L4-01 (22.04.2026): порог поднят с 0.75 → 0.90.
+  // STRICT_MATCH_TYPES вообще не проходит через эту функцию (см. выше),
+  // а для оставшихся типов (mtr_type, procedure, system, document,
+  // concept, contract_party, obligation, approval_level) 0.75 давал
+  // существенное число ложных мёржей: например, «поставка оборудования»
+  // и «поставка материалов» считались одной сущностью.
+  return jaccard >= 0.9;
 }
 
 // B2: detection режима 223-ФЗ vs вне 223-ФЗ по тегам чанков.
