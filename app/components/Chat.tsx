@@ -9,6 +9,7 @@ import KBSearchBar from "@/app/components/KBSearchBar";
 import { formatDateRelative } from "@/app/lib/date-utils";
 import { apiUrl, getAuthHeaders } from "@/app/lib/api";
 import { getAvatarColor, setAvatarColor as saveAvatarColor, AVATAR_COLORS } from "@/app/lib/avatarColors";
+import { DOCUMENT_CATEGORIES } from "@/app/lib/tagging";
 import {
   VoiceButton,
   CameraButton,
@@ -241,6 +242,7 @@ export default function Chat() {
   const [activeView, setActiveView] = useState<"chat" | "knowledge-base">("chat");
   const [kbCategoryFilter, setKbCategoryFilter] = useState<string>("all");
   const [kbPage, setKbPage] = useState(1);
+  const [showKbCategoryPicker, setShowKbCategoryPicker] = useState(false);
   const KB_PAGE_SIZE = 20;
 
   // .doc / .xls format warning modal
@@ -1685,36 +1687,84 @@ export default function Chat() {
                   )}
                 </div>
 
-                <div className="kb-pills">
-                  <button
-                    className={`kb-pill ${kbCategoryFilter === "all" ? "active" : ""}`}
-                    onClick={() => { setKbCategoryFilter("all"); setKbPage(1); }}
-                  >
-                    Все ({sources.length})
-                  </button>
-                  {[
-                    { key: "npa", label: "НПА" },
-                    { key: "standards", label: "Стандарты и Положения" },
-                    { key: "forms", label: "Формы и Шаблоны" },
-                    { key: "schemas", label: "Схемы процессов" },
-                    { key: "instructions", label: "Инструкции и Методики" },
-                    { key: "pricing", label: "Ценообразование" },
-                    { key: "references", label: "Справочники и Реестры" },
-                    { key: "contractor-cards", label: "Карточки контрагентов" },
-                    { key: "contracts", label: "Договоры" },
-                  ].map((cat) => {
-                    const count = sources.filter((s) => (s.folder_path || "standards") === cat.key).length;
-                    return (
-                      <button
-                        key={cat.key}
-                        className={`kb-pill ${kbCategoryFilter === cat.key ? "active" : ""}`}
-                        onClick={() => { setKbCategoryFilter(cat.key); setKbPage(1); }}
-                      >
-                        {cat.label} ({count})
-                      </button>
-                    );
-                  })}
-                </div>
+                {(() => {
+                  const categoryCounts = DOCUMENT_CATEGORIES.reduce<Record<string, number>>((acc, cat) => {
+                    acc[cat.key] = sources.filter((s) => (s.folder_path || "standards") === cat.key).length;
+                    return acc;
+                  }, {});
+                  const activeCategory = DOCUMENT_CATEGORIES.find((c) => c.key === kbCategoryFilter);
+                  const currentLabel = kbCategoryFilter === "all" ? "Все" : activeCategory?.label || "Все";
+                  const currentCount = kbCategoryFilter === "all" ? sources.length : (categoryCounts[kbCategoryFilter] || 0);
+                  return (
+                    <>
+                      <div className="admin-doc-filters" style={{ marginBottom: 16 }}>
+                        <button
+                          type="button"
+                          className={`admin-doc-filter-btn ${kbCategoryFilter !== "all" ? "active" : ""}`}
+                          onClick={() => setShowKbCategoryPicker(true)}
+                        >
+                          <span className="material-symbols-outlined admin-doc-filter-icon">
+                            {activeCategory?.icon || "category"}
+                          </span>
+                          <span className="admin-doc-filter-text">
+                            <span className="admin-doc-filter-label">Категория</span>
+                            <span className="admin-doc-filter-value">{currentLabel} ({currentCount})</span>
+                          </span>
+                          <span className="material-symbols-outlined admin-doc-filter-chevron">expand_more</span>
+                        </button>
+                      </div>
+
+                      {showKbCategoryPicker && (
+                        <div className="admin-modal-overlay" onClick={() => setShowKbCategoryPicker(false)}>
+                          <div className="admin-modal admin-picker-modal" onClick={(e) => e.stopPropagation()}>
+                            <div className="admin-modal-header">
+                              <h3>Выберите категорию</h3>
+                              <button
+                                type="button"
+                                onClick={() => setShowKbCategoryPicker(false)}
+                                className="admin-modal-close"
+                                aria-label="Закрыть"
+                              >
+                                &times;
+                              </button>
+                            </div>
+                            <div className="admin-modal-body">
+                              <div className="admin-picker-list">
+                                <button
+                                  type="button"
+                                  className={`admin-picker-option ${kbCategoryFilter === "all" ? "active" : ""}`}
+                                  onClick={() => { setKbCategoryFilter("all"); setKbPage(1); setShowKbCategoryPicker(false); }}
+                                >
+                                  <span className="material-symbols-outlined admin-picker-option-icon">apps</span>
+                                  <span className="admin-picker-option-label">Все</span>
+                                  <span className="admin-picker-option-count">{sources.length}</span>
+                                  {kbCategoryFilter === "all" && (
+                                    <span className="material-symbols-outlined admin-picker-option-check">check</span>
+                                  )}
+                                </button>
+                                {DOCUMENT_CATEGORIES.map((cat) => (
+                                  <button
+                                    type="button"
+                                    key={cat.key}
+                                    className={`admin-picker-option ${kbCategoryFilter === cat.key ? "active" : ""}`}
+                                    onClick={() => { setKbCategoryFilter(cat.key); setKbPage(1); setShowKbCategoryPicker(false); }}
+                                  >
+                                    <span className="material-symbols-outlined admin-picker-option-icon">{cat.icon}</span>
+                                    <span className="admin-picker-option-label">{cat.label}</span>
+                                    <span className="admin-picker-option-count">{categoryCounts[cat.key] || 0}</span>
+                                    {kbCategoryFilter === cat.key && (
+                                      <span className="material-symbols-outlined admin-picker-option-check">check</span>
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
 
                 {sources.length === 0 ? (
                   <div className="kb-empty">
