@@ -18,6 +18,7 @@ export type AuditAction =
   | "user.disconnect"
   | "infographic.generate"
   | "document.upload"
+  | "document.upload.duplicate"
   | "kg.extract_entities";
 
 /**

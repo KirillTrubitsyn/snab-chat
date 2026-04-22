@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import multer from "multer";
+import { createHash } from "node:crypto";
 import { createServiceClient } from "../lib/supabase.js";
 import { chunkMarkdown } from "../lib/chunking.js";
 import { embedDocuments, embedTexts } from "../lib/embeddings.js";
@@ -13,6 +14,16 @@ import {
   resolveParentByHint,
 } from "../lib/relationships.js";
 import type { DocumentRelationship } from "../lib/relationships.js";
+
+/**
+ * SHA-256 от нормализованного markdown. Нормализация (trim + collapse whitespace)
+ * убирает шум от лишних пробелов/переводов строк, чтобы идентичные документы
+ * совпадали даже при микроскопических различиях парсера.
+ */
+function computeContentSha256(markdown: string): string {
+  const normalized = markdown.replace(/\s+/g, " ").trim();
+  return createHash("sha256").update(normalized, "utf8").digest("hex");
+}
 
 const router = Router();
 
@@ -163,6 +174,36 @@ router.post(
         );
       }
 
+      // Dedup gate (C05 / L2-01): если файл с таким же filename + content_sha256
+      // уже загружен — возвращаем существующий sourceId без повторного embedding'а.
+      // UNIQUE index sources_filename_sha256_uniq_idx — safety net от race condition.
+      const contentSha256 = computeContentSha256(markdown);
+      const { data: existingSource } = await supabase
+        .from("sources")
+        .select("id")
+        .eq("filename", filename)
+        .eq("content_sha256", contentSha256)
+        .maybeSingle();
+
+      if (existingSource?.id) {
+        console.log(
+          `[ingest] Duplicate detected for "${filename}" (sha256=${contentSha256.slice(0, 12)}…) — reusing existing source ${existingSource.id}`
+        );
+        logAuditEvent({
+          action: "document.upload.duplicate",
+          adminName: adminCheck.adminName,
+          targetId: String(existingSource.id),
+          details: { filename, contentSha256 },
+        }).catch(() => {});
+        return res.json({
+          sourceId: existingSource.id,
+          chunksInserted: 0,
+          imagesUploaded: 0,
+          filename,
+          wasDuplicate: true,
+        });
+      }
+
       // Create source entry
       const { data: source, error: sourceError } = await supabase
         .from("sources")
@@ -171,6 +212,7 @@ router.post(
           mime_type: mimeType,
           tags,
           content_preview: markdown.slice(0, 500),
+          content_sha256: contentSha256,
           storage_path: storagePath,
           folder_path: folderPath,
           ...(relationships ? { relationships } : {}),
@@ -179,6 +221,31 @@ router.post(
         .single();
 
       if (sourceError) {
+        // Race: параллельная загрузка того же файла успела INSERT'нуть между
+        // SELECT и INSERT → UNIQUE violation (Postgres code 23505). Возвращаем
+        // существующий sourceId, чтобы не поломать UX.
+        if (
+          (sourceError as { code?: string } | null)?.code === "23505"
+        ) {
+          const { data: raced } = await supabase
+            .from("sources")
+            .select("id")
+            .eq("filename", filename)
+            .eq("content_sha256", contentSha256)
+            .maybeSingle();
+          if (raced?.id) {
+            console.log(
+              `[ingest] Race on duplicate INSERT for "${filename}", reusing source ${raced.id}`
+            );
+            return res.json({
+              sourceId: raced.id,
+              chunksInserted: 0,
+              imagesUploaded: 0,
+              filename,
+              wasDuplicate: true,
+            });
+          }
+        }
         console.error("Source insert error:", sourceError);
         return res.status(500).json({ error: "Failed to create source" });
       }
