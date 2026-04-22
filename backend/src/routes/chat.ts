@@ -18,7 +18,7 @@ import { getMatchingDirectives, generateDirectivesPromptBlock } from "../lib/dir
 import { shouldInjectStandardsRegistry, generateStandardsRegistryBlock } from "../lib/standards-registry.js";
 import { shouldInjectSgkRegistry, generateSgkRegistryPromptBlock, detectNmgresAuthorityQuery, resolveFzTypeFromRegistry, findAllEntities } from "../lib/sgk-registry.js";
 import { classifyDocumentIntent, getDocumentIntentPrompt } from "../lib/document-intent.js";
-import { isQuotaError } from "../lib/google-ai.js";
+import { isQuotaError, withGoogleApiLimit } from "../lib/google-ai.js";
 
 const router = Router();
 
@@ -1937,7 +1937,7 @@ ${uploadedDocsContext}`;
   let genaiStream: GenaiStream | null = null;
   let degradedNoLlm = false;
   try {
-    genaiStream = await openStream(PRIMARY_MODEL_ID);
+    genaiStream = await withGoogleApiLimit(() => openStream(PRIMARY_MODEL_ID));
   } catch (primaryErr) {
     if (!isQuotaError(primaryErr)) throw primaryErr;
     console.warn(`[chat] Primary model ${PRIMARY_MODEL_ID} quota-exhausted, falling back to ${FALLBACK_MODEL_ID}`);
@@ -1948,7 +1948,7 @@ ${uploadedDocsContext}`;
       metadata: { primaryError: primaryErr instanceof Error ? primaryErr.message : String(primaryErr) },
     }).catch(() => {});
     try {
-      genaiStream = await openStream(FALLBACK_MODEL_ID);
+      genaiStream = await withGoogleApiLimit(() => openStream(FALLBACK_MODEL_ID));
       modelId = FALLBACK_MODEL_ID;
       lowConfidence = true; // mark response as degraded for downstream metadata
     } catch (fallbackErr) {
