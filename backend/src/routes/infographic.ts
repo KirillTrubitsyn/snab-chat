@@ -181,7 +181,7 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
           },
         }),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Timeout: 50s")), 50_000)
+          setTimeout(() => reject(new Error("Timeout: 180s")), 180_000)
         ),
       ]);
 
