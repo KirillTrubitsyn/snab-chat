@@ -1,0 +1,36 @@
+-- ============================================================
+-- Housekeeping: drop the pre-B3 overload of kg_get_scoped_chunks.
+--
+-- Background
+-- ----------
+-- Before migration_b3_regime_filter_scoped_chunks.sql the RPC was:
+--     kg_get_scoped_chunks(entity_ids uuid[], max_chunks integer)
+-- B3 added a third optional argument (p_exclude_tag TEXT DEFAULT NULL)
+-- and pinned search_path. CREATE OR REPLACE does NOT drop overloads,
+-- so both signatures co-existed in production:
+--   - oid 252877: 2-arg, search_path=public, extensions (stale)
+--   - oid 258478: 3-arg, search_path=public, pg_catalog (active)
+--
+-- The 3-arg overload covers all call paths:
+--  - backend/src/lib/kg-search.ts sends 2 args when excludeTag is falsy
+--    and 3 args otherwise; with only the 3-arg overload left, the 2-arg
+--    call binds via p_exclude_tag DEFAULT NULL — same semantic result,
+--    plus the healthier JOIN with chunks (drops orphan chunk_ids).
+--  - app/lib/kg-search.ts also calls with 2 args; same resolution.
+--
+-- Safe to re-apply: IF EXISTS guards idempotence. This file should be
+-- applied after migration_b3_regime_filter_scoped_chunks.sql.
+-- ============================================================
+
+DROP FUNCTION IF EXISTS public.kg_get_scoped_chunks(uuid[], integer);
+
+-- ------------------------------------------------------------
+-- Verification (read-only):
+--   SELECT pg_get_function_identity_arguments(p.oid), p.proconfig
+--   FROM pg_proc p
+--   JOIN pg_namespace n ON n.oid = p.pronamespace
+--   WHERE n.nspname = 'public' AND p.proname = 'kg_get_scoped_chunks';
+--   -- Expect exactly one row:
+--   --   entity_ids uuid[], max_chunks integer, p_exclude_tag text
+--   --   {"search_path=public, pg_catalog"}
+-- ------------------------------------------------------------
