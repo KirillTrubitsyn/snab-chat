@@ -236,32 +236,41 @@ export async function getDeviceCount(inviteCodeId: string): Promise<number> {
 // ============================================================
 
 /**
- * M-D fix: выделенный секрет для подписи auth-токенов.
+ * H05 (22.04.2026): выделенный секрет для подписи auth-токенов.
  *
- * Приоритет источников:
- *   1. AUTH_TOKEN_SECRET (рекомендуется, >= 32 байт случайности, hex/base64)
- *   2. Устаревший fallback на SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SERVICE_KEY
- *      — сохранён для backwards-compat, чтобы ротация ENV не разлогинила всех пользователей.
- *      При использовании fallback в лог пишется WARN, чтобы было видно необходимость миграции.
- *   3. Эфемерный ключ на время процесса (токены не переживут рестарт).
+ * Единственный источник — `AUTH_TOKEN_SECRET` (минимум 32 символа).
+ * Fallback на SUPABASE_SERVICE_*_KEY удалён: подписывать session-токены
+ * ключом БД значило бы, что компрометация токена может помочь атакующему
+ * угадать/переиспользовать service-role креды (и наоборот). Развязка
+ * обязательна.
  *
- * Ротация AUTH_TOKEN_SECRET инвалидирует ВСЕ выпущенные auth-токены.
- * Это безопасный способ принудительно разлогинить сессии.
+ * Fallback на эфемерный ключ также удалён в prod: если при рестарте
+ * всех пользователей молча разлогинивать — это баг, а не фича.
+ * Поведение:
+ *   - `NODE_ENV !== "production"`: если `AUTH_TOKEN_SECRET` не задан,
+ *     используется эфемерный ключ (удобно для локальных прогонов тестов).
+ *   - `NODE_ENV === "production"`: если `AUTH_TOKEN_SECRET` не задан
+ *     или короче 32 символов, процесс падает на старте. Это громкий
+ *     отказ вместо тихой уязвимости.
+ *
+ * Ротация `AUTH_TOKEN_SECRET` инвалидирует ВСЕ выпущенные токены —
+ * безопасный способ принудительно разлогинить сессии.
  */
 const AUTH_TOKEN_SECRET = (() => {
-  if (process.env.AUTH_TOKEN_SECRET && process.env.AUTH_TOKEN_SECRET.length >= 32) {
-    return process.env.AUTH_TOKEN_SECRET;
+  const envSecret = process.env.AUTH_TOKEN_SECRET;
+  if (envSecret && envSecret.length >= 32) {
+    return envSecret;
   }
-  const legacy = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
-  if (legacy) {
-    console.warn(
-      "[auth] WARNING: AUTH_TOKEN_SECRET not set — using legacy fallback on SUPABASE_SERVICE_*_KEY. " +
-      "Set a dedicated AUTH_TOKEN_SECRET (>=32 chars, e.g. `openssl rand -hex 32`) to decouple token signing from the database key. " +
-      "This is a migration path; fallback will be removed in a future release."
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "[auth] FATAL: AUTH_TOKEN_SECRET must be set to a value of at least 32 characters in production. " +
+      "Generate with `openssl rand -hex 32` and set on Railway env."
     );
-    return legacy;
   }
-  console.warn("[auth] WARNING: No auth token secret configured — using random ephemeral key. Tokens will NOT survive restarts.");
+  console.warn(
+    "[auth] WARNING: AUTH_TOKEN_SECRET not set (non-production) — using random ephemeral key. " +
+    "Tokens will NOT survive restarts."
+  );
   return randomBytes(32).toString("hex");
 })();
 const AUTH_TOKEN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
