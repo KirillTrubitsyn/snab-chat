@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { apiUrl } from "@/app/lib/api";
+import { apiUrl, getAuthHeaders } from "@/app/lib/api";
 
 /* ── Типы ── */
 
@@ -162,6 +162,7 @@ export default function KBSearchBar({
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            ...getAuthHeaders(),
           },
           body: JSON.stringify({
             query: q.trim(),
