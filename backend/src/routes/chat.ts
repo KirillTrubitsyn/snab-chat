@@ -817,22 +817,44 @@ ${sanitizeUserInput(userMessage.content)}
 
     try {
       const tAgentic = Date.now();
-      await runAgenticSearch(agenticCtx, agenticPrompt, 6);
+      const agenticResult = await runAgenticSearch(agenticCtx, agenticPrompt, 6);
 
-      console.log(`[chat][timing] Agentic search: ${Date.now() - tAgentic}ms (${agenticCtx.searchCount} searches, ${agenticCtx.chunks.size} chunks)`);
+      console.log(`[chat][timing] Agentic search: ${Date.now() - tAgentic}ms (${agenticCtx.searchCount} searches, ${agenticCtx.chunks.size} chunks, bestEffort=${agenticResult.bestEffort}${agenticResult.failedStep ? `, failedStep=${agenticResult.failedStep}` : ""})`);
+
+      // C03: при best-effort (цикл оборвался на ошибке Gemini/tool-call)
+      // сохраняем уже накопленные в agenticCtx чанки и дополняем их
+      // deterministic hybrid search, чтобы ответ не был пустым.
+      if (agenticResult.bestEffort) {
+        try {
+          const augmentResults = await hybridSearch(searchQuery, 15, searchHints);
+          let augmented = 0;
+          for (const r of augmentResults) {
+            if (!agenticCtx.chunks.has(r.id)) {
+              agenticCtx.chunks.set(r.id, r);
+              augmented++;
+            }
+          }
+          console.log(`[chat] Best-effort augment: +${augmented} hybrid chunks, total=${agenticCtx.chunks.size}`);
+        } catch (augErr) {
+          console.error("[chat] Best-effort augmentation failed (non-fatal):", augErr);
+        }
+      }
 
       const filtered = await finalizeAgenticResults(agenticCtx, userMessage.content, preSeededFileHints.length >= 2 ? preSeededFileHints : undefined, intentResult, detectedEntityNames.length >= 2 ? detectedEntityNames : undefined);
       relevantChunks = filtered.results;
-      lowConfidence = filtered.lowConfidence;
+      // Best-effort автоматически деградирует ответ в low-confidence, чтобы
+      // UI показал предупреждение пользователю.
+      lowConfidence = filtered.lowConfidence || agenticResult.bestEffort;
     } catch (agenticError) {
-      console.error("[chat] Agentic RAG failed, falling back to deterministic:", agenticError);
-      // Fallback: run a simple hybrid search
+      // Safety net: в теории сюда больше ничего не должно прилетать, так как
+      // runAgenticSearch не бросает, а finalizeAgenticResults вряд ли упадёт.
+      console.error("[chat] Agentic RAG failed unexpectedly, falling back to deterministic:", agenticError);
       const fallbackResults = await hybridSearch(searchQuery, 20, searchHints);
       const reranked = intentAwareRerank(fallbackResults, intentResult);
       const rerankResult = await rerank(userMessage.content, reranked, detectedEntityNames.length >= 2 ? detectedEntityNames : undefined);
       const filtered = filterByRelevance(rerankResult);
       relevantChunks = filtered.results;
-      lowConfidence = filtered.lowConfidence;
+      lowConfidence = true;
     }
   } else {
     // ═══ DETERMINISTIC PATH: fast fixed pipeline (existing logic) ═══

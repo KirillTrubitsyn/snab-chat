@@ -3,6 +3,7 @@ import { hybridSearch, filterByRelevance, intentAwareRerank, type SearchResult }
 import { fetchChunksBySection, fetchChunksByDocument } from "./retrieval.js";
 import { rerank } from "./reranker.js";
 import { withGoogleApiLimit } from "./google-ai.js";
+import { logError } from "./error-logger.js";
 import type { SectionReference, DocumentReference } from "./query-analyzer.js";
 import type { IntentResult } from "./intent-classifier.js";
 
@@ -178,59 +179,124 @@ async function executeTool(
 
 /* ── Agentic search loop using @google/genai ── */
 
+/**
+ * Result of an agentic loop execution.
+ *
+ * `bestEffort: true` signals, что цикл был прерван ошибкой (Gemini 429,
+ * таймаут Supabase, невалидный JSON и т.п.) до того, как модель сказала
+ * «поиск завершён». Накопленные в ctx.chunks результаты сохраняются и
+ * могут быть использованы вызывающим кодом вместе с fallback-поиском,
+ * а итоговый ответ помечается низкой уверенностью.
+ */
+export interface AgenticRunResult {
+  bestEffort: boolean;
+  error?: string;
+  failedStep?: number;
+  completedSteps: number;
+}
+
 export async function runAgenticSearch(
   ctx: AgenticContext,
   prompt: string,
   maxSteps: number = 6
-): Promise<void> {
+): Promise<AgenticRunResult> {
   const history: Content[] = [
     { role: "user", parts: [{ text: prompt }] },
   ];
 
   for (let step = 0; step < maxSteps; step++) {
-    const response = await withGoogleApiLimit(() =>
-      client.models.generateContent({
-        model: AGENTIC_MODEL,
-        contents: history,
-        config: {
-          tools: [{ functionDeclarations: toolDeclarations }],
-          toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO } },
-          temperature: 0,
+    // C03: обернуть каждый шаг в try/catch. Любая единичная ошибка
+    // (Gemini 429, невалидный JSON от tool-call, таймаут Supabase) больше
+    // не валит весь запрос в 500. Вместо этого цикл останавливается,
+    // а накопленные чанки отдаются вызывающему как best-effort результат.
+    try {
+      const response = await withGoogleApiLimit(() =>
+        client.models.generateContent({
+          model: AGENTIC_MODEL,
+          contents: history,
+          config: {
+            tools: [{ functionDeclarations: toolDeclarations }],
+            toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO } },
+            temperature: 0,
+          },
+        })
+      );
+
+      const candidate = response.candidates?.[0];
+
+      // Add full model response to history (preserves thought_signature)
+      if (candidate?.content) {
+        history.push(candidate.content);
+      }
+
+      const functionCalls = response.functionCalls;
+      if (!functionCalls || functionCalls.length === 0) {
+        // Model finished — no more tool calls
+        console.log(`[agentic] Loop finished after ${step + 1} steps, ${ctx.chunks.size} chunks collected`);
+        return { bestEffort: false, completedSteps: step + 1 };
+      }
+
+      // Execute all function calls and build response parts
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const responseParts: any[] = [];
+      for (const call of functionCalls) {
+        // Per-tool isolation: ошибка одного tool-call возвращается модели как
+        // status=error, чтобы она могла попробовать другой инструмент, а не
+        // валила весь цикл.
+        try {
+          const result = await executeTool(ctx, call.name!, call.args ?? {});
+          responseParts.push({
+            functionResponse: {
+              name: call.name,
+              response: result,
+              ...(call.id ? { id: call.id } : {}),
+            },
+          });
+        } catch (toolErr) {
+          const toolMsg = toolErr instanceof Error ? toolErr.message : String(toolErr);
+          console.error(`[agentic] Tool ${call.name} failed at step ${step + 1}:`, toolErr);
+          responseParts.push({
+            functionResponse: {
+              name: call.name,
+              response: {
+                status: "error",
+                message: toolMsg.slice(0, 200),
+              },
+              ...(call.id ? { id: call.id } : {}),
+            },
+          });
+        }
+      }
+
+      // Send tool results back to model
+      history.push({ role: "user", parts: responseParts });
+    } catch (stepErr) {
+      const errMsg = stepErr instanceof Error ? stepErr.message : String(stepErr);
+      console.error(
+        `[agentic] Step ${step + 1}/${maxSteps} failed; preserving ${ctx.chunks.size} chunks:`,
+        stepErr
+      );
+      // Fire-and-forget: не блокируем ответ пользователю.
+      logError({
+        type: "chat.agentic",
+        message: `Agentic step ${step + 1} failed: ${errMsg}`.slice(0, 500),
+        endpoint: "/api/chat",
+        metadata: {
+          step: step + 1,
+          maxSteps,
+          chunksAccumulated: ctx.chunks.size,
+          searchCount: ctx.searchCount,
         },
-      })
-    );
-
-    const candidate = response.candidates?.[0];
-
-    // Add full model response to history (preserves thought_signature)
-    if (candidate?.content) {
-      history.push(candidate.content);
+      }).catch(() => {});
+      return {
+        bestEffort: true,
+        error: errMsg.slice(0, 200),
+        failedStep: step + 1,
+        completedSteps: step,
+      };
     }
-
-    const functionCalls = response.functionCalls;
-    if (!functionCalls || functionCalls.length === 0) {
-      // Model finished — no more tool calls
-      console.log(`[agentic] Loop finished after ${step + 1} steps, ${ctx.chunks.size} chunks collected`);
-      break;
-    }
-
-    // Execute all function calls and build response parts
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const responseParts: any[] = [];
-    for (const call of functionCalls) {
-      const result = await executeTool(ctx, call.name!, call.args ?? {});
-      responseParts.push({
-        functionResponse: {
-          name: call.name,
-          response: result,
-          ...(call.id ? { id: call.id } : {}),
-        },
-      });
-    }
-
-    // Send tool results back to model
-    history.push({ role: "user", parts: responseParts });
   }
+  return { bestEffort: false, completedSteps: maxSteps };
 }
 
 /**
