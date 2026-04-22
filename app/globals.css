@@ -5743,6 +5743,14 @@ input, textarea {
   font-size: 24px;
 }
 
+/* Inline SVG icons in the admin topbar — независимы от webfont-иконок,
+   чтобы критичная мобильная навигация (гамбургер, «К чату», выход)
+   всегда рендерилась, даже если Material Symbols ещё не загружены. */
+.admin-topbar-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
 /* ── Sidebar overlay ── */
 
 .admin-sidebar-overlay {

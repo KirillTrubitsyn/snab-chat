@@ -96,12 +96,26 @@ export default function AdminPanel({ adminCode, userName, isDocAdmin, canDeleteC
       <div className="admin-main">
         {/* Top bar */}
         <header className="admin-topbar">
-          <button className="admin-topbar-hamburger" onClick={() => setSidebarOpen(!sidebarOpen)}>
-            <span className="material-symbols-outlined">{sidebarOpen ? "close" : "menu"}</span>
+          <button
+            className="admin-topbar-hamburger"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            aria-label={sidebarOpen ? "Закрыть меню" : "Открыть меню"}
+          >
+            {sidebarOpen ? (
+              <svg className="admin-topbar-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <svg className="admin-topbar-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 7H20M4 12H20M4 17H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )}
           </button>
           <div className="admin-topbar-spacer" />
-          <a href="/" className="admin-topbar-link">
-            <span className="material-symbols-outlined">chat</span>
+          <a href="/" className="admin-topbar-link" aria-label="К чату">
+            <svg className="admin-topbar-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M21 12C21 16.4183 16.9706 20 12 20C10.4942 20 9.07554 19.671 7.83789 19.0879L3 20L4.16211 16.3789C3.42231 15.1046 3 13.6016 3 12C3 7.58172 7.02944 4 12 4C16.9706 4 21 7.58172 21 12Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+            </svg>
             <span className="admin-topbar-link-text">К чату</span>
           </a>
           <div className="admin-topbar-divider" />
@@ -113,8 +127,10 @@ export default function AdminPanel({ adminCode, userName, isDocAdmin, canDeleteC
             <div className="admin-topbar-avatar">{getInitials(userName)}</div>
           </div>
           <div className="admin-topbar-divider" />
-          <button onClick={onLogout} className="admin-topbar-logout">
-            <span className="material-symbols-outlined">logout</span>
+          <button onClick={onLogout} className="admin-topbar-logout" aria-label="Выйти">
+            <svg className="admin-topbar-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M15 4H18C19.1046 4 20 4.89543 20 6V18C20 19.1046 19.1046 20 18 20H15M10 16L14 12M14 12L10 8M14 12H4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
             <span className="admin-topbar-link-text">Выйти</span>
           </button>
         </header>
