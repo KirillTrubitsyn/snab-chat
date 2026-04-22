@@ -22,6 +22,8 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
   const [sourceTagInput, setSourceTagInput] = useState("");
   const [docCategoryFilter, setDocCategoryFilter] = useState<string>("all");
   const [docTypeFilter, setDocTypeFilter] = useState<string>("all");
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [showTypePicker, setShowTypePicker] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -369,22 +371,10 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
           </div>
         </div>
 
-        {/* Category filter pills */}
-        <div className="admin-doc-pills">
-          <button className={`admin-doc-pill ${docCategoryFilter === "all" ? "active" : ""}`} onClick={() => setDocCategoryFilter("all")}>
-            Все ({sources.length})
-          </button>
-          {DOC_CATEGORIES.map((cat) => (
-            <button key={cat.key} className={`admin-doc-pill ${docCategoryFilter === cat.key ? "active" : ""}`} onClick={() => setDocCategoryFilter(cat.key)}>
-              {cat.label} ({categoryCounts[cat.key] || 0})
-            </button>
-          ))}
-        </div>
-
-        {/* File type filter pills */}
-        <div className="admin-doc-pills" style={{ marginTop: -4 }}>
-          {[
-            { key: "all", label: "Все типы" },
+        {/* Filter buttons (open modal pickers) */}
+        {(() => {
+          const FILE_TYPES = [
+            { key: "all", label: "Все типы", icon: "filter_none" },
             { key: "pdf", label: "PDF", icon: "picture_as_pdf" },
             { key: "docx", label: "DOCX", icon: "description" },
             { key: "xlsx", label: "Excel", icon: "table_chart" },
@@ -392,19 +382,118 @@ export default function DocumentsTab({ adminCode, isDocAdmin }: { adminCode: str
             { key: "html", label: "HTML", icon: "school" },
             { key: "txt", label: "TXT", icon: "text_snippet" },
             { key: "md", label: "Markdown", icon: "grid_view" },
-          ].map((ft) => {
-            const count = ft.key === "all"
-              ? sources.filter((s) => docCategoryFilter === "all" || normalizeFolderPath(s.folder_path) === docCategoryFilter).length
-              : sources.filter((s) => (docCategoryFilter === "all" || normalizeFolderPath(s.folder_path) === docCategoryFilter) && getFileExt(s) === ft.key).length;
-            if (ft.key !== "all" && count === 0) return null;
-            return (
-              <button key={ft.key} className={`admin-doc-pill ${docTypeFilter === ft.key ? "active" : ""}`} onClick={() => setDocTypeFilter(ft.key)}>
-                {ft.icon && <span className="material-symbols-outlined" style={{ fontSize: 14, marginRight: 2 }}>{ft.icon}</span>}
-                {ft.label} ({count})
-              </button>
-            );
-          })}
-        </div>
+          ];
+          const categoryInScope = sources.filter((s) => docCategoryFilter === "all" || normalizeFolderPath(s.folder_path) === docCategoryFilter);
+          const typeCounts = FILE_TYPES.reduce<Record<string, number>>((acc, ft) => {
+            acc[ft.key] = ft.key === "all" ? categoryInScope.length : categoryInScope.filter((s) => getFileExt(s) === ft.key).length;
+            return acc;
+          }, {});
+          const activeCategory = DOC_CATEGORIES.find((c) => c.key === docCategoryFilter);
+          const activeType = FILE_TYPES.find((t) => t.key === docTypeFilter);
+          const currentCategoryLabel = docCategoryFilter === "all" ? "Все" : activeCategory?.label || "Все";
+          const currentCategoryCount = docCategoryFilter === "all" ? sources.length : (categoryCounts[docCategoryFilter] || 0);
+          const currentTypeLabel = docTypeFilter === "all" ? "Все типы" : activeType?.label || "Все типы";
+          const currentTypeCount = typeCounts[docTypeFilter] || 0;
+          return (
+            <>
+              <div className="admin-doc-filters">
+                <button
+                  className={`admin-doc-filter-btn ${docCategoryFilter !== "all" ? "active" : ""}`}
+                  onClick={() => setShowCategoryPicker(true)}
+                >
+                  <span className="material-symbols-outlined admin-doc-filter-icon">
+                    {activeCategory?.icon || "category"}
+                  </span>
+                  <span className="admin-doc-filter-text">
+                    <span className="admin-doc-filter-label">Категория</span>
+                    <span className="admin-doc-filter-value">{currentCategoryLabel} ({currentCategoryCount})</span>
+                  </span>
+                  <span className="material-symbols-outlined admin-doc-filter-chevron">expand_more</span>
+                </button>
+                <button
+                  className={`admin-doc-filter-btn ${docTypeFilter !== "all" ? "active" : ""}`}
+                  onClick={() => setShowTypePicker(true)}
+                >
+                  <span className="material-symbols-outlined admin-doc-filter-icon">
+                    {activeType?.icon || "filter_none"}
+                  </span>
+                  <span className="admin-doc-filter-text">
+                    <span className="admin-doc-filter-label">Тип файла</span>
+                    <span className="admin-doc-filter-value">{currentTypeLabel} ({currentTypeCount})</span>
+                  </span>
+                  <span className="material-symbols-outlined admin-doc-filter-chevron">expand_more</span>
+                </button>
+              </div>
+
+              {showCategoryPicker && (
+                <div className="admin-modal-overlay" onClick={() => setShowCategoryPicker(false)}>
+                  <div className="admin-modal admin-picker-modal" onClick={(e) => e.stopPropagation()}>
+                    <div className="admin-modal-header">
+                      <h3>Выберите категорию</h3>
+                      <button onClick={() => setShowCategoryPicker(false)} className="admin-modal-close">&times;</button>
+                    </div>
+                    <div className="admin-modal-body">
+                      <div className="admin-picker-list">
+                        <button
+                          className={`admin-picker-option ${docCategoryFilter === "all" ? "active" : ""}`}
+                          onClick={() => { setDocCategoryFilter("all"); setShowCategoryPicker(false); }}
+                        >
+                          <span className="material-symbols-outlined admin-picker-option-icon">apps</span>
+                          <span className="admin-picker-option-label">Все</span>
+                          <span className="admin-picker-option-count">{sources.length}</span>
+                          {docCategoryFilter === "all" && <span className="material-symbols-outlined admin-picker-option-check">check</span>}
+                        </button>
+                        {DOC_CATEGORIES.map((cat) => (
+                          <button
+                            key={cat.key}
+                            className={`admin-picker-option ${docCategoryFilter === cat.key ? "active" : ""}`}
+                            onClick={() => { setDocCategoryFilter(cat.key); setShowCategoryPicker(false); }}
+                          >
+                            <span className="material-symbols-outlined admin-picker-option-icon">{cat.icon}</span>
+                            <span className="admin-picker-option-label">{cat.label}</span>
+                            <span className="admin-picker-option-count">{categoryCounts[cat.key] || 0}</span>
+                            {docCategoryFilter === cat.key && <span className="material-symbols-outlined admin-picker-option-check">check</span>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {showTypePicker && (
+                <div className="admin-modal-overlay" onClick={() => setShowTypePicker(false)}>
+                  <div className="admin-modal admin-picker-modal" onClick={(e) => e.stopPropagation()}>
+                    <div className="admin-modal-header">
+                      <h3>Выберите тип файла</h3>
+                      <button onClick={() => setShowTypePicker(false)} className="admin-modal-close">&times;</button>
+                    </div>
+                    <div className="admin-modal-body">
+                      <div className="admin-picker-list">
+                        {FILE_TYPES.map((ft) => {
+                          const count = typeCounts[ft.key] || 0;
+                          if (ft.key !== "all" && count === 0) return null;
+                          return (
+                            <button
+                              key={ft.key}
+                              className={`admin-picker-option ${docTypeFilter === ft.key ? "active" : ""}`}
+                              onClick={() => { setDocTypeFilter(ft.key); setShowTypePicker(false); }}
+                            >
+                              <span className="material-symbols-outlined admin-picker-option-icon">{ft.icon}</span>
+                              <span className="admin-picker-option-label">{ft.label}</span>
+                              <span className="admin-picker-option-count">{count}</span>
+                              {docTypeFilter === ft.key && <span className="material-symbols-outlined admin-picker-option-check">check</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {/* Card grid */}
         {sourcesLoading ? (
