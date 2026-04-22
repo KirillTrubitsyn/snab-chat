@@ -1,19 +1,14 @@
 import { Router, Request, Response } from "express";
-import { GoogleGenAI } from "@google/genai";
-import { withGoogleApiLimit } from "../lib/google-ai.js";
+import { OpenRouter } from "@openrouter/sdk";
 import { createServiceClient } from "../lib/supabase.js";
 import { getInviteCodeFromHeader, getAdminName, requireAuth } from "../lib/auth.js";
 import { logAuditEvent } from "../lib/audit-log.js";
 
 const router = Router();
 
-const client = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
+const client = new OpenRouter({ apiKey: process.env.OPENROUTER_API_KEY! });
 
-// Fallback chain: if primary model is unavailable (503), try next
-const IMAGE_MODELS = [
-  "gemini-3.1-flash-image-preview",
-  "gemini-3-pro-image-preview",
-];
+const IMAGE_MODEL = "openai/gpt-5.4-image-2";
 
 const INFOGRAPHIC_STYLE_PROMPTS: Record<string, string> = {
   business_infographic:
@@ -68,6 +63,23 @@ function sanitizePromptInput(raw: unknown, maxLen: number): string {
 // L-E: максимальные длины входных строк инфографики
 const MAX_TOPIC_LEN = 500;
 const MAX_DOCUMENT_LEN = 6000; // было 20000; снижаем для контроля стоимости и prompt-injection
+
+// OpenRouter may return either a `data:image/...;base64,...` URL or an
+// ordinary https URL pointing to the generated asset. Normalise both to a
+// data URL so downstream storage/rendering remains identical to the old
+// Gemini-inline-data path.
+async function toDataUrl(url: string): Promise<string> {
+  if (!url) return "";
+  if (url.startsWith("data:")) return url;
+  if (!/^https?:\/\//i.test(url)) return "";
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    throw new Error(`Failed to download generated image: HTTP ${resp.status}`);
+  }
+  const mime = resp.headers.get("content-type") || "image/png";
+  const buf = Buffer.from(await resp.arrayBuffer());
+  return `data:${mime};base64,${buf.toString("base64")}`;
+}
 
 /**
  * Fix Cyrillic lookalike characters — replace Latin chars that look like
@@ -127,8 +139,6 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
         ? INFOGRAPHIC_STYLE_PROMPTS[style]
         : "";
 
-    let lastError: string | null = null;
-
     // Build user prompt (document context trimmed to 20k to stay within limits)
     const basePrompt = topicText
       ? `Создай инфографику на тему: ${topicText}\n\nВАЖНО: Если ты размещаешь текст на изображении, пиши каждое русское слово аккуратно, буква за буквой. Используй минимум слов — заменяй текст иконками, числами и графиками где возможно.`
@@ -157,118 +167,103 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
       userPrompt += `\n\nСТИЛЬ РЕНДЕРИНГА: Создай инфографику в объёмном 3D-стиле. Используй трёхмерные элементы: объёмные блоки, 3D-иконки, изометрические графики, тени и глубину. Все элементы должны выглядеть реалистично-объёмными, как в современных 3D-презентациях.`;
     }
 
-    // Try each model once with a 50s timeout — no retries, no delays
-    for (const modelId of IMAGE_MODELS) {
-      try {
-        const result = await withGoogleApiLimit(() =>
-          Promise.race([
-            client.models.generateContent({
-              model: modelId,
-              contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-              config: {
-                systemInstruction: SYSTEM_PROMPT,
-                responseModalities: ["TEXT", "IMAGE"],
-              },
-            }),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error("Timeout: 50s")), 50_000)
-            ),
-          ])
-        );
+    try {
+      const result = await Promise.race([
+        client.chat.send({
+          chatRequest: {
+            model: IMAGE_MODEL,
+            modalities: ["image", "text"],
+            stream: false,
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT },
+              { role: "user", content: userPrompt },
+            ],
+          },
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Timeout: 50s")), 50_000)
+        ),
+      ]);
 
-        // Extract image and text from response
-        const parts = result.candidates?.[0]?.content?.parts ?? [];
-        let imageBase64 = "";
-        let description = "";
+      const message = result.choices?.[0]?.message;
+      const rawUrl = message?.images?.[0]?.imageUrl?.url ?? "";
+      const imageBase64 = await toDataUrl(rawUrl);
+      const description = typeof message?.content === "string" ? message.content : "";
 
-        for (const part of parts) {
-          if (part.inlineData?.data) {
-            const mimeType = part.inlineData.mimeType || "image/png";
-            imageBase64 = `data:${mimeType};base64,${part.inlineData.data}`;
-          }
-          if (part.text) {
-            description += part.text;
-          }
-        }
-
-        if (!imageBase64) {
-          lastError = "Модель не вернула изображение";
-          console.warn(`No image from ${modelId}, trying next...`);
-          continue;
-        }
-
-        const descText = fixCyrillicLookalikes(description.trim());
-
-        // Save infographic to dedicated infographics table
-        let savedId: string | null = null;
-        try {
-          const supabase = createServiceClient();
-          // Admin IDs are not UUIDs (e.g. "admin-ФАМИЛИЯ-1234"), so skip FK
-          const isRealInviteCode = invite?.id && !invite.id.startsWith("admin-");
-          const { data: saved, error: saveError } = await supabase
-            .from("infographics")
-            .insert({
-              invite_code_id: isRealInviteCode ? invite!.id : null,
-              conversation_id: (conversationId && typeof conversationId === "string") ? conversationId : null,
-              topic: topicText || (descText ? descText.slice(0, 120) : "Инфографика"),
-              style: style || "business_infographic",
-              aspect_ratio: aspectRatio || "16:9",
-              description: descText,
-              image_base64: imageBase64,
-              admin_name: adminName || null,
-              ip_address: clientIp,
-            })
-            .select("id")
-            .single();
-          if (saveError) {
-            console.error("Infographic DB save error:", saveError.message);
-          }
-          savedId = saved?.id || null;
-
-          // Audit log for traceability
-          const userName = adminName || invite?.name || "unknown";
-          logAuditEvent({
-            action: "infographic.generate",
-            adminName: userName,
-            targetId: savedId,
-            details: {
-              topic: topicText,
-              style: style || "business_infographic",
-              ip: clientIp,
-              isAdmin: authCheck.isAdmin,
-              inviteCodeId: isRealInviteCode ? invite!.id : null,
-            },
-          });
-
-          // Decrement infographic_limit for non-admin users
-          if (isRealInviteCode && invite!.infographic_limit !== null) {
-            await supabase
-              .from("invite_codes")
-              .update({ infographic_limit: Math.max(0, invite!.infographic_limit - 1) })
-              .eq("id", invite!.id);
-          }
-        } catch (saveErr) {
-          console.error("Failed to save infographic:", saveErr);
-        }
-
-        console.log(`Infographic generated successfully with model: ${modelId}`);
-        return res.json({
-          image_base64: imageBase64,
-          description: descText,
-          infographicId: savedId,
-          conversationId: conversationId || null,
+      if (!imageBase64) {
+        return res.status(502).json({
+          error: "Модель не вернула изображение",
         });
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : "Ошибка генерации";
-        lastError = errMsg;
-        console.error(`Infographic error with ${modelId}:`, errMsg);
-        // Continue to next model immediately — no delays
       }
-    }
 
-    return res.status(502).json({
-      error: `Не удалось сгенерировать инфографику (все модели недоступны): ${lastError}`,
-    });
+      const descText = fixCyrillicLookalikes(description.trim());
+
+      // Save infographic to dedicated infographics table
+      let savedId: string | null = null;
+      try {
+        const supabase = createServiceClient();
+        // Admin IDs are not UUIDs (e.g. "admin-ФАМИЛИЯ-1234"), so skip FK
+        const isRealInviteCode = invite?.id && !invite.id.startsWith("admin-");
+        const { data: saved, error: saveError } = await supabase
+          .from("infographics")
+          .insert({
+            invite_code_id: isRealInviteCode ? invite!.id : null,
+            conversation_id: (conversationId && typeof conversationId === "string") ? conversationId : null,
+            topic: topicText || (descText ? descText.slice(0, 120) : "Инфографика"),
+            style: style || "business_infographic",
+            aspect_ratio: aspectRatio || "16:9",
+            description: descText,
+            image_base64: imageBase64,
+            admin_name: adminName || null,
+            ip_address: clientIp,
+          })
+          .select("id")
+          .single();
+        if (saveError) {
+          console.error("Infographic DB save error:", saveError.message);
+        }
+        savedId = saved?.id || null;
+
+        // Audit log for traceability
+        const userName = adminName || invite?.name || "unknown";
+        logAuditEvent({
+          action: "infographic.generate",
+          adminName: userName,
+          targetId: savedId,
+          details: {
+            topic: topicText,
+            style: style || "business_infographic",
+            ip: clientIp,
+            isAdmin: authCheck.isAdmin,
+            inviteCodeId: isRealInviteCode ? invite!.id : null,
+          },
+        });
+
+        // Decrement infographic_limit for non-admin users
+        if (isRealInviteCode && invite!.infographic_limit !== null) {
+          await supabase
+            .from("invite_codes")
+            .update({ infographic_limit: Math.max(0, invite!.infographic_limit - 1) })
+            .eq("id", invite!.id);
+        }
+      } catch (saveErr) {
+        console.error("Failed to save infographic:", saveErr);
+      }
+
+      console.log(`Infographic generated successfully with model: ${IMAGE_MODEL}`);
+      return res.json({
+        image_base64: imageBase64,
+        description: descText,
+        infographicId: savedId,
+        conversationId: conversationId || null,
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Ошибка генерации";
+      console.error(`Infographic error with ${IMAGE_MODEL}:`, errMsg);
+      return res.status(502).json({
+        error: `Не удалось сгенерировать инфографику: ${errMsg}`,
+      });
+    }
   } catch (err) {
     console.error("Infographic generation error:", err);
     return res.status(500).json({
