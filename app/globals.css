@@ -4824,6 +4824,12 @@ input, textarea {
     0  7px 0 0 #0F172A;
 }
 
+/* Portal-rendered kebab dropdown — фиксированное позиционирование, поверх всего */
+.admin-kebab-dropdown-portal {
+  margin: 0;
+  z-index: 10000;
+}
+
 .admin-kebab-dropdown {
   position: absolute;
   top: 100%;
