@@ -393,8 +393,8 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
                       </td>
                       <td className="admin-cell-date">{formatDateShort(c.created_at)}</td>
                       <td style={{ position: "relative" }}>
-                        <button className="admin-kebab-btn" onClick={(e) => { e.stopPropagation(); setOpenMenuId(isMenuOpen ? null : c.id); }} title="Действия">
-                          <span className="material-symbols-outlined">more_vert</span>
+                        <button className="admin-kebab-btn" onClick={(e) => { e.stopPropagation(); setOpenMenuId(isMenuOpen ? null : c.id); }} title="Действия" aria-label="Действия">
+                          <span className="admin-kebab-dots" aria-hidden="true" />
                         </button>
                         {isMenuOpen && (
                           <div className="admin-kebab-dropdown" onClick={(e) => e.stopPropagation()}
