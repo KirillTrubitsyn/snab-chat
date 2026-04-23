@@ -109,6 +109,7 @@ app.use(cors({
 const SERVICE_AUTH_PATHS = new Set<string>([
   "/api/chat",
   "/api/admin/extract-entities",
+  "/api/admin/embed-null-entities",
 ]);
 
 // ── Origin validation for mutation requests ──

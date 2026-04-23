@@ -19,7 +19,8 @@ export type AuditAction =
   | "infographic.generate"
   | "document.upload"
   | "document.upload.duplicate"
-  | "kg.extract_entities";
+  | "kg.extract_entities"
+  | "kg.embed_null_entities";
 
 /**
  * Log an admin action for audit trail.

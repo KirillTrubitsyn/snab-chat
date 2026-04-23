@@ -890,4 +890,127 @@ router.get("/api/admin/extract-entities", async (req: Request, res: Response) =>
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════
+//   POST /api/admin/embed-null-entities
+//   Бэкфилл эмбеддингов для kg_entities с embedding IS NULL.
+//
+//   После Wave 1 (23.04.2026) ~30 сущностей остались без вектора
+//   (созданы в последние секунды batch'а, embedding-step не успел).
+//   Основной /api/admin/extract-entities эмбеддит только сущности
+//   текущего батча (newEntityIds), поэтому отдельный эндпоинт нужен,
+//   чтобы добивать «хвост».
+//
+//   Авторизация — та же, что у extract-entities:
+//     A) browser (admin 1/2 с 2FA, isDocAdmin=true)
+//     B) service (admin 4 + EXTRACTION_SERVICE_KEY)
+//   Зарегистрирован в SERVICE_AUTH_PATHS в backend/src/index.ts.
+//
+//   Body (все поля опциональны):
+//     - limit: сколько сущностей обработать за вызов (default 50, max 500)
+//
+//   Response: { ok, processed, embedded, failed, remaining, failures? }
+// ══════════════════════════════════════════════════════════════════════
+
+router.post(
+  "/api/admin/embed-null-entities",
+  async (req: Request, res: Response) => {
+    const auth = await authorize(req, res);
+    if (!auth) return;
+
+    const sourceIp = getSourceIp(req);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const limit: number = Math.min(Math.max(Number(body.limit) || 50, 1), 500);
+
+    logAuditEvent({
+      action: "kg.embed_null_entities",
+      adminName: auth.adminName,
+      details: {
+        auth_method: auth.authMethod,
+        source_ip: sourceIp,
+        limit,
+      },
+    });
+
+    try {
+      const supabase = createServiceClient();
+
+      const { data: ents, error: selErr } = await supabase
+        .from("kg_entities")
+        .select("id, name, description")
+        .is("embedding", null)
+        .limit(limit);
+
+      if (selErr) {
+        console.error("[embed-null-entities] select error:", selErr);
+        return res.status(500).json({ error: selErr.message });
+      }
+
+      if (!ents || ents.length === 0) {
+        return res.json({
+          ok: true,
+          processed: 0,
+          embedded: 0,
+          failed: 0,
+          remaining: 0,
+          message: "No entities with NULL embedding",
+          authMethod: auth.authMethod,
+        });
+      }
+
+      let embedded = 0;
+      let failed = 0;
+      const failures: Array<{ id: string; reason: string }> = [];
+
+      for (const ent of ents) {
+        try {
+          const text = `${ent.name}. ${ent.description ?? ""}`.trim();
+          if (!text) {
+            failed++;
+            failures.push({ id: ent.id, reason: "empty name+description" });
+            continue;
+          }
+          const emb = await embedQuery(text);
+          const { error: upErr } = await supabase
+            .from("kg_entities")
+            .update({ embedding: JSON.stringify(emb) })
+            .eq("id", ent.id);
+          if (upErr) {
+            failed++;
+            failures.push({ id: ent.id, reason: upErr.message });
+          } else {
+            embedded++;
+          }
+        } catch (e) {
+          failed++;
+          failures.push({
+            id: ent.id,
+            reason: e instanceof Error ? e.message : String(e),
+          });
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
+      const { count: remaining } = await supabase
+        .from("kg_entities")
+        .select("id", { count: "exact", head: true })
+        .is("embedding", null);
+
+      return res.json({
+        ok: true,
+        processed: embedded + failed,
+        embedded,
+        failed,
+        remaining: remaining ?? null,
+        failures: failures.slice(0, 20),
+        authMethod: auth.authMethod,
+      });
+    } catch (e) {
+      console.error("[embed-null-entities] fatal:", e);
+      return res.status(500).json({
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  },
+);
+
 export default router;
