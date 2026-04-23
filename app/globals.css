@@ -4473,6 +4473,33 @@ input, textarea {
   background: rgba(59, 130, 246, 0.08);
 }
 
+/* Sticky actions column (three-dots / trailing button) so it stays visible on horizontal scroll */
+@media (min-width: 769px) {
+  .admin-table thead th:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    background: #F9FAFB;
+    box-shadow: -4px 0 8px -4px rgba(15, 23, 42, 0.08);
+  }
+  .admin-table tbody td:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    background: #fff;
+    box-shadow: -4px 0 8px -4px rgba(15, 23, 42, 0.08);
+  }
+  .admin-table tbody tr:hover td:last-child {
+    background: #F1F5F9;
+  }
+  .admin-row-selected td:last-child {
+    background: #F0F6FE;
+  }
+  .admin-row-menu-open td:last-child {
+    z-index: 3;
+  }
+}
+
 .admin-btn-danger {
   display: inline-flex;
   align-items: center;

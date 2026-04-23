@@ -346,7 +346,7 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
                   {filteredCodes.map((c) => {
                     const isMenuOpen = openMenuId === c.id;
                     return (
-                    <tr key={c.id} className={`${!c.is_active ? "admin-row-inactive" : ""} ${selectedIds.has(c.id) ? "admin-row-selected" : ""}`}>
+                    <tr key={c.id} className={`${!c.is_active ? "admin-row-inactive" : ""} ${selectedIds.has(c.id) ? "admin-row-selected" : ""} ${isMenuOpen ? "admin-row-menu-open" : ""}`}>
                       <td>
                         <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelect(c.id)} className="admin-checkbox" />
                       </td>
