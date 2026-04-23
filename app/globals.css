@@ -4804,16 +4804,17 @@ input, textarea {
   background: transparent;
   border: none;
   border-radius: 6px;
-  color: #94A3B8;
+  color: #0F172A;
   cursor: pointer;
   transition: color 0.15s, background 0.15s;
 }
 .admin-kebab-btn:hover {
-  color: #475569;
-  background: #F1F5F9;
+  color: #0F172A;
+  background: #E2E8F0;
 }
 .admin-kebab-btn .material-symbols-outlined {
-  font-size: 20px;
+  font-size: 22px;
+  font-variation-settings: 'FILL' 1, 'wght' 700;
 }
 
 .admin-kebab-dropdown {
