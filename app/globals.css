@@ -4812,9 +4812,16 @@ input, textarea {
   color: #0F172A;
   background: #E2E8F0;
 }
-.admin-kebab-btn .material-symbols-outlined {
-  font-size: 22px;
-  font-variation-settings: 'FILL' 1, 'wght' 700;
+/* Pure-CSS three vertical dots — не зависят от загрузки Material Symbols */
+.admin-kebab-dots {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #0F172A;
+  box-shadow:
+    0 -7px 0 0 #0F172A,
+    0  7px 0 0 #0F172A;
 }
 
 .admin-kebab-dropdown {
