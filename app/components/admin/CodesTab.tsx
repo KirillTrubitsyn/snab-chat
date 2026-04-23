@@ -418,6 +418,21 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
                               <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{c.is_active ? "block" : "check_circle"}</span>
                               {c.is_active ? "Отключить" : "Включить"}
                             </button>
+                            {(c.has_password || c.has_telegram || c.has_sms || c.has_totp) && (
+                              <div className="admin-kebab-divider" />
+                            )}
+                            {(c.has_telegram || c.has_sms || c.has_totp) && (
+                              <button className="admin-kebab-item warning" onClick={() => { setOpenMenuId(null); reset2FA(c.id); }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>shield</span>
+                                Сбросить 2FA
+                              </button>
+                            )}
+                            {c.has_password && (
+                              <button className="admin-kebab-item warning" onClick={() => { setOpenMenuId(null); resetPassword(c.id); }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>lock_reset</span>
+                                Сбросить пароль
+                              </button>
+                            )}
                             {canDeleteCodes && (<>
                               <div className="admin-kebab-divider" />
                               <button className="admin-kebab-item danger" onClick={() => { setOpenMenuId(null); deleteCode(c.id); }}>
