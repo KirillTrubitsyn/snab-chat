@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { apiUrl, getAdminHeaders } from "@/app/lib/api";
 import { formatDateShort } from "@/app/lib/date-utils";
 import type { InviteCode } from "./types";
@@ -39,6 +40,7 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // Kebab menu
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number; placement: "below" | "above" } | null>(null);
 
   // Edit modal
   const [editingCode, setEditingCode] = useState<InviteCode | null>(null);
@@ -224,12 +226,18 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
     }
   };
 
-  // Close menu on outside click
+  // Close menu on outside click, scroll or resize
   useEffect(() => {
     if (!openMenuId) return;
-    const handler = () => setOpenMenuId(null);
-    document.addEventListener("click", handler);
-    return () => document.removeEventListener("click", handler);
+    const close = () => { setOpenMenuId(null); setMenuAnchor(null); };
+    document.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
   }, [openMenuId]);
 
   return (
@@ -392,56 +400,32 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
                         </span>
                       </td>
                       <td className="admin-cell-date">{formatDateShort(c.created_at)}</td>
-                      <td style={{ position: "relative" }}>
-                        <button className="admin-kebab-btn" onClick={(e) => { e.stopPropagation(); setOpenMenuId(isMenuOpen ? null : c.id); }} title="Действия" aria-label="Действия">
+                      <td>
+                        <button
+                          className="admin-kebab-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isMenuOpen) {
+                              setOpenMenuId(null);
+                              setMenuAnchor(null);
+                              return;
+                            }
+                            const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                            const estimatedHeight = 280;
+                            const spaceBelow = window.innerHeight - rect.bottom;
+                            const placement = spaceBelow < estimatedHeight + 8 && rect.top > estimatedHeight + 8 ? "above" : "below";
+                            setMenuAnchor({
+                              top: placement === "below" ? rect.bottom + 4 : rect.top - 4,
+                              right: Math.max(8, window.innerWidth - rect.right),
+                              placement,
+                            });
+                            setOpenMenuId(c.id);
+                          }}
+                          title="Действия"
+                          aria-label="Действия"
+                        >
                           <span className="admin-kebab-dots" aria-hidden="true" />
                         </button>
-                        {isMenuOpen && (
-                          <div className="admin-kebab-dropdown" onClick={(e) => e.stopPropagation()}
-                            ref={(el) => {
-                              if (el) {
-                                const rect = el.getBoundingClientRect();
-                                const spaceBelow = window.innerHeight - rect.top;
-                                if (spaceBelow < rect.height + 8) {
-                                  el.style.bottom = "100%";
-                                  el.style.top = "auto";
-                                  el.style.marginBottom = "4px";
-                                }
-                              }
-                            }}
-                          >
-                            <button className="admin-kebab-item" onClick={() => { setOpenMenuId(null); openEdit(c); }}>
-                              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span>
-                              Изменить
-                            </button>
-                            <button className="admin-kebab-item warning" onClick={() => { setOpenMenuId(null); toggleCodeActive(c.id, c.is_active); }}>
-                              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{c.is_active ? "block" : "check_circle"}</span>
-                              {c.is_active ? "Отключить" : "Включить"}
-                            </button>
-                            {(c.has_password || c.has_telegram || c.has_sms || c.has_totp) && (
-                              <div className="admin-kebab-divider" />
-                            )}
-                            {(c.has_telegram || c.has_sms || c.has_totp) && (
-                              <button className="admin-kebab-item warning" onClick={() => { setOpenMenuId(null); reset2FA(c.id); }}>
-                                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>shield</span>
-                                Сбросить 2FA
-                              </button>
-                            )}
-                            {c.has_password && (
-                              <button className="admin-kebab-item warning" onClick={() => { setOpenMenuId(null); resetPassword(c.id); }}>
-                                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>lock_reset</span>
-                                Сбросить пароль
-                              </button>
-                            )}
-                            {canDeleteCodes && (<>
-                              <div className="admin-kebab-divider" />
-                              <button className="admin-kebab-item danger" onClick={() => { setOpenMenuId(null); deleteCode(c.id); }}>
-                                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
-                                Удалить
-                              </button>
-                            </>)}
-                          </div>
-                        )}
                       </td>
                     </tr>
                     );
@@ -452,6 +436,56 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
           )}
         </div>
       </div>
+
+      {/* Kebab dropdown (rendered in body portal so it's not clipped by table overflow) */}
+      {openMenuId && menuAnchor && typeof document !== "undefined" && (() => {
+        const c = codes.find((x) => x.id === openMenuId);
+        if (!c) return null;
+        return createPortal(
+          <div
+            className="admin-kebab-dropdown admin-kebab-dropdown-portal"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "fixed",
+              top: menuAnchor.placement === "below" ? menuAnchor.top : undefined,
+              bottom: menuAnchor.placement === "above" ? window.innerHeight - menuAnchor.top : undefined,
+              right: menuAnchor.right,
+            }}
+          >
+            <button className="admin-kebab-item" onClick={() => { setOpenMenuId(null); setMenuAnchor(null); openEdit(c); }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>edit</span>
+              Изменить
+            </button>
+            <button className="admin-kebab-item warning" onClick={() => { setOpenMenuId(null); setMenuAnchor(null); toggleCodeActive(c.id, c.is_active); }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{c.is_active ? "block" : "check_circle"}</span>
+              {c.is_active ? "Отключить" : "Включить"}
+            </button>
+            {(c.has_password || c.has_telegram || c.has_sms || c.has_totp) && (
+              <div className="admin-kebab-divider" />
+            )}
+            {(c.has_telegram || c.has_sms || c.has_totp) && (
+              <button className="admin-kebab-item warning" onClick={() => { setOpenMenuId(null); setMenuAnchor(null); reset2FA(c.id); }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>shield</span>
+                Сбросить 2FA
+              </button>
+            )}
+            {c.has_password && (
+              <button className="admin-kebab-item warning" onClick={() => { setOpenMenuId(null); setMenuAnchor(null); resetPassword(c.id); }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>lock_reset</span>
+                Сбросить пароль
+              </button>
+            )}
+            {canDeleteCodes && (<>
+              <div className="admin-kebab-divider" />
+              <button className="admin-kebab-item danger" onClick={() => { setOpenMenuId(null); setMenuAnchor(null); deleteCode(c.id); }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
+                Удалить
+              </button>
+            </>)}
+          </div>,
+          document.body
+        );
+      })()}
 
       {/* Edit Modal */}
       {editingCode && (
