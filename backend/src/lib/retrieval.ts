@@ -658,11 +658,16 @@ export async function fetchChunksByDocument(
 
         selected.push(firstChunk, ...topChunks);
 
-        // Pad if needed
+        // Pad if needed.
+        // Per-doc target: docLimit chunks. We've just pushed (1 + topChunks.length)
+        // for this iteration, so cap selected at the snapshot baseline + remaining.
+        // Earlier code compared selected.length < selected.length + ... — tautology
+        // that ignored the running count and overshot docLimit (audit 24.04.2026 High-1).
         if (1 + topChunks.length < docLimit) {
           const ids = new Set(selected.map((c) => c.id));
+          const fillTarget = selected.length + (docLimit - 1 - topChunks.length);
           const step = Math.floor(docChunks.length / (docLimit - selected.length + 1)) || 1;
-          for (let i = step; i < docChunks.length && selected.length < selected.length + docLimit - 1 - topChunks.length; i += step) {
+          for (let i = step; i < docChunks.length && selected.length < fillTarget; i += step) {
             if (!ids.has(docChunks[i].id)) {
               selected.push(docChunks[i]);
               ids.add(docChunks[i].id);
@@ -670,11 +675,13 @@ export async function fetchChunksByDocument(
           }
         }
       } else {
-        // Representative sampling within document
+        // Representative sampling within document. Snapshot per-doc target before
+        // the loop — same fix as above for the keyword branch (audit High-1).
         selected.push(docChunks[0]);
         if (docLimit > 1 && docChunks.length > 1) {
           const step = Math.floor((docChunks.length - 1) / (docLimit - 1)) || 1;
-          for (let i = step; i < docChunks.length && selected.length < selected.length + docLimit - 1; i += step) {
+          const fillTarget = selected.length + (docLimit - 1);
+          for (let i = step; i < docChunks.length && selected.length < fillTarget; i += step) {
             selected.push(docChunks[i]);
           }
         }

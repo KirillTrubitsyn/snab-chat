@@ -1462,6 +1462,7 @@ ${sanitizeUserInput(userMessage.content)}
     source_filename: string;
     chunk_index: number;
     similarity: number;
+    tags: string[];
     imageBase64: Array<{ base64: string; mimeType: string }>;
   }
 
@@ -1510,6 +1511,7 @@ ${sanitizeUserInput(userMessage.content)}
         source_filename: chunk.source_filename,
         chunk_index: chunk.chunk_index,
         similarity: chunk.similarity,
+        tags: chunk.tags ?? [],
         imageBase64,
       };
     })
@@ -1522,7 +1524,7 @@ ${sanitizeUserInput(userMessage.content)}
     ? `<documents>\n${chunksWithImages
         .map(
           (r, i) =>
-            `<document id="${i + 1}" filename="${escapeXmlAttr(r.source_filename)}" chunk="${r.chunk_index}" similarity="${r.similarity.toFixed(2)}" has_screenshots="${r.imageBase64.length > 0 ? "yes" : "no"}">\n${sanitizeDocContent(r.content)}\n</document>`
+            `<document id="${i + 1}" filename="${escapeXmlAttr(r.source_filename)}" chunk="${r.chunk_index}" similarity="${r.similarity.toFixed(2)}" tags="${escapeXmlAttr((r.tags || []).join(" "))}" has_screenshots="${r.imageBase64.length > 0 ? "yes" : "no"}">\n${sanitizeDocContent(r.content)}\n</document>`
         )
         .join("\n")}\n</documents>`
     : "";
