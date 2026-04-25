@@ -46,7 +46,7 @@ jobs:
       RAG_AUTH_TOKEN: ${{ secrets.RAG_AUTH_TOKEN }}
       RAG_TEST_DELAY_SEC: ${{ github.event.inputs.delay_sec || '3' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-python@v5
         with:
