@@ -3,6 +3,7 @@ import { embedQuery } from "./embeddings.js";
 import { graphScopedSearch, type GraphScopedResult } from "./kg-search.js";
 import type { IntentResult, QueryIntent } from "./intent-classifier.js";
 import type { SectionReference, DocumentReference, CatalogQuery } from "./query-analyzer.js";
+import { selectChunksForDoc } from "./select-chunks-for-doc.js";
 
 /** Escape special regex characters to prevent ReDoS and syntax errors */
 function escapeRegExp(s: string): string {
@@ -629,65 +630,13 @@ export async function fetchChunksByDocument(
 
     for (const [docFilename, docChunks] of chunksByDoc) {
       const docLimit = Math.min(perDoc, docChunks.length);
-
-      if (searchQuery) {
-        // Keyword scoring within this document
-        const keywords = searchQuery
-          .toLowerCase()
-          .split(/\s+/)
-          .filter((w) => w.length > 3)
-          .map((w) => w.replace(/[.,!?;:()]/g, ""));
-
-        const scored = docChunks.map((chunk: DocChunkRow) => {
-          const lower = chunk.content.toLowerCase();
-          let score = 0;
-          for (const kw of keywords) {
-            const regex = new RegExp(escapeRegExp(kw), "gi");
-            const matches = lower.match(regex);
-            if (matches) score += matches.length;
-          }
-          return { chunk, score };
-        });
-        scored.sort((a, b) => b.score - a.score);
-
-        const firstChunk = docChunks[0];
-        const topChunks = scored
-          .filter((s) => s.score > 0 && s.chunk !== firstChunk)
-          .slice(0, docLimit - 1)
-          .map((s) => s.chunk);
-
-        selected.push(firstChunk, ...topChunks);
-
-        // Pad if needed.
-        // Per-doc target: docLimit chunks. We've just pushed (1 + topChunks.length)
-        // for this iteration, so cap selected at the snapshot baseline + remaining.
-        // Earlier code compared selected.length < selected.length + ... — tautology
-        // that ignored the running count and overshot docLimit (audit 24.04.2026 High-1).
-        if (1 + topChunks.length < docLimit) {
-          const ids = new Set(selected.map((c) => c.id));
-          const fillTarget = selected.length + (docLimit - 1 - topChunks.length);
-          const step = Math.floor(docChunks.length / (docLimit - selected.length + 1)) || 1;
-          for (let i = step; i < docChunks.length && selected.length < fillTarget; i += step) {
-            if (!ids.has(docChunks[i].id)) {
-              selected.push(docChunks[i]);
-              ids.add(docChunks[i].id);
-            }
-          }
-        }
-      } else {
-        // Representative sampling within document. Snapshot per-doc target before
-        // the loop — same fix as above for the keyword branch (audit High-1).
-        selected.push(docChunks[0]);
-        if (docLimit > 1 && docChunks.length > 1) {
-          const step = Math.floor((docChunks.length - 1) / (docLimit - 1)) || 1;
-          const fillTarget = selected.length + (docLimit - 1);
-          for (let i = step; i < docChunks.length && selected.length < fillTarget; i += step) {
-            selected.push(docChunks[i]);
-          }
-        }
-      }
-
-      console.log(`fetchChunksByDocument: ${docFilename} → ${Math.min(docLimit, docChunks.length)} chunks`);
+      // Per-document selection delegated to a pure helper (audit 24.04.2026
+      // High-1 fix). The helper enforces selected.length <= docLimit, which the
+      // earlier inline loops failed to do due to a tautological condition
+      // `selected.length < selected.length + offset`.
+      const docSelection = selectChunksForDoc<DocChunkRow>(docChunks, docLimit, searchQuery);
+      selected.push(...docSelection);
+      console.log(`fetchChunksByDocument: ${docFilename} → ${docSelection.length} chunks`);
     }
   } else if (searchQuery) {
     // Single document with keyword scoring (original logic)

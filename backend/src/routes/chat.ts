@@ -19,6 +19,7 @@ import { shouldInjectStandardsRegistry, generateStandardsRegistryBlock } from ".
 import { shouldInjectSgkRegistry, generateSgkRegistryPromptBlock, detectNmgresAuthorityQuery, resolveFzTypeFromRegistry, findAllEntities } from "../lib/sgk-registry.js";
 import { classifyDocumentIntent, getDocumentIntentPrompt } from "../lib/document-intent.js";
 import { isQuotaError, withGoogleApiLimit } from "../lib/google-ai.js";
+import { buildDocumentXml } from "../lib/document-xml.js";
 
 const router = Router();
 
@@ -1520,11 +1521,23 @@ ${sanitizeUserInput(userMessage.content)}
   console.log(`[chat] Loaded ${totalImagesIncluded} images for ${chunksWithImages.length} chunks`);
 
   // ── Build RAG context with text (images will be in multimodal messages) ──
+  // Per-chunk XML formatting delegated to buildDocumentXml (audit 24.04.2026
+  // High-2 fix), which guarantees the `tags="..."` attribute the system prompt
+  // refers to is actually present.
   const ragContext = chunksWithImages.length
     ? `<documents>\n${chunksWithImages
-        .map(
-          (r, i) =>
-            `<document id="${i + 1}" filename="${escapeXmlAttr(r.source_filename)}" chunk="${r.chunk_index}" similarity="${r.similarity.toFixed(2)}" tags="${escapeXmlAttr((r.tags || []).join(" "))}" has_screenshots="${r.imageBase64.length > 0 ? "yes" : "no"}">\n${sanitizeDocContent(r.content)}\n</document>`
+        .map((r, i) =>
+          buildDocumentXml(
+            {
+              source_filename: r.source_filename,
+              chunk_index: r.chunk_index,
+              similarity: r.similarity,
+              tags: r.tags,
+              hasScreenshots: r.imageBase64.length > 0,
+              sanitizedContent: sanitizeDocContent(r.content),
+            },
+            i + 1
+          )
         )
         .join("\n")}\n</documents>`
     : "";
