@@ -1,6 +1,8 @@
 import { createServiceClient } from "./supabase.js";
 import { google, withGoogleApiLimit } from "./google-ai.js";
 import { generateText } from "ai";
+import { getRedis } from "./redis.js";
+import { acquireLock, releaseLock } from "./summarization-lock.js";
 
 const SUMMARIZE_THRESHOLD = 25000;
 const RECENT_MESSAGES_KEEP = 10;
@@ -98,48 +100,70 @@ export async function loadConversationContext(
 /**
  * Runs summarization in background — does not block the chat request.
  * If it fails, the next request will retry.
+ *
+ * V25 deep-research MEDIUM-5 fix: acquire a Redis-backed per-conversation
+ * advisory lock before starting. Two concurrent chat requests crossing the
+ * SUMMARIZE_THRESHOLD at once previously raced on both the LLM call and the
+ * subsequent message-deletion batch, occasionally losing context. With the
+ * lock, only one worker runs at a time per conversation; the loser logs and
+ * returns. Lock auto-expires after 120s (lock TTL >> typical run duration).
  */
 async function scheduleSummarization(
   conversationId: string,
   existingSummary: string | null,
   oldMessages: Message[]
 ): Promise<void> {
-  const supabase = createServiceClient();
-
-  const oldText = oldMessages
-    .map((m) => `${m.role}: ${m.content}`)
-    .join("\n\n");
-
-  const contextForSummary = existingSummary
-    ? `Предыдущее резюме:\n${existingSummary}\n\nНовые сообщения:\n${oldText}`
-    : oldText;
-
-  const { text: summary } = await withGoogleApiLimit(() => generateText({
-    model: google("gemini-3.1-flash-lite-preview"),
-    prompt: `Кратко суммаризируй этот диалог, сохранив ключевые факты, решения и контекст. Пиши на русском, компактно (до 500 слов):\n\n${contextForSummary}`,
-  }));
-
-  // Save summary
-  await supabase
-    .from("conversations")
-    .update({ summary })
-    .eq("id", conversationId);
-
-  // Delete old messages
-  const { data: allMsgs } = await supabase
-    .from("messages")
-    .select("id")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true });
-
-  if (allMsgs && allMsgs.length > RECENT_MESSAGES_KEEP) {
-    const idsToDelete = allMsgs
-      .slice(0, -RECENT_MESSAGES_KEEP)
-      .map((m) => m.id);
-    await supabase.from("messages").delete().in("id", idsToDelete);
+  const redis = getRedis();
+  const lockToken = await acquireLock(redis, conversationId);
+  if (!lockToken) {
+    console.log(
+      `[memory] Skip summarization for ${conversationId} — another worker holds the lock`
+    );
+    return;
   }
 
-  console.log(`[memory] Background summarization complete for conversation ${conversationId}`);
+  try {
+    const supabase = createServiceClient();
+
+    const oldText = oldMessages
+      .map((m) => `${m.role}: ${m.content}`)
+      .join("\n\n");
+
+    const contextForSummary = existingSummary
+      ? `Предыдущее резюме:\n${existingSummary}\n\nНовые сообщения:\n${oldText}`
+      : oldText;
+
+    const { text: summary } = await withGoogleApiLimit(() => generateText({
+      model: google("gemini-3.1-flash-lite-preview"),
+      prompt: `Кратко суммаризируй этот диалог, сохранив ключевые факты, решения и контекст. Пиши на русском, компактно (до 500 слов):\n\n${contextForSummary}`,
+    }));
+
+    // Save summary
+    await supabase
+      .from("conversations")
+      .update({ summary })
+      .eq("id", conversationId);
+
+    // Delete old messages
+    const { data: allMsgs } = await supabase
+      .from("messages")
+      .select("id")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true });
+
+    if (allMsgs && allMsgs.length > RECENT_MESSAGES_KEEP) {
+      const idsToDelete = allMsgs
+        .slice(0, -RECENT_MESSAGES_KEEP)
+        .map((m) => m.id);
+      await supabase.from("messages").delete().in("id", idsToDelete);
+    }
+
+    console.log(
+      `[memory] Background summarization complete for conversation ${conversationId}`
+    );
+  } finally {
+    await releaseLock(redis, conversationId, lockToken);
+  }
 }
 
 export async function saveMessage(
