@@ -20,6 +20,10 @@ import { shouldInjectSgkRegistry, generateSgkRegistryPromptBlock, detectNmgresAu
 import { classifyDocumentIntent, getDocumentIntentPrompt } from "../lib/document-intent.js";
 import { isQuotaError, withGoogleApiLimit } from "../lib/google-ai.js";
 import { buildDocumentXml } from "../lib/document-xml.js";
+// V24 (audit 24.04.2026 Medium-1): homoglyph-tolerant injection sanitize.
+// sanitizeForXml redacts attacks + escapes XML; sanitizePlainText redacts
+// + strips invisibles for raw user input.
+import { sanitizeForXml as sanitizeDocContent, sanitizePlainText as sanitizeUserInput } from "../lib/injection-sanitize.js";
 
 const router = Router();
 
@@ -108,99 +112,6 @@ const SPU_SUB_PROMPTS: Record<SpuSubIntent, string> = {
 function generateSpuPrompt(subIntent?: SpuSubIntent): string {
   if (!subIntent) return SPU_SUB_PROMPTS.find_by_work;
   return SPU_SUB_PROMPTS[subIntent] ?? SPU_SUB_PROMPTS.find_by_work;
-}
-
-/**
- * V22: Normalize Unicode before injection checks.
- * Removes zero-width chars, soft hyphens, and maps Cyrillic homoglyphs to Latin.
- */
-function normalizeForInjectionCheck(text: string): string {
-  return text
-    // Remove zero-width characters (ZWJ, ZWNJ, ZWSP, BOM, soft hyphen, etc.)
-    .replace(/[\u200B-\u200F\u2028-\u202F\uFEFF\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u2060-\u2064\u206A-\u206F]/g, "")
-    // Map common Cyrillic homoglyphs to Latin equivalents for pattern matching
-    .replace(/[\u0410]/g, "A").replace(/[\u0430]/g, "a")  // А → A, а → a
-    .replace(/[\u0412]/g, "B").replace(/[\u0432]/g, "b")  // В → B
-    .replace(/[\u0421]/g, "C").replace(/[\u0441]/g, "c")  // С → C, с → c
-    .replace(/[\u0415]/g, "E").replace(/[\u0435]/g, "e")  // Е → E, е → e
-    .replace(/[\u041D]/g, "H").replace(/[\u043D]/g, "h")  // Н → H
-    .replace(/[\u041A]/g, "K").replace(/[\u043A]/g, "k")  // К → K
-    .replace(/[\u041C]/g, "M").replace(/[\u043C]/g, "m")  // М → M
-    .replace(/[\u041E]/g, "O").replace(/[\u043E]/g, "o")  // О → O, о → o
-    .replace(/[\u0420]/g, "P").replace(/[\u0440]/g, "p")  // Р → P, р → p
-    .replace(/[\u0422]/g, "T").replace(/[\u0442]/g, "t")  // Т → T, т → t
-    .replace(/[\u0425]/g, "X").replace(/[\u0445]/g, "x")  // Х → X, х → x
-    .replace(/[\u0423]/g, "Y").replace(/[\u0443]/g, "y")  // У → Y
-    .replace(/[\u0455]/g, "s")  // ѕ → s (Macedonian Cyrillic)
-    // Remove Unicode enclosed/circled letters (Ⓢ, ⓨ, etc.)
-    .replace(/[\u24B6-\u24E9]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x24B6 + 0x41))
-    // Normalize to NFC
-    .normalize("NFC");
-}
-
-/** Core injection pattern matching (operates on normalized text) */
-function containsInjectionPatterns(normalized: string): boolean {
-  const patterns = [
-    /<\/?(?:system|instructions?|prompt|override|admin|role|command|scenario)\b[^>]*>/i,
-    /(?:ignore|forget|disregard|забудь|игнорируй|отбрось)\s+(?:all\s+|все\s+)?(?:previous|above|prior|предыдущие|прошлые|выше)\s+(?:instructions?|rules?|prompts?|инструкции|правила|промпт)/i,
-    /(?:SYSTEM[\s_-]*OVERRIDE|ADMIN[\s_-]*MODE|NEW[\s_-]*INSTRUCTIONS?|НОВЫЕ[\s_-]*ИНСТРУКЦИИ)/i,
-    /\[SYSTEM\]|\[\/SYSTEM\]|\[INST\]|\[\/INST\]/i,
-    /^>{2,}\s*(?:system|admin|override)/im,
-  ];
-  return patterns.some((p) => p.test(normalized));
-}
-
-/** Санитизация содержимого документов для защиты от промпт-инъекций */
-function sanitizeDocContent(content: string): string {
-  // V22: normalize Unicode before pattern matching
-  const normalized = normalizeForInjectionCheck(content);
-
-  let filtered: string;
-  if (containsInjectionPatterns(normalized)) {
-    // Apply filtering on ORIGINAL content (not normalized, to preserve valid text)
-    filtered = content
-      .replace(/<\/?(?:system|instructions?|prompt|override|admin|role|command|scenario)\b[^>]*>/gi, "[filtered]")
-      .replace(/(?:ignore|forget|disregard|забудь|игнорируй|отбрось)\s+(?:all\s+|все\s+)?(?:previous|above|prior|предыдущие|прошлые|выше)\s+(?:instructions?|rules?|prompts?|инструкции|правила|промпт)/gi, "[filtered]")
-      .replace(/(?:SYSTEM[\s_-]*OVERRIDE|ADMIN[\s_-]*MODE|NEW[\s_-]*INSTRUCTIONS?|НОВЫЕ[\s_-]*ИНСТРУКЦИИ)/gi, "[filtered]")
-      .replace(/\[SYSTEM\]|\[\/SYSTEM\]|\[INST\]|\[\/INST\]/gi, "[filtered]");
-  } else {
-    filtered = content;
-  }
-
-  // Always strip control characters and zero-width chars
-  filtered = filtered
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
-    .replace(/[\u200B-\u200F\u2028-\u202F\uFEFF\u00AD]/g, "");
-
-  // Экранируем XML-спецсимволы, чтобы содержимое документа
-  // не могло закрыть теги <document>/<documents> и подменить структуру промпта.
-  return filtered
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-/**
- * V20: Sanitize user input for prompt injection.
- * Unlike sanitizeDocContent(), does NOT escape XML entities (user queries are plain text,
- * not embedded in XML tags), but DOES strip injection patterns.
- */
-function sanitizeUserInput(input: string): string {
-  const normalized = normalizeForInjectionCheck(input);
-
-  let filtered = input;
-  if (containsInjectionPatterns(normalized)) {
-    filtered = input
-      .replace(/<\/?(?:system|instructions?|prompt|override|admin|role|command|scenario)\b[^>]*>/gi, "[filtered]")
-      .replace(/(?:ignore|forget|disregard|забудь|игнорируй|отбрось)\s+(?:all\s+|все\s+)?(?:previous|above|prior|предыдущие|прошлые|выше)\s+(?:instructions?|rules?|prompts?|инструкции|правила|промпт)/gi, "[filtered]")
-      .replace(/(?:SYSTEM[\s_-]*OVERRIDE|ADMIN[\s_-]*MODE|NEW[\s_-]*INSTRUCTIONS?|НОВЫЕ[\s_-]*ИНСТРУКЦИИ)/gi, "[filtered]")
-      .replace(/\[SYSTEM\]|\[\/SYSTEM\]|\[INST\]|\[\/INST\]/gi, "[filtered]");
-  }
-
-  // Strip control characters and zero-width chars
-  return filtered
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
-    .replace(/[\u200B-\u200F\u2028-\u202F\uFEFF\u00AD]/g, "");
 }
 
 const REQUEST_TIMEOUT_MS = 80_000; // 80s — must fire before frontend's 90s abort

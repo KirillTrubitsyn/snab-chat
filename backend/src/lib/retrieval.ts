@@ -1058,6 +1058,18 @@ export async function graphAwareSearch(
     if (seen.has(r.id)) continue;
     seen.add(r.id);
     const chunkIdNum = Number(r.id);
+    // V24 Low-priority hardening (audit 24.04.2026): SearchResult.id is typed
+    // string but chunkSignals is keyed by number. The conversion works only
+    // because chunks.id is BIGINT cast to text (e.g. "26429" → 26429). If the
+    // schema ever migrates to UUID, Number() silently produces NaN and graph
+    // boosts revert to DEFAULT_BOOST with no signal. Surface that loudly.
+    if (Number.isNaN(chunkIdNum)) {
+      console.warn(
+        `[graphAwareSearch] non-numeric chunk id "${r.id}" — chunkSignals lookup ` +
+          `will miss. If chunks.id has been migrated to UUID, switch ` +
+          `chunkSignals key type from number to string.`
+      );
+    }
     const signal = graphResult.chunkSignals.get(chunkIdNum);
     const boost = signal
       ? computeGraphBoost(signal.minHop, signal.maxConfidence)

@@ -26,8 +26,17 @@ values ('documents', 'documents', false)
 on conflict (id) do nothing;
 
 -- 3. Таблица чанков (фрагменты документов с эмбеддингами)
+--
+-- ВАЖНО: id у chunks — BIGSERIAL, не uuid. Раньше в этом файле был
+-- задан uuid, но live-БД содержит BIGINT (миграция применялась не из
+-- schema.sql), и весь Knowledge-Graph слой строится вокруг BIGINT:
+--   kg_entities.source_chunk_ids BIGINT[]
+--   kg_relations.source_chunk_id BIGINT
+--   kg_get_scoped_chunks RETURNS TABLE(chunk_id BIGINT)
+-- Восстановление БД из schema.sql с uuid сломало бы граф. Синхронизировано
+-- по аудиту 24.04.2026 (Low-priority Codex Critical-1 reclassification).
 create table if not exists chunks (
-  id uuid primary key default gen_random_uuid(),
+  id bigserial primary key,
   source_id uuid references sources(id) on delete cascade,
   source_filename text not null,
   chunk_index integer not null,
