@@ -1,61 +1,37 @@
 import { Router, Request, Response } from "express";
 import { createServiceClient } from "../lib/supabase.js";
-import { getInviteCodeFromHeader, isAdminCode, requireAdmin } from "../lib/auth.js";
+import { requireAdmin } from "../lib/auth.js";
+import { verifyChunkImageToken } from "../lib/chunk-image-token.js";
 
 const router = Router();
 
 /**
  * GET /api/chunk-image — proxy chunk images from private Supabase Storage.
- * Auth: x-invite-code header OR ?token= query param (for <img src>)
+ *
+ * V25 deep-research HIGH-1 fix. Auth model:
+ *   - The query string carries a SIGNED token, not a bearer credential.
+ *   - Token = HMAC-SHA256("chunk-image-v1|<path>|<exp>", AUTH_TOKEN_SECRET).
+ *   - Token unlocks the EXACT path it was signed for, expires after 1 hour.
+ *   - No Referer-trust fallback; no shared invite/admin code reuse.
+ *   - Cache-Control: private — proxies/CDN do not cache; browser may cache
+ *     locally for the remainder of the session.
+ *
+ * Token is produced server-side by chat.ts when a response references an
+ * image, so a leaked URL grants at most one image, at most for the remaining
+ * TTL — instead of the original "any image, until the invite code rotates"
+ * exposure.
  */
 router.get("/api/chunk-image", async (req: Request, res: Response) => {
   try {
-    // N4 fix: prefer header auth; token query param allowed ONLY with valid Referer from our domain
-    let authorized = false;
-
-    const invite = await getInviteCodeFromHeader(req);
-    if (invite) {
-      authorized = true;
-    } else {
-      const tokenParam = (req.query.token as string) || "";
-      if (tokenParam) {
-        // Only allow token param if Referer matches our domain (img tags in our app send Referer)
-        const referer = req.headers.referer || "";
-        const allowedReferers = [
-          "snabchat.app",
-          "snabchat.ru",
-          "vercel.app",
-        ];
-        const refererValid = allowedReferers.some(d => {
-          try { return new URL(referer).hostname.endsWith(d); }
-          catch { return false; }
-        });
-        if (!refererValid) {
-          return res.status(403).send("Forbidden");
-        }
-        const code = decodeURIComponent(tokenParam);
-        if (isAdminCode(code)) {
-          authorized = true;
-        } else {
-          const supabase = createServiceClient();
-          const { data } = await supabase
-            .from("invite_codes")
-            .select("id")
-            .eq("code", code)
-            .eq("is_active", true)
-            .single();
-          if (data) authorized = true;
-        }
-      }
+    const path = (req.query.path as string) || "";
+    const tokenParam = (req.query.token as string) || "";
+    if (!path || !tokenParam) {
+      return res.status(400).send("Missing path or token");
     }
 
-    if (!authorized) {
+    const token = decodeURIComponent(tokenParam);
+    if (!verifyChunkImageToken(token, path)) {
       return res.status(401).send("Unauthorized");
-    }
-
-    const path = req.query.path as string;
-    if (!path) {
-      return res.status(400).send("Missing path parameter");
     }
 
     const supabase = createServiceClient();
@@ -80,7 +56,8 @@ router.get("/api/chunk-image", async (req: Request, res: Response) => {
         : "image/png";
 
     res.setHeader("Content-Type", mimeType);
-    res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+    // Private cache only: no shared/CDN cache; tokens have a 1-hour TTL.
+    res.setHeader("Cache-Control", "private, max-age=600");
     return res.send(Buffer.from(arrayBuffer));
   } catch (e) {
     console.error("[chunk-image] Error:", e);
@@ -88,87 +65,19 @@ router.get("/api/chunk-image", async (req: Request, res: Response) => {
   }
 });
 
-/**
- * POST /api/migrate — run database migrations.
- */
-router.post("/api/migrate", async (req: Request, res: Response) => {
-  try {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
-
-    const supabase = createServiceClient();
-
-    // Add storage_path and folder_path columns if they don't exist
-    const { error: alterError } = await supabase.rpc("exec_sql", {
-      sql: `
-        DO $$
-        BEGIN
-          IF NOT EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_name = 'sources' AND column_name = 'storage_path'
-          ) THEN
-            ALTER TABLE sources ADD COLUMN storage_path text;
-          END IF;
-
-          IF NOT EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_name = 'sources' AND column_name = 'folder_path'
-          ) THEN
-            ALTER TABLE sources ADD COLUMN folder_path text;
-          END IF;
-
-          IF NOT EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_name = 'conversations' AND column_name = 'admin_name'
-          ) THEN
-            ALTER TABLE conversations ADD COLUMN admin_name text;
-          END IF;
-
-          IF NOT EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_name = 'infographics' AND column_name = 'admin_name'
-          ) THEN
-            ALTER TABLE infographics ADD COLUMN admin_name text;
-          END IF;
-
-          IF NOT EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_name = 'infographics' AND column_name = 'ip_address'
-          ) THEN
-            ALTER TABLE infographics ADD COLUMN ip_address text;
-          END IF;
-        END $$;
-      `,
-    });
-
-    // Fallback: try direct SQL if rpc doesn't exist
-    if (alterError) {
-      console.log("exec_sql rpc not available:", alterError.message);
-    }
-
-    // Create storage bucket
-    const { error: bucketError } = await supabase.storage.createBucket(
-      "documents",
-      { public: false }
-    );
-
-    // R3 fix: log details server-side, return generic response
-    if (bucketError) console.warn("[migrate] Bucket error:", bucketError.message);
-    return res.json({
-      success: true,
-      message: "Migration completed",
-      bucketCreated: !bucketError,
-      columnNote: alterError
-        ? "Could not auto-add columns. Run migration manually in Supabase SQL Editor."
-        : "Columns added successfully",
-    });
-  } catch (err) {
-    console.error("Migration error:", err);
-    return res.status(500).json({
-      error: "Migration failed",
-    });
-  }
-});
+// V25 deep-research MEDIUM-3 fix: removed POST /api/migrate.
+//
+// The endpoint executed arbitrary SQL via the Supabase `exec_sql` RPC
+// behind an admin session. It was used once for one-time setup of
+// `sources.storage_path`, `sources.folder_path`, `conversations.admin_name`,
+// `infographics.admin_name`, `infographics.ip_address` and the `documents`
+// bucket — all of which exist in production today. Keeping the endpoint
+// alive turned every admin session compromise into near-DBA access.
+//
+// All future schema changes go through Supabase Dashboard SQL Editor with
+// a migration file checked in under `supabase/`. If exec_sql ever needs to
+// run from code again, do it through a one-off Railway run command, not a
+// permanent web route.
 
 /**
  * GET /api/debug-chunks — debug chunk retrieval (admin only)

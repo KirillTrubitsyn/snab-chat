@@ -20,6 +20,7 @@ import { shouldInjectSgkRegistry, generateSgkRegistryPromptBlock, detectNmgresAu
 import { classifyDocumentIntent, getDocumentIntentPrompt } from "../lib/document-intent.js";
 import { isQuotaError, withGoogleApiLimit } from "../lib/google-ai.js";
 import { buildDocumentXml } from "../lib/document-xml.js";
+import { signChunkImageToken } from "../lib/chunk-image-token.js";
 // V24 (audit 24.04.2026 Medium-1): homoglyph-tolerant injection sanitize.
 // sanitizeForXml redacts attacks + escapes XML; sanitizePlainText redacts
 // + strips invisibles for raw user input.
@@ -1808,8 +1809,13 @@ ${uploadedDocsContext}`;
     if (!originalChunk?.image_paths) continue;
     const pathsToProxy = originalChunk.image_paths.slice(0, MAX_CHUNK_IMAGES);
     for (const path of pathsToProxy) {
+      // V25 deep-research HIGH-1 fix: token is a short-lived HMAC-signed
+      // capability bound to (path, expiration), NOT the user's invite code.
+      // Token leakage through URL/log/Referer no longer exposes the bearer
+      // credential and unlocks at most one specific image for one hour.
+      const token = signChunkImageToken(path);
       chunkImageUrls.push({
-        url: `/api/chunk-image?path=${encodeURIComponent(path)}&token=${encodeURIComponent(invite.code)}`,
+        url: `/api/chunk-image?path=${encodeURIComponent(path)}&token=${encodeURIComponent(token)}`,
         source: cw.source_filename,
         chunk: cw.chunk_index,
       });

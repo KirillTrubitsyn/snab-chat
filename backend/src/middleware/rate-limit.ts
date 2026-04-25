@@ -160,9 +160,23 @@ const RATE_LIMITS: Record<string, [number, number]> = {
   "/api/search":     [30, 60_000],
   "/api/kb-search":  [30, 60_000],
   "/api/infographic":[5,  60_000],
-  "/api/auth/login": [10, 60_000],
-  "/api/auth/register": [5, 60_000],
   "/api/support":    [10, 60_000],
+
+  // V25 deep-research MEDIUM-2 fix: granular auth/OTP limits previously lived
+  // ONLY in Next middleware (middleware.ts). Production traffic goes through
+  // NEXT_PUBLIC_API_URL → this Express backend, bypassing those limits and
+  // exposing bcrypt-heavy verify-password to high-rate brute force. The
+  // values below mirror middleware.ts so backend is the authoritative source
+  // of truth regardless of topology.
+  "/api/auth/login":              [10, 60_000],  // legacy login endpoint
+  "/api/auth/login-password":     [5,  60_000],  // bcrypt-heavy: tightest cap
+  "/api/auth/verify-password":    [10, 60_000],  // password check before 2FA
+  "/api/auth/verify-otp":         [8,  60_000],  // OTP brute-force reduction
+  "/api/auth/verify-setup-otp":   [6,  60_000],  // setup-OTP brute-force reduction
+  "/api/auth/send-otp":           [6,  60_000],  // OTP delivery abuse reduction
+  "/api/auth/setup-totp":         [4,  60_000],  // TOTP setup abuse reduction
+  "/api/auth/register":           [5,  60_000],  // registration
+
   // Extract-entities: тяжёлая LLM-операция (1-3 мин на прогон).
   // 20 запросов в час с запасом перекрывают реальное использование
   // (реально 5-10 прогонов в сутки) и отсекают любой брутфорс.
