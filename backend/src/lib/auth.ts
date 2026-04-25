@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { createHmac, timingSafeEqual, randomBytes, createHash } from "crypto";
 import { createServiceClient } from "./supabase.js";
+import { getRedis } from "./redis.js";
+import { acquireLock as acquireRedisLock, releaseLock as releaseRedisLock } from "./redis-lock.js";
 
 // ============================================================
 // Админ-коды из переменной окружения ADMIN_CODES_JSON
@@ -171,6 +173,22 @@ function isMobileUserAgent(userAgent: string): boolean {
   return /mobile|android|iphone|ipad|ipod|blackberry|windows phone|webos/i.test(userAgent);
 }
 
+/**
+ * V25 deep-research MEDIUM-4 fix: serialize per-invite_code device registration.
+ *
+ * The old flow had a TOCTOU between count-check and insert. Two concurrent
+ * registrations with different deviceIds could each pass the count check
+ * (count=4 < limit=5) and both insert, ending at count=6. UNIQUE catches
+ * duplicate deviceIds but not the cross-deviceId race.
+ *
+ * Lock keyed by `device-register:${inviteCodeId}` with a 10-second TTL —
+ * generous upper bound on the count+insert latency. If we lose the lock
+ * once, retry once after 80 ms (absorbs simultaneous browser tab opens).
+ * If we still can't get it, return a recoverable error so the client retries.
+ */
+const DEVICE_REGISTER_LOCK_TTL_SEC = 10;
+const DEVICE_REGISTER_RETRY_MS = 80;
+
 export async function checkAndRegisterDevice(
   inviteCodeId: string,
   deviceId: string,
@@ -179,6 +197,8 @@ export async function checkAndRegisterDevice(
 ): Promise<{ error: string | null; isNewDevice: boolean; deviceNumber: number; isMobile: boolean }> {
   const supabase = createServiceClient();
 
+  // Idempotent fast path: existing device → just touch last_seen_at.
+  // No race-critical state change here, so no lock needed.
   const { data: existing } = await supabase
     .from("devices")
     .select("id")
@@ -194,48 +214,82 @@ export async function checkAndRegisterDevice(
     return { error: null, isNewDevice: false, deviceNumber: 0, isMobile: false };
   }
 
-  if (deviceLimit !== null) {
-    const { count } = await supabase
+  // Race-critical path. Acquire a Redis advisory lock keyed by inviteCodeId.
+  const redis = getRedis();
+  const lockKey = `device-register:${inviteCodeId}`;
+  let lockToken = await acquireRedisLock(redis, lockKey, DEVICE_REGISTER_LOCK_TTL_SEC);
+  if (!lockToken) {
+    // Brief retry to absorb transient contention (parallel browser tabs).
+    await new Promise((r) => setTimeout(r, DEVICE_REGISTER_RETRY_MS));
+    lockToken = await acquireRedisLock(redis, lockKey, DEVICE_REGISTER_LOCK_TTL_SEC);
+  }
+  if (!lockToken) {
+    return {
+      error: "Регистрация устройства занята, попробуйте ещё раз",
+      isNewDevice: false,
+      deviceNumber: 0,
+      isMobile: false,
+    };
+  }
+
+  try {
+    // Re-check existing inside the lock — the other worker may have just
+    // inserted this exact deviceId between our outer check and our acquire.
+    const { data: secondCheck } = await supabase
+      .from("devices")
+      .select("id")
+      .eq("invite_code_id", inviteCodeId)
+      .eq("device_id", deviceId)
+      .maybeSingle();
+    if (secondCheck) {
+      await supabase
+        .from("devices")
+        .update({ last_seen_at: new Date().toISOString(), user_agent: userAgent })
+        .eq("id", secondCheck.id);
+      return { error: null, isNewDevice: false, deviceNumber: 0, isMobile: false };
+    }
+
+    if (deviceLimit !== null) {
+      const { count } = await supabase
+        .from("devices")
+        .select("id", { count: "exact", head: true })
+        .eq("invite_code_id", inviteCodeId);
+
+      if (count !== null && count >= deviceLimit) {
+        return {
+          error: `Превышен лимит устройств (${deviceLimit}). Обратитесь к администратору.`,
+          isNewDevice: false,
+          deviceNumber: 0,
+          isMobile: false,
+        };
+      }
+    }
+
+    // Insert. UNIQUE(invite_code_id, device_id) protects against any
+    // residual same-deviceId race we may have missed.
+    const { error: insertError } = await supabase.from("devices").insert({
+      invite_code_id: inviteCodeId,
+      device_id: deviceId,
+      user_agent: userAgent,
+    });
+
+    if (insertError) {
+      if ((insertError as { code?: string }).code === "23505") {
+        return { error: null, isNewDevice: false, deviceNumber: 0, isMobile: false };
+      }
+      console.error("[checkAndRegisterDevice] insert error:", insertError.message);
+      return { error: "Ошибка регистрации устройства", isNewDevice: false, deviceNumber: 0, isMobile: false };
+    }
+
+    const { count: newCount } = await supabase
       .from("devices")
       .select("id", { count: "exact", head: true })
       .eq("invite_code_id", inviteCodeId);
 
-    if (count !== null && count >= deviceLimit) {
-      return {
-        error: `Превышен лимит устройств (${deviceLimit}). Обратитесь к администратору.`,
-        isNewDevice: false,
-        deviceNumber: 0,
-        isMobile: false,
-      };
-    }
+    return { error: null, isNewDevice: true, deviceNumber: newCount ?? 1, isMobile: isMobileUserAgent(userAgent) };
+  } finally {
+    await releaseRedisLock(redis, lockKey, lockToken);
   }
-
-  // Race-safe insert. Two concurrent logins from the same browser (double-click,
-  // duplicate tab, client retry) both pass the SELECT above. Without checking
-  // the insert error, each saw count=1 from their own write and fired a
-  // duplicate "Устройство №1" notification. The devices table has
-  // UNIQUE(invite_code_id, device_id), so the loser gets 23505 → treat as
-  // already-existing, no notification.
-  const { error: insertError } = await supabase.from("devices").insert({
-    invite_code_id: inviteCodeId,
-    device_id: deviceId,
-    user_agent: userAgent,
-  });
-
-  if (insertError) {
-    if ((insertError as { code?: string }).code === "23505") {
-      return { error: null, isNewDevice: false, deviceNumber: 0, isMobile: false };
-    }
-    console.error("[checkAndRegisterDevice] insert error:", insertError.message);
-    return { error: "Ошибка регистрации устройства", isNewDevice: false, deviceNumber: 0, isMobile: false };
-  }
-
-  const { count: newCount } = await supabase
-    .from("devices")
-    .select("id", { count: "exact", head: true })
-    .eq("invite_code_id", inviteCodeId);
-
-  return { error: null, isNewDevice: true, deviceNumber: newCount ?? 1, isMobile: isMobileUserAgent(userAgent) };
 }
 
 export async function getDeviceCount(inviteCodeId: string): Promise<number> {

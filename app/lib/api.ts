@@ -10,11 +10,16 @@ export function apiUrl(path: string): string {
 }
 
 /**
- * Backend API key for request validation.
- * When set, all API requests include x-api-key header to prevent
- * unauthorized direct access to the backend even if its URL leaks.
+ * V25 deep-research MEDIUM-1 fix: removed NEXT_PUBLIC_BACKEND_API_KEY usage.
+ *
+ * The NEXT_PUBLIC_ prefix exposes any value to the JS bundle in DevTools,
+ * making the "shared secret between frontend and backend" pattern false
+ * security: anyone reading network traffic could replay the same header.
+ * The backend retains real auth via invite-code, admin-session, and Origin
+ * validation; the optional BACKEND_API_KEY check on the backend remains
+ * available for genuine server-to-server callers (CI/scripts), where the
+ * key never leaves a server-side env.
  */
-const BACKEND_API_KEY = process.env.NEXT_PUBLIC_BACKEND_API_KEY || "";
 
 /**
  * Build auth headers for API requests.
@@ -32,13 +37,12 @@ export function getAuthHeaders(): Record<string, string> {
   if (token) headers["x-auth-token"] = token;
   // H-A companion: админский session token, если он сохранён (проверяется validateAdminFastpath на бэкенде)
   if (adminSession) headers["x-admin-session"] = adminSession;
-  if (BACKEND_API_KEY) headers["x-api-key"] = BACKEND_API_KEY;
   return headers;
 }
 
 /**
  * Build headers for admin API requests.
- * Includes x-admin-code, x-admin-session, and x-api-key.
+ * Includes x-admin-code and x-admin-session.
  */
 export function getAdminHeaders(adminCode: string): Record<string, string> {
   const headers: Record<string, string> = {
@@ -48,6 +52,5 @@ export function getAdminHeaders(adminCode: string): Record<string, string> {
     const session = sessionStorage.getItem("snabchat_admin_session");
     if (session) headers["x-admin-session"] = session;
   }
-  if (BACKEND_API_KEY) headers["x-api-key"] = BACKEND_API_KEY;
   return headers;
 }
