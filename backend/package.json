@@ -23,7 +23,7 @@
     "helmet": "^8.0.0",
     "ioredis": "^5.10.1",
     "ipaddr.js": "^2.2.0",
-    "isomorphic-dompurify": "^3.7.1",
+    "isomorphic-dompurify": "^3.10.0",
     "jszip": "^3.10.1",
     "mammoth": "^1.8.0",
     "multer": "^2.0.1",
