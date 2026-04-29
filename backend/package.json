@@ -15,7 +15,7 @@
     "@node-rs/bcrypt": "^1.10.7",
     "@openrouter/sdk": "^0.12.19",
     "@supabase/supabase-js": "^2.49.0",
-    "ai": "^6.0.147",
+    "ai": "^6.0.169",
     "cors": "^2.8.5",
     "docx": "^9.6.1",
     "exceljs": "^4.4.0",
