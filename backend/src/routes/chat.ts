@@ -16,6 +16,8 @@ import { isComplexQuery, createAgenticContext, runAgenticSearch, finalizeAgentic
 import { expandByRelationships } from "../lib/relationships.js";
 import { getMatchingDirectives, generateDirectivesPromptBlock } from "../lib/directives-registry.js";
 import { shouldInjectStandardsRegistry, generateStandardsRegistryBlock } from "../lib/standards-registry.js";
+import { shouldInjectLeadTimeRegistry, generateLeadTimePromptBlock, isLeadTimeQuery } from "../lib/lead-time-registry.js";
+import { isTemplateRequest, findTemplateSources, generateTemplatePromptBlock } from "../lib/template-request.js";
 import { shouldInjectSgkRegistry, generateSgkRegistryPromptBlock, detectNmgresAuthorityQuery, resolveFzTypeFromRegistry, findAllEntities } from "../lib/sgk-registry.js";
 import { classifyDocumentIntent, getDocumentIntentPrompt } from "../lib/document-intent.js";
 import { isQuotaError, withGoogleApiLimit } from "../lib/google-ai.js";
@@ -787,7 +789,7 @@ ${sanitizeUserInput(userMessage.content)}
       // runAgenticSearch не бросает, а finalizeAgenticResults вряд ли упадёт.
       console.error("[chat] Agentic RAG failed unexpectedly, falling back to deterministic:", agenticError);
       const fallbackResults = await hybridSearch(searchQuery, 20, searchHints);
-      const reranked = intentAwareRerank(fallbackResults, intentResult);
+      const reranked = intentAwareRerank(fallbackResults, intentResult, userMessage.content);
       const rerankResult = await rerank(userMessage.content, reranked, detectedEntityNames.length >= 2 ? detectedEntityNames : undefined);
       const filtered = filterByRelevance(rerankResult);
       relevantChunks = filtered.results;
@@ -1229,7 +1231,7 @@ ${sanitizeUserInput(userMessage.content)}
   if (bypassReranker) {
     // Apply only lightweight intent-aware reranking (tier weights + FZ boost),
     // skip the destructive LLM cross-encoder reranker
-    const intentReranked = intentAwareRerank(combinedResults, intentResult);
+    const intentReranked = intentAwareRerank(combinedResults, intentResult, userMessage.content);
     const sorted = intentReranked.sort((a, b) => b.similarity - a.similarity);
 
     relevantChunks = sorted.slice(0, 15);
@@ -1253,7 +1255,7 @@ ${sanitizeUserInput(userMessage.content)}
     );
   } else {
     // Standard path: full reranking
-    const rerankedResults = intentAwareRerank(combinedResults, intentResult);
+    const rerankedResults = intentAwareRerank(combinedResults, intentResult, userMessage.content);
     const rerankResult = await rerank(userMessage.content, rerankedResults, detectedEntityNames.length >= 2 ? detectedEntityNames : undefined);
     const filtered = filterByRelevance(rerankResult);
     relevantChunks = filtered.results;
@@ -1506,6 +1508,33 @@ ${sanitizeUserInput(userMessage.content)}
     ? generateStandardsRegistryBlock()
     : "";
 
+  // ── Lead-time registry: inject canonical procurement lead times when the
+  // query is about timing of a procurement (срок подачи заявки, время на
+  // проведение закупки и т. п.). Замечание №1 от 04.05.2026 — модель
+  // подмешивала смежные сроки (заседаний ЗК, рассмотрения заявок), теряя
+  // нормативный пункт Стандарта.
+  const leadTimeBlock = shouldInjectLeadTimeRegistry(userMessage.content, intentResult.intent)
+    ? generateLeadTimePromptBlock(intentResult.fz_type)
+    : "";
+
+  // ── Template request: when user asks for a template / form / blank,
+  // resolve matching sources directly and inject download links into the
+  // system prompt. Замечание №4 от 04.05.2026 — модель пересказывала
+  // структуру вместо того, чтобы выдать ссылку на сам шаблон.
+  let templateBlock = "";
+  if (isTemplateRequest(userMessage.content)) {
+    try {
+      const entityHints: string[] = [];
+      if (docRef && Array.isArray(docRef.filenameHints)) {
+        entityHints.push(...docRef.filenameHints);
+      }
+      const templateHits = await findTemplateSources(userMessage.content, entityHints, 4);
+      templateBlock = generateTemplatePromptBlock(templateHits);
+    } catch (e) {
+      console.error("[chat][template] resolution failed (non-fatal):", e);
+    }
+  }
+
   // ── SGK organization registry: inject when query mentions an entity, filial,
   // regime question, or group structure. Authoritative source that overrides
   // the model's pre-training knowledge (e.g. wrong "АО Квадра" for НМГРЭС).
@@ -1582,7 +1611,12 @@ ${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФО
 - Для дословных цитат используй формат: > "цитата"
 - Деловой, но дружелюбный тон
 - НЕ добавляй [doc:1], [doc:2] и подобные ссылки в текст
-- Когда пользователь просит составить таблицу с расчётами, итогами или формулами — используй стандартные Excel-формулы прямо в ячейках markdown-таблицы. Например: =SUM(B2:B10), =A2*B2, =AVERAGE(C2:C5), =B2/C2*100. Формулы должны ссылаться на правильные ячейки Excel (колонки A, B, C... и строки 1, 2, 3..., где строка 1 — заголовок). Пользователь сможет скачать таблицу в Excel с рабочими формулами.
+- ОТСТУПЫ И АБЗАЦЫ. Каждый смысловой блок отделяй ПУСТОЙ СТРОКОЙ (двойной перевод). Не склеивай разные мысли в один абзац. Перед заголовком и после него — пустая строка. Перед маркированным/нумерованным списком — пустая строка. Длинные абзацы (более 4-5 предложений) разбивай. Замечание №3 от 04.05.2026: текст слипался без отступов.
+- Когда пользователь просит составить таблицу с расчётами, итогами или формулами:
+  • ОБЯЗАТЕЛЬНО считай результат каждой формулы и выводи его в ячейке. Формат ячейки: «<вычисленное_значение> (=<формула>)». Например: «27.7 % (=((C2-B2)/B2)*100)», «5 010 613.20 (=A2+A4)», «64.06 (=AVERAGE(B2:B4))». НИКОГДА не оставляй ячейку только с формулой — пользователь должен видеть готовый ответ в чате.
+  • Перед выводом ПРОВЕРЬ синтаксис формулы. Между числом и переменной должен быть оператор (*, /, +, -). Запрещены конструкции вида «=A20.22» (правильно «=A2*0.22») или «=(...)100» без знака умножения (правильно «=(...)*100»). Если в исходном файле формула битая, посчитай вручную по смыслу и укажи в ячейке: «<значение> (исходная формула в файле некорректна: =A20.22)».
+  • Используй Excel-нотацию ячеек (A, B, C... и строки 1, 2, 3..., где строка 1 — заголовок). После скачивания в Excel формулы автоматически пересчитаются.
+  • Итоговая строка таблицы обязательна, в ней также должно быть и значение, и формула.
 
 ТАБЛИЦЫ — ПОДРОБНЫЕ ПРАВИЛА:
 Пользователь может скачать любую таблицу из ответа в Excel. Каждый заголовок ## становится отдельным листом Excel. Поэтому:
@@ -1606,9 +1640,10 @@ ${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФО
    - Стандартные колонки: №, Наименование, Описание/Значение
 
 4. ФОРМУЛЫ И РАСЧЁТЫ:
-   - Для расчётных таблиц используй Excel-формулы: =SUM(), =A2*B2, =AVERAGE()
-   - Итоговая строка обязательна для числовых данных
-   - Формулы ссылаются на ячейки Excel (A, B, C... и строки 1, 2, 3... где строка 1 = заголовок)
+   - В ячейке выводи И вычисленное значение, И формулу: «27.7 % (=((C2-B2)/B2)*100)»
+   - Между числом и ссылкой на ячейку всегда явный оператор (*, /, +, -); конструкции «=A20.22» и «=(...)100» без знака умножения запрещены
+   - Если формула в исходном файле битая, считай вручную по смыслу и помечай ячейку, что исходная формула некорректна
+   - Итоговая строка обязательна для числовых данных и тоже включает значение + формулу
 
 5. ОБЩИЕ ПРАВИЛА:
    - Заголовок каждой таблицы оформляй как ## (это станет именем листа в Excel)
@@ -1644,7 +1679,7 @@ ${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФО
 
 ПРИМЕР ОТКАЗА (когда информации нет):
 Вопрос: Какова средняя зарплата в отделе закупок?
-Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${directivesBlock}${standardsRegistryBlock}${sgkRegistryBlock}${spuPromptBlock}
+Ответ: В загруженных документах отсутствует информация о зарплатах сотрудников. Доступные документы содержат информацию о процедурах закупок и нормативных требованиях. Для получения данных о зарплатах рекомендую обратиться в отдел кадров.${uploadedDocsInstructions}${screenshotInstructions}${lowConfidenceWarning}${dualRegimeHint}${directivesBlock}${standardsRegistryBlock}${leadTimeBlock}${templateBlock}${sgkRegistryBlock}${spuPromptBlock}
 
 === СТАВКА НДС ===
 

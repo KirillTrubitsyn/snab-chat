@@ -643,6 +643,51 @@ function validateMagicBytes(
   }
 }
 
+
+/**
+ * Extract text representation of an ExcelJS cell.
+ *
+ * Priority:
+ *   1. Computed numeric / formatted result (cell.text), if non-empty.
+ *   2. Formula-cell `result` field — present when Excel itself last saved
+ *      the workbook. Without this fallback, files where formulas weren't
+ *      computed leak raw "=AVERAGE(B2:B4)" strings into the markdown chunk.
+ *   3. Raw value as last resort. For formula objects we mark the cell
+ *      explicitly so downstream LLM knows the formula was not pre-computed.
+ *
+ * Замечание №2 от 04.05.2026: модель выводила формулы вместо посчитанных
+ * итогов, потому что в чанк попадал сырой текст формулы.
+ */
+function extractCellText(cell: ExcelJS.Cell): string {
+  // 1. Formatted result wins when present
+  const text = cell.text;
+  if (text != null && text !== "") {
+    // ExcelJS sometimes returns the formula string itself in `text` for
+    // un-computed formula cells. Detect and fall through.
+    if (typeof text === "string" && text.startsWith("=") && text.length > 1) {
+      // intentional fallthrough
+    } else {
+      return String(text);
+    }
+  }
+
+  const value = cell.value;
+  if (value == null) return "";
+
+  // 2. Formula object — prefer .result, else mark explicitly
+  if (typeof value === "object" && value !== null && "formula" in value) {
+    const formulaObj = value as { formula?: string; result?: unknown; sharedFormula?: string };
+    if (formulaObj.result != null && formulaObj.result !== "") {
+      return String(formulaObj.result);
+    }
+    const f = formulaObj.formula ?? formulaObj.sharedFormula ?? "";
+    return f ? `[формула не вычислена: =${f}]` : "";
+  }
+
+  // 3. Plain primitive
+  return String(value);
+}
+
 async function parseExcelToMarkdown(buffer: Buffer, filename: string): Promise<string> {
   const head = buffer.subarray(0, 4);
 
@@ -692,9 +737,8 @@ async function parseExcelToMarkdown(buffer: Buffer, filename: string): Promise<s
         const cell = row.getCell(c);
         let cellText = "";
         try {
-          cellText = cell.text ?? String(cell.value ?? "");
+          cellText = extractCellText(cell);
         } catch {
-          // ExcelJS bug: SharedStringValue.toString() crashes when model.value is null
           try { cellText = String(cell.value ?? ""); } catch { cellText = ""; }
         }
         vals.push(cellText);
@@ -714,7 +758,7 @@ async function parseExcelToMarkdown(buffer: Buffer, filename: string): Promise<s
         const topCell = ws.getRow(m.top).getCell(m.left);
         let val = "";
         try {
-          val = topCell.text ?? String(topCell.value ?? "");
+          val = extractCellText(topCell);
         } catch {
           try { val = String(topCell.value ?? ""); } catch { val = ""; }
         }
