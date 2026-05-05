@@ -382,7 +382,7 @@ export async function finalizeAgenticResults(
   }
 
   // Apply intent-aware reranking (FZ-type boost/penalty + intent tag boost + tier weights)
-  const intentReranked = intent ? intentAwareRerank(allChunks, intent) : allChunks;
+  const intentReranked = intent ? intentAwareRerank(allChunks, intent, query) : allChunks;
 
   // For multi-entity queries, SKIP the LLM reranker — it suppresses chunks
   // it considers "about another organization" and destroys entity balance.

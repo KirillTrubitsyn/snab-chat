@@ -2,6 +2,8 @@ import { createServiceClient } from "./supabase.js";
 import { embedQuery } from "./embeddings.js";
 import { graphScopedSearch, type GraphScopedResult } from "./kg-search.js";
 import type { IntentResult, QueryIntent } from "./intent-classifier.js";
+import { isLeadTimeQuery } from "./lead-time-registry.js";
+import { isTemplateRequest } from "./template-request.js";
 import type { SectionReference, DocumentReference, CatalogQuery } from "./query-analyzer.js";
 import { selectChunksForDoc } from "./select-chunks-for-doc.js";
 
@@ -102,7 +104,8 @@ const TIER_WEIGHTS: Record<string, number> = {
 
 export function intentAwareRerank(
   results: SearchResult[],
-  intent: IntentResult
+  intent: IntentResult,
+  rawQuery?: string
 ): SearchResult[] {
   let working = [...results];
 
@@ -147,11 +150,50 @@ export function intentAwareRerank(
     });
   }
 
+  // ── Lead-time boost: for procurement-timing queries the canonical norm
+  // lives in the Стандарт закупки. Semantically nearby chunks (regulations of
+  // ZK meetings, NTSK review timelines) tend to win on cosine similarity, so
+  // we explicitly amplify "стандарт" tier and dampen "положения"/"методика".
+  // Trigger: keyword detector from lead-time-registry. Замечание №1 04.05.2026.
+  const leadTimeBoosted = !!(rawQuery && isLeadTimeQuery(rawQuery));
+  if (leadTimeBoosted) {
+    working = working.map((r) => {
+      let mult = 1.0;
+      if (r.tags.includes("стандарт")) mult *= 1.18;
+      if (r.tags.includes("положения")) mult *= 0.92;
+      if (r.tags.includes("методика")) mult *= 0.95;
+      return mult === 1.0 ? r : { ...r, similarity: r.similarity * mult };
+    });
+  }
+
+  // ── Template boost: when the user explicitly asks for a template/form/
+  // blank, the relevant document is tagged "форма" or "шаблон" — but the
+  // base TIER_WEIGHTS pessimise these tags (0.90) because for general
+  // queries methodology/standard documents win. We override that pessimism
+  // for template-style queries. Замечание №4 04.05.2026.
+  const templateBoosted = !!(rawQuery && isTemplateRequest(rawQuery));
+  if (templateBoosted) {
+    working = working.map((r) => {
+      const isTemplate = r.tags.some((t) =>
+        ["форма", "шаблон", "образец", "бланк"].includes(t.toLowerCase())
+      );
+      const isMethodology = r.tags.some((t) =>
+        ["методика", "обучение"].includes(t.toLowerCase())
+      );
+      let mult = 1.0;
+      if (isTemplate) mult *= 1.30;
+      if (isMethodology) mult *= 0.90;
+      return mult === 1.0 ? r : { ...r, similarity: r.similarity * mult };
+    });
+  }
+
   console.log("intentAwareRerank:", {
     intent: intent.intent,
     fz_type: intent.fz_type,
     confidence: intent.confidence,
     inputCount: results.length,
+    leadTimeBoosted,
+    templateBoosted,
   });
 
   return tierWeightedRerank(working);
