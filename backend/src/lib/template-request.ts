@@ -18,6 +18,7 @@
  */
 
 import { createServiceClient } from "./supabase.js";
+import { findAllEntities } from "./sgk-registry.js";
 
 // `\b` не работает с кириллицей в V8 — используем явные unicode-границы
 // через property escapes (\P{L} = «не буква»), чтобы детектор корректно
@@ -75,25 +76,79 @@ const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24 hours
  * Find sources that look like templates and (optionally) match an entity hint
  * extracted from the query. Returns up to `limit` matches.
  */
+/**
+ * Pick filename-friendly fragments for each entity matched by SGK registry.
+ * Filenames in the KB use abbreviations («ЕТГК», «КЭ», «СГК-Нск»), not the
+ * full businessUnit string. We collect ALL aliases ≥3 chars plus businessUnit,
+ * then OR them together in the Supabase query.
+ */
+function buildEntityFragments(query: string, entityHints: string[]): string[] {
+  const out = new Set<string>();
+  for (const h of entityHints) {
+    const t = h.trim();
+    if (t.length >= 3) out.add(t);
+  }
+  const matched = findAllEntities(query);
+  for (const e of matched) {
+    const candidates: (string | undefined)[] = [
+      ...e.aliases,
+      e.businessUnit,
+      e.name.replace(/[«»"]/g, ""),
+    ];
+    for (const c of candidates) {
+      if (typeof c === "string" && c.trim().length >= 3) {
+        out.add(c.replace(/[«»"]/g, "").trim());
+      }
+    }
+  }
+  return Array.from(out);
+}
+
+/** Escape a value for use inside Supabase PostgREST or() filter expressions. */
+function escapeForOr(value: string): string {
+  // Reserved chars in PostgREST or() syntax: , ( ) :
+  return value.replace(/[,()]/g, " ");
+}
+
 export async function findTemplateSources(
   query: string,
   entityHints: string[] = [],
   limit: number = 4,
 ): Promise<TemplateSourceHit[]> {
   const supabase = createServiceClient();
-  let q = supabase
+  const fragments = buildEntityFragments(query, entityHints);
+  console.log(
+    `findTemplateSources: query="${query.slice(0, 60)}" hints=${JSON.stringify(entityHints)} fragments=${JSON.stringify(fragments)}`,
+  );
+
+  // 1. Try entity-filtered search: any of fragments must appear in filename.
+  if (fragments.length > 0) {
+    const orClause = fragments
+      .map((f) => `filename.ilike.%${escapeForOr(f)}%`)
+      .join(",");
+    const { data, error } = await supabase
+      .from("sources")
+      .select("filename, original_filename, original_file_url, storage_path, tags, folder_path")
+      .overlaps("tags", TEMPLATE_TAGS)
+      .or(orClause)
+      .limit(limit * 3);
+
+    if (error) console.warn("findTemplateSources or-search error:", error.message);
+    if (data && data.length > 0) {
+      return (data as TemplateSourceHit[]).slice(0, limit);
+    }
+    console.log("findTemplateSources: entity-filtered query empty, falling back to unfiltered");
+  }
+
+  // 2. Fallback: unfiltered template search.
+  const { data, error } = await supabase
     .from("sources")
     .select("filename, original_filename, original_file_url, storage_path, tags, folder_path")
     .overlaps("tags", TEMPLATE_TAGS)
-    .limit(50);
+    .limit(limit * 2);
 
-  for (const hint of entityHints.slice(0, 3)) {
-    q = q.ilike("filename", `%${hint}%`);
-  }
-
-  const { data, error } = await q;
   if (error || !data) {
-    console.warn("findTemplateSources error:", error?.message);
+    console.warn("findTemplateSources fallback error:", error?.message);
     return [];
   }
   return (data as TemplateSourceHit[]).slice(0, limit);
