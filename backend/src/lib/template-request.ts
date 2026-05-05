@@ -11,8 +11,10 @@
  *   1. Detect the request by keyword (zero latency).
  *   2. Boost tags «форма», «шаблон» in retrieval rerank (see retrieval.ts).
  *   3. Look up matching sources directly by tag + entity hint, and inject
- *      their original_file_url into the system prompt so the model can
- *      surface a download link.
+ *      a download link into the system prompt. If `original_file_url` is
+ *      empty (true for legacy ingest paths), derive a signed URL on the
+ *      fly from `storage_path` against the Supabase Storage `documents`
+ *      bucket.
  */
 
 import { createServiceClient } from "./supabase.js";
@@ -26,7 +28,6 @@ const TEMPLATE_KEYWORDS: RegExp[] = [
 ];
 
 const NEGATION_PATTERNS: RegExp[] = [
-  // "не нужен шаблон", "помимо шаблона" etc. — keep as a future-proof guard.
   /\bне\s+нужен\s+(?:шаблон|форм)/i,
   /\bбез\s+(?:шаблон|форм)/i,
 ];
@@ -47,8 +48,6 @@ export function isTemplateRequest(query: string): boolean {
   if (NEGATION_PATTERNS.some((rx) => rx.test(q))) return false;
   const hasKeyword = TEMPLATE_KEYWORDS.some((rx) => rx.test(q));
   if (!hasKeyword) return false;
-  // Either action verb is present, or the query is short enough to be
-  // unambiguously a template request (e.g. "шаблон ТЗ ЕТГК").
   if (ACTION_KEYWORDS.some((rx) => rx.test(q))) return true;
   return q.length < 80;
 }
@@ -59,11 +58,14 @@ export interface TemplateSourceHit {
   filename: string;
   original_filename: string | null;
   original_file_url: string | null;
+  storage_path: string | null;
   tags: string[];
   folder_path: string | null;
 }
 
 const TEMPLATE_TAGS = ["форма", "шаблон", "образец", "бланк"];
+const STORAGE_BUCKET = "documents";
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24 hours
 
 /**
  * Find sources that look like templates and (optionally) match an entity hint
@@ -77,11 +79,10 @@ export async function findTemplateSources(
   const supabase = createServiceClient();
   let q = supabase
     .from("sources")
-    .select("filename, original_filename, original_file_url, tags, folder_path")
+    .select("filename, original_filename, original_file_url, storage_path, tags, folder_path")
     .overlaps("tags", TEMPLATE_TAGS)
     .limit(50);
 
-  // Apply entity hint as ILIKE on filename if provided. Use first 3 hints.
   for (const hint of entityHints.slice(0, 3)) {
     q = q.ilike("filename", `%${hint}%`);
   }
@@ -94,18 +95,54 @@ export async function findTemplateSources(
   return (data as TemplateSourceHit[]).slice(0, limit);
 }
 
-export function generateTemplatePromptBlock(hits: TemplateSourceHit[]): string {
+/**
+ * Resolve a download URL for a template hit. Prefers the precomputed
+ * `original_file_url`; falls back to a signed URL generated from
+ * `storage_path` (legacy sources ingested before original_file_url was
+ * populated).
+ */
+export async function resolveTemplateUrl(
+  hit: TemplateSourceHit,
+): Promise<string | null> {
+  if (hit.original_file_url && hit.original_file_url.length > 0) {
+    return hit.original_file_url;
+  }
+  if (!hit.storage_path) return null;
+
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .storage
+    .from(STORAGE_BUCKET)
+    .createSignedUrl(hit.storage_path, SIGNED_URL_TTL_SECONDS);
+
+  if (error || !data?.signedUrl) {
+    console.warn(
+      `resolveTemplateUrl: failed to sign storage_path=${hit.storage_path}: ${error?.message}`,
+    );
+    return null;
+  }
+  return data.signedUrl;
+}
+
+export async function generateTemplatePromptBlock(
+  hits: TemplateSourceHit[],
+): Promise<string> {
   if (hits.length === 0) return "";
+
+  const resolved = await Promise.all(
+    hits.map(async (h) => ({ hit: h, url: await resolveTemplateUrl(h) })),
+  );
+
   let block = `\n=== ШАБЛОНЫ В БАЗЕ ЗНАНИЙ ===\n\n`;
   block += `Пользователь запросил шаблон / форму / бланк / образец. Ниже — найденные документы. ОБЯЗАТЕЛЬНО включи в ответ ссылку для скачивания каждого подходящего шаблона. Не пересказывай структуру и содержание шаблона как замену самого файла.\n\n`;
-  for (const h of hits) {
-    const display = h.original_filename ?? h.filename;
-    if (h.original_file_url) {
-      block += `• [${display}](${h.original_file_url})`;
+  for (const { hit, url } of resolved) {
+    const display = hit.original_filename ?? hit.filename;
+    if (url) {
+      block += `• [${display}](${url})`;
     } else {
       block += `• ${display} — ссылка на оригинал отсутствует, попроси пользователя обратиться к администратору`;
     }
-    if (h.folder_path) block += ` (раздел: ${h.folder_path})`;
+    if (hit.folder_path) block += ` (раздел: ${hit.folder_path})`;
     block += `\n`;
   }
   block += `\nФормат ответа: 1) краткое подтверждение, что шаблон найден; 2) ссылка для скачивания; 3) короткое описание ключевых полей шаблона. Если ни один шаблон не подходит под уточнение пользователя — честно скажи об этом и предложи альтернативу.\n`;
