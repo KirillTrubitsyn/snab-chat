@@ -1529,7 +1529,7 @@ ${sanitizeUserInput(userMessage.content)}
         entityHints.push(...docRef.filenameHints);
       }
       const templateHits = await findTemplateSources(userMessage.content, entityHints, 4);
-      templateBlock = generateTemplatePromptBlock(templateHits);
+      templateBlock = await generateTemplatePromptBlock(templateHits);
     } catch (e) {
       console.error("[chat][template] resolution failed (non-fatal):", e);
     }
