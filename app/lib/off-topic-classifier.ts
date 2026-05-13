@@ -233,7 +233,7 @@ export async function classifyOffTopic(
 
   try {
     const { text } = await generateText({
-      model: google("gemini-3.1-flash-lite-preview"),
+      model: google("gemini-3.1-flash-lite"),
       system: CLASSIFIER_PROMPT,
       prompt: userPrompt,
       maxOutputTokens: 20,

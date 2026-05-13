@@ -27,7 +27,7 @@ export async function rerank(
   return llmRerank(query, results, entityNames);
 }
 
-const RERANK_MODEL = "gemini-3.1-flash-lite-preview";
+const RERANK_MODEL = "gemini-3.1-flash-lite";
 const MAX_CHUNKS_TO_RERANK = 20;
 const MAX_CHUNK_PREVIEW = 1500; // chars per chunk in reranker prompt
 const HARD_REJECT_SCORE = 2.5;

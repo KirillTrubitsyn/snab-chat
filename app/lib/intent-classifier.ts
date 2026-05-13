@@ -107,7 +107,7 @@ export async function classifyIntent(query: string): Promise<IntentResult> {
   try {
     const raw = await withGoogleApiLimit(async () => {
       const response = await client.models.generateContent({
-        model: "gemini-3.1-flash-lite-preview",
+        model: "gemini-3.1-flash-lite",
         contents: `Запрос: "${query}"`,
         config: {
           systemInstruction: CLASSIFY_PROMPT,
