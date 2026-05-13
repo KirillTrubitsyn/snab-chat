@@ -413,7 +413,7 @@ hybrid_search(query_text, query_embedding, match_count, vector_weight, fts_weigh
 
 #### Gemini LLM Reranker (по умолчанию)
 
-- **Модель**: `gemini-3.1-flash-lite-preview`
+- **Модель**: `gemini-3.1-flash-lite`
 - LLM оценивает каждый чанк по шкале 0-10 (cross-encoder подход)
 - **Blending**: `0.35 * original_score + 0.65 * llm_score`
 - **Hard suppress**: при LLM score < 2.5 и token overlap < 8% -> score * 0.25

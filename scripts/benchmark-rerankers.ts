@@ -32,7 +32,7 @@ const VOYAGE_API_KEY = process.env.VOYAGE_API_KEY ?? "";
 const COHERE_API_KEY = process.env.COHERE_API_KEY ?? "";
 const JINA_API_KEY   = process.env.JINA_API_KEY   ?? "";
 
-const GEMINI_RERANK_MODEL = "gemini-3.1-flash-lite-preview"; // matches app/lib/reranker.ts
+const GEMINI_RERANK_MODEL = "gemini-3.1-flash-lite"; // matches app/lib/reranker.ts
 const GEMINI_JUDGE_MODEL  = "gemini-2.5-flash";              // stronger model for judging
 
 const FTS_CANDIDATES = 20; // candidates to fetch per query
