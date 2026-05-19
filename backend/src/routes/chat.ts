@@ -1860,8 +1860,8 @@ ${uploadedDocsContext}`;
   // ── Generate response via @google/genai directly ──
   // @ai-sdk/google cannot parse thought_signature tokens from Gemini 3.x,
   // so we call @google/genai SDK and stream using the AI SDK data protocol.
-  // C02: primary = gemini-3-flash-preview; fallback = gemini-3.1-flash-lite on 429.
-  const PRIMARY_MODEL_ID = "gemini-3-flash-preview";
+  // C02: primary = gemini-3.5-flash; fallback = gemini-3.1-flash-lite on 429.
+  const PRIMARY_MODEL_ID = "gemini-3.5-flash";
   const FALLBACK_MODEL_ID = "gemini-3.1-flash-lite";
   let modelId = PRIMARY_MODEL_ID;
   const genaiClient = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
