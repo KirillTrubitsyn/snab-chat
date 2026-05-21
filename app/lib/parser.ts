@@ -643,6 +643,11 @@ function validateMagicBytes(
   }
 }
 
+// Sheets with more kept columns than this render as a per-row list instead of a
+// grid — wide, sparse exports (ГРАНД-Смета: 277 колонок) become a sea of empty
+// cells as a table, which buries the line items in the index.
+const WIDE_SHEET_COL_THRESHOLD = 12;
+
 async function parseExcelToMarkdown(buffer: Buffer, filename: string): Promise<string> {
   const head = buffer.subarray(0, 4);
 
@@ -684,8 +689,10 @@ async function parseExcelToMarkdown(buffer: Buffer, filename: string): Promise<s
       parts.push(`## Лист: ${ws.name}\n`);
     }
 
-    // Read all rows as string arrays
+    // Read rows, tracking absolute Excel row numbers — eachRow skips empty rows,
+    // so the array index is not the Excel row number when there are gaps.
     const rows: string[][] = [];
+    const rowNumToIdx = new Map<number, number>();
     ws.eachRow({ includeEmpty: false }, (row) => {
       const vals: string[] = [];
       for (let c = 1; c <= totalCols; c++) {
@@ -697,63 +704,63 @@ async function parseExcelToMarkdown(buffer: Buffer, filename: string): Promise<s
           // ExcelJS bug: SharedStringValue.toString() crashes when model.value is null
           try { cellText = String(cell.value ?? ""); } catch { cellText = ""; }
         }
-        vals.push(cellText);
+        vals.push(cellText.replace(/\n/g, " ").trim());
       }
+      rowNumToIdx.set(row.number, rows.length);
       rows.push(vals);
     });
 
     if (rows.length === 0) continue;
 
-    // Build merge map from worksheet merges
-    const mergeMap = new Map<string, string>();
+    // ExcelJS resolves every cell of a merge region to the master value, so a
+    // value merged across N cells leaks out N times. Keep only the top-left and
+    // blank the rest — иначе наименования в смете дублируются по 5 колонок.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const wsAny = ws as any;
     if (wsAny._merges) {
       for (const key of Object.keys(wsAny._merges)) {
         const m = wsAny._merges[key].model;
-        const topCell = ws.getRow(m.top).getCell(m.left);
-        let val = "";
-        try {
-          val = topCell.text ?? String(topCell.value ?? "");
-        } catch {
-          try { val = String(topCell.value ?? ""); } catch { val = ""; }
-        }
         for (let r = m.top; r <= m.bottom; r++) {
+          const ri = rowNumToIdx.get(r);
+          if (ri == null) continue;
           for (let c = m.left; c <= m.right; c++) {
-            mergeMap.set(`${r - 1}:${c - 1}`, val);
+            if (r === m.top && c === m.left) continue;
+            rows[ri][c - 1] = "";
           }
         }
       }
     }
 
-    // Render the whole sheet as one markdown table — preserves every column
-    // and row regardless of size. The chunker splits large tables and repeats
-    // the header row on each chunk (chunking.ts splitIntoBlocks).
-    const header = rows[0].map((c, j) => {
-      const val = String(c).replace(/\|/g, "\\|").replace(/\n/g, " ").trim();
-      return val || mergeMap.get(`0:${j}`) || "";
-    });
-    if (header.length === 0 || header.every((h) => h === "")) continue;
-
-    parts.push("| " + header.join(" | ") + " |");
-    parts.push("| " + header.map(() => "---").join(" | ") + " |");
-
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (row.every((c) => String(c).trim() === "")) continue;
-      parts.push(
-        "| " +
-          header
-            .map((_, j) => {
-              const raw = String(row[j] ?? "").trim();
-              const merged = raw || mergeMap.get(`${i}:${j}`) || "";
-              return merged.replace(/\|/g, "\\|").replace(/\n/g, " ").trim();
-            })
-            .join(" | ") +
-          " |"
-      );
+    // Drop fully-empty columns (wide exports carry hundreds of them).
+    const keepCols: number[] = [];
+    for (let j = 0; j < totalCols; j++) {
+      if (rows.some((r) => r[j] !== "")) keepCols.push(j);
     }
-    parts.push("");
+    if (keepCols.length === 0) continue;
+
+    const esc = (s: string) => s.replace(/\|/g, "\\|").trim();
+
+    if (keepCols.length <= WIDE_SHEET_COL_THRESHOLD) {
+      // Narrow, dense sheet → markdown table. The chunker splits large tables
+      // and repeats the header row on each chunk (chunking.ts splitIntoBlocks).
+      parts.push("| " + keepCols.map((j) => esc(rows[0][j])).join(" | ") + " |");
+      parts.push("| " + keepCols.map(() => "---").join(" | ") + " |");
+      for (let i = 1; i < rows.length; i++) {
+        if (keepCols.every((j) => rows[i][j] === "")) continue;
+        parts.push("| " + keepCols.map((j) => esc(rows[i][j])).join(" | ") + " |");
+      }
+      parts.push("");
+    } else {
+      // Wide/sparse report → compact per-row list of non-empty values, collapsing
+      // adjacent duplicates (ГРАНД-Смета mirrors text into far-right columns).
+      for (let i = 0; i < rows.length; i++) {
+        const vals = keepCols.map((j) => esc(rows[i][j])).filter((v) => v !== "");
+        const out: string[] = [];
+        for (const v of vals) if (out.length === 0 || out[out.length - 1] !== v) out.push(v);
+        if (out.length > 0) parts.push(`- ${out.join(" | ")}`);
+      }
+      parts.push("");
+    }
   }
 
   return parts.join("\n");
