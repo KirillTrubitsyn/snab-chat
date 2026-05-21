@@ -35,9 +35,9 @@ const router = Router();
 const MAX_UPLOADED_DOC_CHARS = 50000;
 // Сметы/таблицы (Excel/CSV) теряют смысл при обрезке — им нужен бо́льший лимит,
 // чтобы модель видела весь документ. gemini-3.5-flash держит ~1M токенов.
-const MAX_UPLOADED_TABLE_CHARS = 500000;
+const MAX_UPLOADED_TABLE_CHARS = 1000000;
 // Общий бюджет на все вложения, чтобы пачка больших файлов не переполнила контекст.
-const MAX_UPLOADED_TOTAL_CHARS = 800000;
+const MAX_UPLOADED_TOTAL_CHARS = 1500000;
 const SPREADSHEET_ATTACHMENT_RE = /\.(xlsx|xls|csv)$/i;
 const MAX_CHUNK_IMAGES = 3; // Max images to include per chunk in prompt
 const MAX_TOTAL_IMAGES = 12; // Max total images in entire prompt
