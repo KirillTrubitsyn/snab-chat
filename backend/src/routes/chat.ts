@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { type ModelMessage } from "ai";
 import { GoogleGenAI } from "@google/genai";
-import { hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, searchContractorCards, graphAwareSearch, type SearchResult } from "../lib/retrieval.js";
+import { hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, searchContractorCards, graphAwareSearch, expandTableSources, type SearchResult } from "../lib/retrieval.js";
 import { rerank } from "../lib/reranker.js";
 import { classifyIntent, type SpuSubIntent } from "../lib/intent-classifier.js";
 import { loadConversationContext, saveMessage } from "../lib/memory.js";
@@ -1366,6 +1366,14 @@ ${sanitizeUserInput(userMessage.content)}
     );
   } catch (relErr) {
     console.error("[chat] Relationship expansion failed (non-fatal):", relErr);
+  }
+
+  // ── Сметы и таблицы (Excel): подгружаем все чанки источника целиком, чтобы
+  // модель видела таблицу полностью, а не отдельные строки из середины. ──
+  try {
+    relevantChunks = await expandTableSources(relevantChunks);
+  } catch (tblErr) {
+    console.error("[chat] Table source expansion failed (non-fatal):", tblErr);
   }
 
   // ── Load chunk images from Supabase Storage ──

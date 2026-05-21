@@ -837,6 +837,101 @@ export async function fetchCatalogResults(
   return results;
 }
 
+/* ── Full-document expansion for spreadsheets (estimates / tables) ── */
+
+const EXCEL_SOURCE_RE = /\.(xlsx|xls)$/i;
+/** Safety cap so a query touching many estimates can't blow the LLM context.
+ *  Covers one large estimate fully (~120 chunks ≈ несколько тысяч строк); only
+ *  pathological multi-estimate queries hit it. gemini-3.5-flash holds ~1M tokens. */
+const MAX_TABLE_EXPANSION_CHUNKS = 120;
+
+/**
+ * Сметы и таблицы (Excel) теряют смысл, когда в контекст попадают лишь
+ * отдельные чанки из середины. Для каждого Excel-источника среди найденных
+ * чанков подгружаем ВСЕ его чанки по порядку (chunk_index), чтобы модель
+ * видела таблицу целиком и могла отвечать на вопросы по всему документу.
+ *
+ * Вызывается после ранжирования/фильтрации — дальше чанки идут прямо в
+ * контекст, поэтому подменяем найденные Excel-чанки полным набором на месте
+ * первого совпавшего чанка источника (сохраняя порядок релевантности для
+ * остальных документов).
+ */
+export async function expandTableSources(
+  chunks: SearchResult[]
+): Promise<SearchResult[]> {
+  const excelSources = new Set(
+    chunks
+      .filter((c) => EXCEL_SOURCE_RE.test(c.source_filename))
+      .map((c) => c.source_filename)
+  );
+  if (excelSources.size === 0) return chunks;
+
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("chunks")
+    .select("id, content, source_filename, chunk_index, tags, image_paths")
+    .in("source_filename", Array.from(excelSources))
+    .order("source_filename", { ascending: true })
+    .order("chunk_index", { ascending: true });
+
+  if (error || !data || data.length === 0) {
+    if (error) console.error("expandTableSources error:", error.message);
+    return chunks;
+  }
+
+  interface FullChunkRow {
+    id: string;
+    content: string;
+    source_filename: string;
+    chunk_index: number;
+    tags: string[] | null;
+    image_paths: string[] | null;
+  }
+
+  const fullBySource = new Map<string, SearchResult[]>();
+  for (const row of data as FullChunkRow[]) {
+    const arr = fullBySource.get(row.source_filename) ?? [];
+    arr.push({
+      id: row.id,
+      content: row.content,
+      source_filename: row.source_filename,
+      chunk_index: row.chunk_index,
+      similarity: 0.8,
+      tags: row.tags ?? [],
+      image_paths: row.image_paths ?? [],
+      preseeded: true,
+    });
+    fullBySource.set(row.source_filename, arr);
+  }
+
+  const result: SearchResult[] = [];
+  const expanded = new Set<string>();
+  let budget = MAX_TABLE_EXPANSION_CHUNKS;
+
+  for (const c of chunks) {
+    if (!EXCEL_SOURCE_RE.test(c.source_filename)) {
+      result.push(c);
+      continue;
+    }
+    if (expanded.has(c.source_filename)) continue; // already inserted as a full set
+    expanded.add(c.source_filename);
+    const full = fullBySource.get(c.source_filename);
+    if (!full || full.length === 0 || budget <= 0) {
+      result.push(c); // fallback: keep at least the matched chunk
+      continue;
+    }
+    const take = full.slice(0, budget);
+    result.push(...take);
+    budget -= take.length;
+  }
+
+  console.log(
+    `[expandTableSources] expanded ${expanded.size} Excel source(s); ` +
+      `${chunks.length} → ${result.length} chunks (cap ${MAX_TABLE_EXPANSION_CHUNKS})`
+  );
+  return result;
+}
+
 /* ── Graph-Aware Search ── */
 
 /**
