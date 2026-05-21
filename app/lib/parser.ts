@@ -726,79 +726,34 @@ async function parseExcelToMarkdown(buffer: Buffer, filename: string): Promise<s
       }
     }
 
-    const firstRow = rows[0];
-    const isHeaderRow = firstRow.every(
-      (c) =>
-        typeof c === "string" ||
-        (String(c).length < 80 && isNaN(Number(c)))
-    );
+    // Render the whole sheet as one markdown table — preserves every column
+    // and row regardless of size. The chunker splits large tables and repeats
+    // the header row on each chunk (chunking.ts splitIntoBlocks).
+    const header = rows[0].map((c, j) => {
+      const val = String(c).replace(/\|/g, "\\|").replace(/\n/g, " ").trim();
+      return val || mergeMap.get(`0:${j}`) || "";
+    });
+    if (header.length === 0 || header.every((h) => h === "")) continue;
 
-    // Get the starting row index (ExcelJS rows are 1-based, but our array is 0-based)
-    // We use 0-based indexing for the mergeMap keys
+    parts.push("| " + header.join(" | ") + " |");
+    parts.push("| " + header.map(() => "---").join(" | ") + " |");
 
-    if (rows.length <= 30) {
-      const header = rows[0].map((c, j) => {
-        const val = String(c).replace(/\|/g, "\\|").replace(/\n/g, " ").trim();
-        return val || mergeMap.get(`0:${j}`) || "";
-      });
-      if (header.length === 0 || header.every((h) => h === "")) continue;
-
-      parts.push("| " + header.join(" | ") + " |");
-      parts.push("| " + header.map(() => "---").join(" | ") + " |");
-
-      for (let i = 1; i < rows.length; i++) {
-        const row = rows[i];
-        if (row.every((c) => String(c).trim() === "")) continue;
-        parts.push(
-          "| " +
-            header
-              .map((_, j) => {
-                const raw = String(row[j] ?? "").trim();
-                const merged = raw || mergeMap.get(`${i}:${j}`) || "";
-                return merged.replace(/\|/g, "\\|").replace(/\n/g, " ").trim();
-              })
-              .join(" | ") +
-            " |"
-        );
-      }
-      parts.push("");
-    } else {
-      const headerRow = isHeaderRow ? rows[0] : null;
-
-      if (headerRow) {
-        parts.push(
-          `**Столбцы**: ${headerRow.filter(Boolean).map(String).join(", ")}\n`
-        );
-      }
-
-      const dataRows = isHeaderRow ? rows.slice(1) : rows;
-      const dataStartRow = isHeaderRow ? 1 : 0;
-
-      for (let i = 0; i < dataRows.length; i++) {
-        const row = dataRows[i];
-        if (row.every((c) => String(c).trim() === "")) continue;
-
-        if (headerRow) {
-          const pairs = headerRow
-            .map((h, j) => {
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.every((c) => String(c).trim() === "")) continue;
+      parts.push(
+        "| " +
+          header
+            .map((_, j) => {
               const raw = String(row[j] ?? "").trim();
-              const val = raw || mergeMap.get(`${dataStartRow + i}:${j}`) || "";
-              const hStr = String(h).trim();
-              return val && hStr ? `${hStr}: ${val}` : null;
+              const merged = raw || mergeMap.get(`${i}:${j}`) || "";
+              return merged.replace(/\|/g, "\\|").replace(/\n/g, " ").trim();
             })
-            .filter(Boolean);
-          if (pairs.length > 0) {
-            parts.push(`- Строка ${i + 1}: ${pairs.join(" | ")}`);
-          }
-        } else {
-          const vals = row.map((c) => String(c).trim()).filter(Boolean);
-          if (vals.length > 0) {
-            parts.push(`- ${vals.join(" | ")}`);
-          }
-        }
-      }
-      parts.push("");
+            .join(" | ") +
+          " |"
+      );
     }
+    parts.push("");
   }
 
   return parts.join("\n");
