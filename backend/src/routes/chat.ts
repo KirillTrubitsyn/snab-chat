@@ -33,6 +33,12 @@ const router = Router();
 
 
 const MAX_UPLOADED_DOC_CHARS = 50000;
+// Сметы/таблицы (Excel/CSV) теряют смысл при обрезке — им нужен бо́льший лимит,
+// чтобы модель видела весь документ. gemini-3.5-flash держит ~1M токенов.
+const MAX_UPLOADED_TABLE_CHARS = 500000;
+// Общий бюджет на все вложения, чтобы пачка больших файлов не переполнила контекст.
+const MAX_UPLOADED_TOTAL_CHARS = 800000;
+const SPREADSHEET_ATTACHMENT_RE = /\.(xlsx|xls|csv)$/i;
 const MAX_CHUNK_IMAGES = 3; // Max images to include per chunk in prompt
 const MAX_TOTAL_IMAGES = 12; // Max total images in entire prompt
 
@@ -1468,18 +1474,27 @@ ${sanitizeUserInput(userMessage.content)}
   let uploadedDocsContext = "";
   const truncatedDocs: string[] = [];
   if (effectiveHasAttachments) {
+    // Таблицы/сметы отдаём целиком в пределах большого лимита; прочие документы —
+    // в пределах MAX_UPLOADED_DOC_CHARS. Общий бюджет не даёт пачке вложений
+    // переполнить контекст; расходуется по порядку прикрепления.
+    let remainingBudget = MAX_UPLOADED_TOTAL_CHARS;
     const docs = allAttachedDocuments.map(
       (d: { filename: string; markdown: string }, i: number) => {
         // V17 fix: sanitize BEFORE truncation to prevent truncation from splitting
         // a malicious payload mid-pattern, bypassing sanitization regex.
         const sanitized = sanitizeDocContent(d.markdown);
-        const wasTruncated = sanitized.length > MAX_UPLOADED_DOC_CHARS;
+        const perDocLimit = SPREADSHEET_ATTACHMENT_RE.test(d.filename)
+          ? MAX_UPLOADED_TABLE_CHARS
+          : MAX_UPLOADED_DOC_CHARS;
+        const limit = Math.max(0, Math.min(perDocLimit, remainingBudget));
+        const wasTruncated = sanitized.length > limit;
         if (wasTruncated) {
           truncatedDocs.push(d.filename);
         }
         const content = wasTruncated
-          ? sanitized.slice(0, MAX_UPLOADED_DOC_CHARS) + `\n\n[... документ обрезан: показано ${MAX_UPLOADED_DOC_CHARS} из ${d.markdown.length} символов. Для работы с оставшейся частью попросите пользователя уточнить конкретный раздел ...]`
+          ? sanitized.slice(0, limit) + `\n\n[... документ обрезан: показано ${limit} из ${d.markdown.length} символов. Для работы с оставшейся частью попросите пользователя уточнить конкретный раздел ...]`
           : sanitized;
+        remainingBudget -= content.length;
         return `<uploaded_document id="${i + 1}" filename="${escapeXmlAttr(d.filename)}" total_chars="${d.markdown.length}" truncated="${wasTruncated}">\n${content}\n</uploaded_document>`;
       }
     );
@@ -1562,7 +1577,7 @@ ${sanitizeUserInput(userMessage.content)}
 
     // Phase 5: Add truncation warning to prompt
     if (truncatedDocs.length > 0) {
-      uploadedDocsInstructions += `\n\nВНИМАНИЕ: Следующие документы были обрезаны из-за большого размера: ${truncatedDocs.join(", ")}. Ты работаешь только с первыми ${MAX_UPLOADED_DOC_CHARS} символами каждого документа. Если пользователь спрашивает о содержимом, которого нет в видимой части, сообщи ему, что документ слишком большой и предложи уточнить конкретный раздел или диапазон страниц.`;
+      uploadedDocsInstructions += `\n\nВНИМАНИЕ: Следующие документы были обрезаны из-за очень большого размера: ${truncatedDocs.join(", ")}. Ты работаешь только с показанной частью каждого такого документа (точный объём указан в пометке об обрезке внутри документа). Если пользователь спрашивает о содержимом, которого нет в видимой части, сообщи ему, что документ слишком большой, и предложи уточнить конкретный раздел или диапазон.`;
     }
   }
 
