@@ -1893,8 +1893,8 @@ ${uploadedDocsContext}`;
   let modelId = PRIMARY_MODEL_ID;
   const genaiClient = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
 
-  // Сложные запросы (агентный RAG) рассуждают глубже (high), обычные — medium.
-  const thinkingLevel = useAgenticRag ? ThinkingLevel.HIGH : ThinkingLevel.MEDIUM;
+  // Сложные запросы (агентный RAG) рассуждают глубже (medium), обычные — low.
+  const thinkingLevel = useAgenticRag ? ThinkingLevel.MEDIUM : ThinkingLevel.LOW;
   console.log(`[chat] thinkingLevel=${thinkingLevel} (complex=${useAgenticRag})`);
 
   // Convert ModelMessage[] → @google/genai Content format
@@ -1930,9 +1930,10 @@ ${uploadedDocsContext}`;
         systemInstruction: systemPrompt,
         temperature: 0,
         thinkingConfig: { thinkingLevel },
-        // На Gemini 3 thinking-токены входят в этот бюджет — без явного лимита
-        // включённый thinking рискует не завершиться. 32768 покрывает high + ответ.
-        maxOutputTokens: 32768,
+        // На Gemini 3 thinking-токены входят в общий бюджет maxOutputTokens.
+        // Берём максимум модели (64K), иначе high-thinking на сложных запросах
+        // съедает бюджет и обрезает сам ответ.
+        maxOutputTokens: 65536,
       },
     });
 
@@ -2022,9 +2023,11 @@ ${uploadedDocsContext}`;
     if (timedOut) return;
     if (lastFinishReason === "MAX_TOKENS") {
       console.warn(`[chat] Ответ обрезан по maxOutputTokens (thinkingLevel=${thinkingLevel}, len=${fullText.length})`);
+      // Never truncate silently — tell the user instead of cutting mid-thought.
+      res.write(`0:${JSON.stringify("\n\n⚠️ Ответ получился слишком длинным и был обрезан. Уточните вопрос или попросите продолжить.")}\n`);
     }
     clearTimeout(requestTimer);
-    const finish = JSON.stringify({ finishReason: "stop", usage: { promptTokens: 0, completionTokens: 0 }, isContinued: false });
+    const finish = JSON.stringify({ finishReason: lastFinishReason === "MAX_TOKENS" ? "length" : "stop", usage: { promptTokens: 0, completionTokens: 0 }, isContinued: false });
     res.write(`e:${finish}\n`);
     res.write(`d:${finish}\n`);
     res.end();
