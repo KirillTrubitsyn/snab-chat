@@ -60,6 +60,45 @@ const ORG_MENTION_PATTERNS = [
   /перечень.*(компаний|организаций|обществ)/i,
 ];
 
+/**
+ * Detects a "compare internal procurement regulations" query — e.g.
+ * "Сравни положения о закупках ЕТГК и НТСК, составь таблицу отличий".
+ *
+ * Such queries name multiple organisations (which makes ORG_MENTION_PATTERNS
+ * fire) and frequently get classified as `entity_lookup` by the LLM intent
+ * classifier (because the text mentions two named entities). The combination
+ * pulls in three different "Перечень компаний Общества" registries plus
+ * "Матрица полномочий", "Схема взаимодействия" and contractor cards, none
+ * of which answer "what does the regulation actually say". The actual
+ * Положение о закупках for each entity gets crowded out.
+ *
+ * We use a narrow phrase-based negative test that fires ONLY when the query
+ * is *both* about a substantive document type (положение / стандарт /
+ * регламент / порядок / правила) AND comparative / tabular in intent
+ * (сравни / отличи / различи / разниц / сопостав / таблиц / разбер).
+ *
+ * Single-entity queries about regime / structure ("по какому ФЗ работает
+ * НМГРЭС", "перечень компаний группы СГК") do not match — they have no
+ * comparative wording — and continue to receive the registry pre-seed.
+ */
+// Word stems chosen to tolerate common Russian inflection AND typos.
+// "положени" misses the actual production query "положеий" (typo); "полож"
+// catches both. "отличи" misses "отличаются"; "отлич" catches it. False
+// positives in the SnabChat domain (e.g. "положительно", "положенный")
+// are vanishingly rare for procurement queries.
+const COMPARATIVE_REGULATION_DOC_PATTERN =
+  /полож|стандарт|регламент|порядок|правил|инструкци|методик/i;
+const COMPARATIVE_REGULATION_VERB_PATTERN =
+  /сравни|сопостав|отлич|различ|разниц|таблиц|разбер|анализ/i;
+
+function isComparativeRegulationQuery(text: string): boolean {
+  if (!text) return false;
+  return (
+    COMPARATIVE_REGULATION_DOC_PATTERN.test(text) &&
+    COMPARATIVE_REGULATION_VERB_PATTERN.test(text)
+  );
+}
+
 /** Экранирует строку для безопасного использования в XML-атрибутах */
 function escapeXmlAttr(str: string): string {
   return str
@@ -669,7 +708,12 @@ router.post("/api/chat", async (req: Request, res: Response) => {
     const REGISTRY_GATED_INTENTS = new Set<QueryIntent>(["entity_lookup", "authority"]);
     const mentionsOrgAgentic = ORG_MENTION_PATTERNS.some((p) => p.test(userMessage.content));
     const intentAllowsRegistry = REGISTRY_GATED_INTENTS.has(intentResult.intent);
-    if (mentionsOrgAgentic && intentAllowsRegistry) {
+    // Even when intent classifier picks entity_lookup (e.g. when query names two
+    // organizations as in "Сравни положения о закупках ЕТГК и НТСК"), suppress
+    // the registry pre-seed if the wording is clearly about comparing substantive
+    // regulations. See isComparativeRegulationQuery doc for rationale.
+    const isCmpRegulationAgentic = isComparativeRegulationQuery(userMessage.content);
+    if (mentionsOrgAgentic && intentAllowsRegistry && !isCmpRegulationAgentic) {
       try {
         const regResults = await fetchChunksByDocument(
           { filenameHints: ["Перечень_компаний", "Перечень компаний"] },
@@ -847,7 +891,15 @@ ${sanitizeUserInput(userMessage.content)}
   // Skip expensive hybrid search variants — they scan 23K+ chunks with embeddings
   // and cause 120s+ timeouts on broad queries like "ремонт зданий и сооружений".
   // Only run a single lightweight hybrid search as fallback (if contractor search returns nothing).
-  const isContractorQuery = intentResult.intent === "entity_lookup";
+  // Contractor card search runs only for "find me a contractor / vendor"
+  // questions. When the user asks to compare substantive procurement
+  // regulations and just happens to mention multiple organisations,
+  // intent classifier often still returns entity_lookup — suppress the
+  // contractor branch so the contractor cards (ООО _КРСК_, ООО _РУСЭНЕРГО_,
+  // etc.) do not crowd out the actual Положение о закупках.
+  const isContractorQuery =
+    intentResult.intent === "entity_lookup" &&
+    !isComparativeRegulationQuery(userMessage.content);
 
   const searchPromises = isContractorQuery
     ? [hybridSearch(searchQuery, 10, searchHints)] // single search, reduced count
@@ -1136,9 +1188,19 @@ ${sanitizeUserInput(userMessage.content)}
       }
     }
 
+    const REGISTRY_GATED_INTENTS_DET = new Set<QueryIntent>(["entity_lookup", "authority"]);
+
     // 5. Organization registry: include in the parallel batch (was previously sequential)
+    //
+    // Same gating as the agentic path (see chat.ts org-registry pre-seed in
+    // the agentic block). The registry is only useful when the user asks
+    // about an entity's regime / structure (entity_lookup, authority);
+    // it is noise for comparative regulation queries that name two
+    // organisations.
     const mentionsOrg = ORG_MENTION_PATTERNS.some((p) => p.test(userMessage.content));
-    if (mentionsOrg) {
+    const intentAllowsRegistryDet = REGISTRY_GATED_INTENTS_DET.has(intentResult.intent);
+    const isCmpRegulationDet = isComparativeRegulationQuery(userMessage.content);
+    if (mentionsOrg && intentAllowsRegistryDet && !isCmpRegulationDet) {
       const hasRegistryAlready = combinedResults.some((r) =>
         r.source_filename.toLowerCase().includes("перечень_компаний") ||
         r.source_filename.toLowerCase().includes("перечень компаний")
@@ -1393,12 +1455,25 @@ ${sanitizeUserInput(userMessage.content)}
   }
 
   // ── Expand results by document relationships (parent ↔ children) ──
+  // [diag] log filenames before/after so we can see when expansion brings in
+  // unexpected documents (e.g. Матрица НМГРЭС-355 surfacing on a query that
+  // does not mention НМГРЭС).
   try {
+    const beforeFiles = new Set(relevantChunks.map((r) => r.source_filename));
     relevantChunks = await expandByRelationships(
       relevantChunks,
       userMessage.content,
       6
     );
+    const addedByExpand: string[] = [];
+    for (const c of relevantChunks) {
+      if (!beforeFiles.has(c.source_filename)) addedByExpand.push(c.source_filename);
+    }
+    if (addedByExpand.length > 0) {
+      console.log(
+        `[chat][expand] expandByRelationships added ${addedByExpand.length} new files: ${[...new Set(addedByExpand)].join(", ")}`
+      );
+    }
   } catch (relErr) {
     console.error("[chat] Relationship expansion failed (non-fatal):", relErr);
   }
