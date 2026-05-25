@@ -447,8 +447,8 @@ export default function CodesTab({ adminCode, canDeleteCodes }: { adminCode: str
             onClick={(e) => e.stopPropagation()}
             style={{
               position: "fixed",
-              top: menuAnchor.placement === "below" ? menuAnchor.top : undefined,
-              bottom: menuAnchor.placement === "above" ? window.innerHeight - menuAnchor.top : undefined,
+              top: menuAnchor.placement === "below" ? menuAnchor.top : "auto",
+              bottom: menuAnchor.placement === "above" ? window.innerHeight - menuAnchor.top : "auto",
               right: menuAnchor.right,
             }}
           >
