@@ -132,7 +132,11 @@ const DOC_TYPE_PREFIX: Record<string, string> = {
 
 /** Normalize all dash-like characters (en-dash, em-dash, Unicode hyphen, minus) to ASCII hyphen */
 function normalizeDashes(text: string): string {
-  return text.replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-");
+  // Convert hyphen-like dash variants to ASCII "-" so cipher codes (\u0421-\u041A\u042D-\u04125-01)
+  // match. Em-dash (U+2014) and horizontal bar (U+2015) are deliberately NOT
+  // converted: a line-leading "\u2014 " is real punctuation (e.g. a quote source
+  // attribution) and must not turn into a "- " markdown list bullet.
+  return text.replace(/[\u2010\u2011\u2012\u2013\u2212\uFE58\uFE63\uFF0D]/g, "-");
 }
 
 /**
@@ -367,6 +371,10 @@ function normalizeLLMMarkdown(text: string): string {
     }
     return line;
   }).join("\n");
+
+  // Drop empty list items — a lone bullet/number marker with no content
+  // (`- `, `*`, `1.`) renders as a stray empty bullet.
+  t = t.replace(/^[ \t]*([-*+]|\d+[.)])[ \t]*$/gm, "");
 
   t = t.replace(/\n{3,}/g, "\n\n");
 
