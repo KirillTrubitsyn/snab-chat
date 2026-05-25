@@ -32,6 +32,18 @@ interface AnalyticsData {
 
 const PALETTE = ["#1976D2", "#42A5F5", "#7DD3FC", "#0D47A1", "#90CAF9", "#1565C0", "#64B5F6"];
 
+// Цвет на категорию (чтобы один и тот же тип был одного цвета во всех графиках).
+const TYPE_COLORS: Record<string, string> = {
+  "Чат": "#1976D2",
+  "Документы": "#42A5F5",
+  "Инфографика": "#7DD3FC",
+};
+const PLATFORM_COLORS: Record<string, string> = {
+  "Десктоп": "#1976D2",
+  "Мобильный": "#42A5F5",
+};
+const colorFor = (map: Record<string, string>, label: string, i: number) => map[label] || PALETTE[i % PALETTE.length];
+
 export default function AnalyticsTab({ adminCode }: { adminCode: string }) {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -82,19 +94,27 @@ export default function AnalyticsTab({ adminCode }: { adminCode: string }) {
     // Встроенная HTML-легенда ApexCharts ломается глобальным ресетом `* {margin:0}`
     // (маркеры разъезжаются, подписи пропадают) — рисуем свою легенду в ChartCard.
     legend: { show: false },
+    // Tooltip ApexCharts мисспозиционируется (залипает в углу) из-за того же
+    // ресета — отключаем; данные видны на подписях, легенде и осях.
+    tooltip: { enabled: false },
     dataLabels: { enabled: false },
     ...extra,
   });
 
+  const areaColors = (data?.activityOverTime.series || []).map((s, i) => colorFor(TYPE_COLORS, s.name, i));
   const areaOptions: ApexOptions = baseChart({
     chart: { type: "area", stacked: true, toolbar: { show: false }, fontFamily: "inherit" },
     xaxis: { categories: data?.activityOverTime.categories || [], type: "datetime" },
     stroke: { curve: "smooth", width: 2 },
     fill: { type: "gradient", gradient: { opacityFrom: 0.5, opacityTo: 0.1 } },
+    colors: areaColors,
   });
 
-  const donut = (labels: string[]): ApexOptions =>
-    baseChart({ labels, dataLabels: { enabled: true } });
+  const donut = (labels: string[], colors: string[]): ApexOptions =>
+    baseChart({ labels, colors, dataLabels: { enabled: true } });
+
+  const typeColors = (data?.typeBreakdown.labels || []).map((l, i) => colorFor(TYPE_COLORS, l, i));
+  const platformColors = (data?.platformSplit.labels || []).map((l, i) => colorFor(PLATFORM_COLORS, l, i));
 
   const horizontalBar = (categories: string[], color: string): ApexOptions =>
     baseChart({
@@ -172,22 +192,22 @@ export default function AnalyticsTab({ adminCode }: { adminCode: string }) {
                 series={data!.activityOverTime.series}
                 options={areaOptions}
                 height={340}
-                legend={data!.activityOverTime.series.map((s, i) => ({ label: s.name, color: PALETTE[i] }))}
+                legend={data!.activityOverTime.series.map((s, i) => ({ label: s.name, color: areaColors[i] }))}
               />
             </div>
             <ChartCard
               title="Типы запросов"
               type="donut"
               series={data!.typeBreakdown.series}
-              options={donut(data!.typeBreakdown.labels)}
-              legend={data!.typeBreakdown.labels.map((l, i) => ({ label: l, color: PALETTE[i], value: data!.typeBreakdown.series[i] }))}
+              options={donut(data!.typeBreakdown.labels, typeColors)}
+              legend={data!.typeBreakdown.labels.map((l, i) => ({ label: l, color: typeColors[i], value: data!.typeBreakdown.series[i] }))}
             />
             <ChartCard
               title="Мобильный / десктоп"
               type="donut"
               series={data!.platformSplit.series}
-              options={donut(data!.platformSplit.labels)}
-              legend={data!.platformSplit.labels.map((l, i) => ({ label: l, color: PALETTE[i], value: data!.platformSplit.series[i] }))}
+              options={donut(data!.platformSplit.labels, platformColors)}
+              legend={data!.platformSplit.labels.map((l, i) => ({ label: l, color: platformColors[i], value: data!.platformSplit.series[i] }))}
             />
             <ChartCard
               title="Топ активных пользователей"
