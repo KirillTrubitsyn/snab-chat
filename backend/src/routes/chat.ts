@@ -3,7 +3,7 @@ import { type ModelMessage } from "ai";
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, searchContractorCards, graphAwareSearch, expandTableSources, type SearchResult } from "../lib/retrieval.js";
 import { rerank } from "../lib/reranker.js";
-import { classifyIntent, type SpuSubIntent } from "../lib/intent-classifier.js";
+import { classifyIntent, type SpuSubIntent, type QueryIntent } from "../lib/intent-classifier.js";
 import { loadConversationContext, saveMessage } from "../lib/memory.js";
 import { getInviteCodeFromHeader, isAdminCode, buildServiceAuthInviteCode, isMobileUserAgent } from "../lib/auth.js";
 import { tryServiceAuth } from "../lib/service-auth.js";
@@ -570,7 +570,10 @@ router.post("/api/chat", async (req: Request, res: Response) => {
             const boostedSim = r.similarity >= 0.25
               ? Math.max(r.similarity, 0.75)
               : r.similarity;
-            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim });
+            // Preserve original (pre-boost) similarity so Phase-2 fill in
+            // finalizeAgenticResults() can rank candidates honestly even when
+            // boosted to 0.75 (see backend/src/lib/agentic-rag.ts).
+            agenticCtx.chunks.set(r.id, { ...r, originalSimilarity: r.similarity, similarity: boostedSim });
             preAdded++;
           }
         }
@@ -612,7 +615,7 @@ router.post("/api/chat", async (req: Request, res: Response) => {
               const boostedSim = r.similarity >= 0.25
                 ? Math.max(r.similarity, 0.75)
                 : r.similarity;
-              agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim });
+              agenticCtx.chunks.set(r.id, { ...r, originalSimilarity: r.similarity, similarity: boostedSim });
               added++;
               entityAdded++;
             }
@@ -635,7 +638,7 @@ router.post("/api/chat", async (req: Request, res: Response) => {
             const boostedSim = r.similarity >= 0.25
               ? Math.max(r.similarity, 0.75)
               : r.similarity;
-            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim });
+            agenticCtx.chunks.set(r.id, { ...r, originalSimilarity: r.similarity, similarity: boostedSim });
             catAdded++;
           }
         }
@@ -646,8 +649,27 @@ router.post("/api/chat", async (req: Request, res: Response) => {
     }
 
     // ── Pre-seed: organization registry when query mentions SGK entities ──
+    //
+    // The "Перечень компаний Общества" registry tells the model what régime
+    // each SGK entity works under (223-ФЗ / non-223-ФЗ) and how the holding is
+    // structured. That is exactly what entity_lookup and authority questions
+    // need ("по какому ФЗ работает НМГРЭС", "кто согласовывает X в Кузбассэнерго").
+    //
+    // For other intents — especially "regulation" / "procedure" / "general" used
+    // when comparing internal procurement regulations between two entities
+    // (e.g. "Сравни положения о закупках ЕТГК и НТСК") — the registry is noise:
+    // it crowds out the actual regulations via the 0.75 pre-seed boost and the
+    // entity-balanced Phase-2 fill in finalizeAgenticResults(). We saw this on
+    // the ЕТГК↔НТСК comparison: 17 retrieved sources, with the actual Положение
+    // о закупках НТСК (sources.id=1421) missing while "Перечень компаний",
+    // "Матрица полномочий" and "Схема взаимодействия" dominated.
+    //
+    // НМГРЭС authority case is unaffected — it is served by the dedicated
+    // detectNmgresAuthorityQuery() branch below, not by this registry hint.
+    const REGISTRY_GATED_INTENTS = new Set<QueryIntent>(["entity_lookup", "authority"]);
     const mentionsOrgAgentic = ORG_MENTION_PATTERNS.some((p) => p.test(userMessage.content));
-    if (mentionsOrgAgentic) {
+    const intentAllowsRegistry = REGISTRY_GATED_INTENTS.has(intentResult.intent);
+    if (mentionsOrgAgentic && intentAllowsRegistry) {
       try {
         const regResults = await fetchChunksByDocument(
           { filenameHints: ["Перечень_компаний", "Перечень компаний"] },
@@ -661,7 +683,8 @@ router.post("/api/chat", async (req: Request, res: Response) => {
               ? Math.max(r.similarity, 0.75)
               : r.similarity;
             // Mark as pre-seeded so downstream regime filters do not drop it.
-            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim, preseeded: true });
+            // Keep originalSimilarity so Phase-2 fill can rank by the honest score.
+            agenticCtx.chunks.set(r.id, { ...r, originalSimilarity: r.similarity, similarity: boostedSim, preseeded: true });
             regAdded++;
           }
         }
@@ -688,7 +711,10 @@ router.post("/api/chat", async (req: Request, res: Response) => {
             const boostedSim = r.similarity >= 0.2 ? Math.max(r.similarity, 0.80) : r.similarity;
             // Mark as pre-seeded (A1) so the regime filter keeps НМГРЭС matrix chunks
             // even when intent classifier incorrectly picks fz_type=223.
-            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim, preseeded: true });
+            // originalSimilarity preserved for consistency with Phase-2 fill ranking,
+            // but does NOT change the NMGRES retrieval behavior (the matrix chunks
+            // are routed via Phase-1 / intentAwareRerank pre-seeded boost path).
+            agenticCtx.chunks.set(r.id, { ...r, originalSimilarity: r.similarity, similarity: boostedSim, preseeded: true });
             nmAdded++;
           }
         }
@@ -717,7 +743,7 @@ router.post("/api/chat", async (req: Request, res: Response) => {
             const boostedSim = r.similarity >= 0.25
               ? Math.max(r.similarity, 0.75)
               : r.similarity;
-            agenticCtx.chunks.set(r.id, { ...r, similarity: boostedSim });
+            agenticCtx.chunks.set(r.id, { ...r, originalSimilarity: r.similarity, similarity: boostedSim });
             graphPreSeededCount++;
           }
         }
