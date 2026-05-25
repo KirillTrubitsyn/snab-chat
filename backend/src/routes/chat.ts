@@ -954,6 +954,41 @@ ${sanitizeUserInput(userMessage.content)}
     );
   }
 
+  // ── Per-entity DOCUMENT pre-seed (filename-based) ──
+  //
+  // Comparative regulation queries like "Сравни положения о закупках ЕТГК
+  // и НТСК" used to return everything EXCEPT the actual Положение НТСК
+  // (sources.id=1421). Why: the semantic per-entity search above lifts
+  // chunks by embedding similarity, but Положение НТСК's 48 chunks
+  // compete with denormalised сравнительные MDs and 607 chunks of the
+  // big Положение_о_закупках_АО_Енисейская_ТГК_(ТГК-13).docx, and lose
+  // the top-20 cut on every query variant. By the time the reranker
+  // sees the candidate set, Положение НТСК is simply not in it.
+  //
+  // Fix: when the query is about substantive regulations
+  // (isComparativeRegulationQuery) and we have at least one matched
+  // entity, fetch "Положение_о_закупках_<alias>" /
+  // "Стандарт_закупок_<alias>" / etc. by FILENAME for every alias of
+  // every matched entity. This guarantees the canonical regulation
+  // document for each named entity reaches the reranker.
+  let perEntityDocPromises: Promise<SearchResult[]>[] = [];
+  if (matchedEntities.length >= 1 && isComparativeRegulationQuery(userMessage.content)) {
+    perEntityDocPromises = matchedEntities.map((entity) => {
+      const hints: string[] = [];
+      for (const alias of entity.aliases) {
+        hints.push(`Положение_о_закупках_${alias}`);
+        hints.push(`Стандарт_закупок_${alias}`);
+        hints.push(`Стандарт_закупок_товаров_${alias}`);
+        hints.push(`Стандарт_закупок_товаров_РиУ_${alias}`);
+      }
+      return fetchChunksByDocument({ filenameHints: hints }, 6, userMessage.content)
+        .catch(() => [] as SearchResult[]);
+    });
+    console.log(
+      `[chat] Per-entity DOC pre-seed enqueued for ${matchedEntities.length} entities: ${matchedEntities.map((e) => e.name).join(", ")}`,
+    );
+  }
+
   const tSearch = Date.now();
   const [sectionResults, docResults, catalogResults, contractorResults, graphSearchResult, ...variantAndEntityResults] = await Promise.all([
     sectionRef ? fetchChunksBySection(sectionRef) : Promise.resolve([]),
@@ -963,12 +998,20 @@ ${sanitizeUserInput(userMessage.content)}
     graphSearchPromise,
     ...searchPromises,
     ...perEntitySearchPromises,
+    ...perEntityDocPromises,
   ]);
 
-  // Split variant results and per-entity results
+  // Split variant results, per-entity hybrid results, and per-entity DOC results
   const numVariantSearches = searchPromises.length;
+  const numPerEntityHybrid = perEntitySearchPromises.length;
   const variantResults = variantAndEntityResults.slice(0, numVariantSearches) as SearchResult[][];
-  const perEntityResults = variantAndEntityResults.slice(numVariantSearches) as SearchResult[][];
+  const perEntityResults = variantAndEntityResults.slice(
+    numVariantSearches,
+    numVariantSearches + numPerEntityHybrid,
+  ) as SearchResult[][];
+  const perEntityDocResults = variantAndEntityResults.slice(
+    numVariantSearches + numPerEntityHybrid,
+  ) as SearchResult[][];
 
   console.log(`[chat][timing] Main parallel search: ${Date.now() - tSearch}ms`);
 
@@ -988,6 +1031,36 @@ ${sanitizeUserInput(userMessage.content)}
   // Merge section-lookup and document-lookup results with search results (dedup by id)
   let combinedResults = searchResults;
   const existingIds = new Set(searchResults.map((r) => r.id));
+
+  // ── Per-entity DOC pre-seed merge (filename-based, boosted, preseeded) ──
+  // Push to the FRONT of combinedResults with boost so the reranker sees
+  // them in the candidate pool. originalSimilarity is preserved per the
+  // PR #576 contract. preseeded=true keeps them safe from the regime
+  // post-filter even when their tags do not match the strict regime.
+  if (perEntityDocResults.length > 0) {
+    const docPreseedFlat: SearchResult[] = [];
+    const docPreseedFiles = new Set<string>();
+    for (const results of perEntityDocResults) {
+      for (const r of results) {
+        if (existingIds.has(r.id)) continue;
+        const boosted = r.similarity >= 0.2 ? Math.max(r.similarity, 0.75) : r.similarity;
+        docPreseedFlat.push({
+          ...r,
+          originalSimilarity: r.similarity,
+          similarity: boosted,
+          preseeded: true,
+        });
+        existingIds.add(r.id);
+        docPreseedFiles.add(r.source_filename);
+      }
+    }
+    if (docPreseedFlat.length > 0) {
+      combinedResults = [...docPreseedFlat, ...combinedResults];
+      console.log(
+        `[chat] Per-entity DOC pre-seed added ${docPreseedFlat.length} chunks from ${docPreseedFiles.size} files: ${[...docPreseedFiles].join(", ")}`,
+      );
+    }
+  }
 
   // Merge contractor card results (boosted similarity)
   // When intent is entity_lookup, contractor cards are the primary data source
