@@ -5,7 +5,7 @@ import { hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySectio
 import { rerank } from "../lib/reranker.js";
 import { classifyIntent, type SpuSubIntent } from "../lib/intent-classifier.js";
 import { loadConversationContext, saveMessage } from "../lib/memory.js";
-import { getInviteCodeFromHeader, isAdminCode, buildServiceAuthInviteCode } from "../lib/auth.js";
+import { getInviteCodeFromHeader, isAdminCode, buildServiceAuthInviteCode, isMobileUserAgent } from "../lib/auth.js";
 import { tryServiceAuth } from "../lib/service-auth.js";
 import { createServiceClient } from "../lib/supabase.js";
 import { classifyOffTopic, detectGibberish, detectVagueQuery, CATEGORY_LABELS, type OffTopicCategory } from "../lib/off-topic-classifier.js";
@@ -146,6 +146,8 @@ router.post("/api/chat", async (req: Request, res: Response) => {
  }, REQUEST_TIMEOUT_MS);
 
  try {
+  // Платформа запроса (для аналитики): пишется в messages.is_mobile.
+  const isMobile = isMobileUserAgent((req.headers["user-agent"] as string) || "");
   // H03 (22.04.2026): service-auth для межсервисных вызовов /api/chat
   // (скрипты, CI, автотесты) без браузерной 2FA-сессии.
   //
@@ -250,7 +252,7 @@ router.post("/api/chat", async (req: Request, res: Response) => {
       const supabase = createServiceClient();
       const inviteCodeId = invite.id.startsWith("admin-") ? null : invite.id;
       const msgSaves = conversationId
-        ? saveMessage(conversationId, "user", userMessage.content)
+        ? saveMessage(conversationId, "user", userMessage.content, undefined, isMobile)
             .then(() => saveMessage(conversationId, "assistant", clarificationMsg))
             .catch((e) => console.error("[InvalidInput] Failed to save chat messages:", e))
         : Promise.resolve();
@@ -322,7 +324,7 @@ router.post("/api/chat", async (req: Request, res: Response) => {
         const supabase = createServiceClient();
         const inviteCodeId = invite.id.startsWith("admin-") ? null : invite.id;
         const msgSaves = conversationId
-          ? saveMessage(conversationId, "user", userMessage.content)
+          ? saveMessage(conversationId, "user", userMessage.content, undefined, isMobile)
               .then(() => saveMessage(conversationId, "assistant", vagueMsg))
               .catch((e) => console.error("[VagueQuery] Failed to save chat messages:", e))
           : Promise.resolve();
@@ -396,7 +398,8 @@ router.post("/api/chat", async (req: Request, res: Response) => {
           userMessage.content,
           hasNewAttachments
             ? { attached_files: rawAttached.map((d: { filename: string }) => d.filename) }
-            : undefined
+            : undefined,
+          isMobile
         ).catch((e) => {
           console.error("[chat] Failed to save user message (continuing with response):", e);
         })
