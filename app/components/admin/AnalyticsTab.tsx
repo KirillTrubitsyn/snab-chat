@@ -94,13 +94,19 @@ export default function AnalyticsTab({ adminCode }: { adminCode: string }) {
   const donut = (labels: string[]): ApexOptions =>
     baseChart({ labels, legend: { position: "bottom" }, dataLabels: { enabled: true } });
 
+  const horizontalBar = (categories: string[], color: string): ApexOptions =>
+    baseChart({
+      chart: { type: "bar", toolbar: { show: false }, fontFamily: "inherit" },
+      plotOptions: { bar: { horizontal: true, borderRadius: 4, barHeight: "70%" } },
+      xaxis: { categories },
+      yaxis: { labels: { maxWidth: 280, style: { fontSize: "12px" } } },
+      legend: { show: false },
+      colors: [color],
+    });
+
   const topUsersCats = data?.topUsers.map((u) => u.userName) || [];
-  const barOptions: ApexOptions = baseChart({
-    chart: { type: "bar", toolbar: { show: false }, fontFamily: "inherit" },
-    plotOptions: { bar: { horizontal: true, borderRadius: 4 } },
-    xaxis: { categories: topUsersCats },
-    colors: ["#1976D2"],
-  });
+  const barOptions = horizontalBar(topUsersCats, "#1976D2");
+  const orgBarOptions = horizontalBar(data?.byOrg.labels || [], "#42A5F5");
 
   const hasData = data && data.kpis.totalRequests > 0;
 
@@ -183,13 +189,17 @@ export default function AnalyticsTab({ adminCode }: { adminCode: string }) {
               type="bar"
               series={[{ name: "Запросы", data: data!.topUsers.map((u) => u.count) }]}
               options={barOptions}
+              height={Math.max(320, data!.topUsers.length * 42)}
             />
-            <ChartCard
-              title="По организациям"
-              type="donut"
-              series={data!.byOrg.series}
-              options={donut(data!.byOrg.labels)}
-            />
+            <div style={{ gridColumn: "1 / -1" }}>
+              <ChartCard
+                title="По организациям"
+                type="bar"
+                series={[{ name: "Запросы", data: data!.byOrg.series }]}
+                options={orgBarOptions}
+                height={Math.max(320, data!.byOrg.labels.length * 38)}
+              />
+            </div>
           </div>
         </>
       )}
