@@ -434,14 +434,40 @@ export async function finalizeAgenticResults(
       }
     }
 
-    // Phase 2: fill remaining budget with highest-scoring unselected chunks
-    const remaining = sorted.filter((c) => !selectedIds.has(c.id));
+    // Phase 2: fill remaining budget with highest-scoring unselected chunks.
+    //
+    // CRITICAL: rank candidates by the ORIGINAL pre-boost similarity, not by
+    // the boosted value. Pre-seed sites in chat.ts inflate similarity to 0.75
+    // for org-registry, catalog, per-entity and graph-aware hits. If we sort
+    // by `similarity` here, every boosted registry chunk (originalSimilarity
+    // ≈ 0.05–0.25, boosted to 0.75) outranks a genuinely relevant content
+    // chunk at 0.55, even though the registry has nothing to do with the
+    // user's question. That is exactly the failure mode observed on the
+    // ЕТГК↔НТСК comparison: 17 retrieved sources with "Перечень компаний",
+    // "Матрица полномочий" and "Схема взаимодействия" displacing the actual
+    // Положение о закупках НТСК (sources.id=1421).
+    //
+    // We also apply a soft relevance threshold to unclassified candidates so
+    // that low-quality boosted chunks (originalSimilarity well below the
+    // entity chunks we already selected in Phase-1) do not get pulled in at
+    // all. Pre-seeded chunks that survive Phase-1 (e.g. NMGRES authority
+    // matrix routed via entityHints / intentAwareRerank) are unaffected —
+    // this only filters the Phase-2 *fill* pool.
+    const PHASE2_MIN_SCORE = 0.30;
+    const scoreFor = (c: SearchResult) => c.originalSimilarity ?? c.similarity;
+    const remaining = sorted
+      .filter((c) => !selectedIds.has(c.id))
+      .filter((c) => scoreFor(c) >= PHASE2_MIN_SCORE)
+      .sort((a, b) => scoreFor(b) - scoreFor(a));
     for (const c of remaining) {
       if (balanced.length >= MAX_BALANCED) break;
       balanced.push(c);
     }
 
-    // Re-sort by similarity for consistent ordering
+    // Re-sort by similarity for consistent ordering in the final result list.
+    // The boosted similarity is still useful as a presentational signal
+    // (it carries the regime / intent boost), but ranking decisions above
+    // used the honest originalSimilarity.
     balanced.sort((a, b) => b.similarity - a.similarity);
 
     console.log(`[agentic] Entity-balanced: ${entityHints.map(h => {

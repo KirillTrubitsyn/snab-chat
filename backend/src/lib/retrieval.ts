@@ -28,6 +28,19 @@ export interface SearchResult {
    * since their inclusion was already an authoritative decision.
    */
   preseeded?: boolean;
+  /**
+   * Original similarity score from the search engine (cosine + FTS hybrid),
+   * captured BEFORE any pre-seed boost to 0.75/0.80. Phase-2 fill in the
+   * entity-balanced agentic path sorts unclassified candidates by this
+   * value, so a boosted org-registry chunk (similarity=0.75, original≈0.05)
+   * does not outrank a content chunk (similarity≈0.55) when filling
+   * remaining budget.
+   *
+   * Optional: only present on chunks that went through a pre-seed site.
+   * Consumers that need the rank-time score should use
+   * `originalSimilarity ?? similarity` for backward compatibility.
+   */
+  originalSimilarity?: number;
 }
 
 /* ── Relevance filtering constants ── */
