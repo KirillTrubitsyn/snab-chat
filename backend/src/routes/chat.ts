@@ -1919,8 +1919,8 @@ ${uploadedDocsContext}`;
   let modelId = PRIMARY_MODEL_ID;
   const genaiClient = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
 
-  // Сложные запросы (агентный RAG) рассуждают глубже (medium), обычные — low.
-  const thinkingLevel = useAgenticRag ? ThinkingLevel.MEDIUM : ThinkingLevel.LOW;
+  // Сложные запросы (агентный RAG) рассуждают глубже (high), обычные — medium.
+  const thinkingLevel = useAgenticRag ? ThinkingLevel.HIGH : ThinkingLevel.MEDIUM;
   console.log(`[chat] thinkingLevel=${thinkingLevel} (complex=${useAgenticRag})`);
 
   // Convert ModelMessage[] → @google/genai Content format
