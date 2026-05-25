@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { type ModelMessage } from "ai";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, searchContractorCards, graphAwareSearch, expandTableSources, type SearchResult } from "../lib/retrieval.js";
 import { rerank } from "../lib/reranker.js";
 import { classifyIntent, type SpuSubIntent } from "../lib/intent-classifier.js";
@@ -1889,6 +1889,10 @@ ${uploadedDocsContext}`;
   let modelId = PRIMARY_MODEL_ID;
   const genaiClient = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
 
+  // Сложные запросы (агентный RAG) рассуждают глубже (high), обычные — medium.
+  const thinkingLevel = useAgenticRag ? ThinkingLevel.HIGH : ThinkingLevel.MEDIUM;
+  console.log(`[chat] thinkingLevel=${thinkingLevel} (complex=${useAgenticRag})`);
+
   // Convert ModelMessage[] → @google/genai Content format
   type GenAIPart = { text: string } | { inlineData: { mimeType: string; data: string } };
   const genaiContents: Array<{ role: string; parts: GenAIPart[] }> = [];
@@ -1921,6 +1925,10 @@ ${uploadedDocsContext}`;
       config: {
         systemInstruction: systemPrompt,
         temperature: 0,
+        thinkingConfig: { thinkingLevel },
+        // На Gemini 3 thinking-токены входят в этот бюджет — без явного лимита
+        // включённый thinking рискует не завершиться. 32768 покрывает high + ответ.
+        maxOutputTokens: 32768,
       },
     });
 
@@ -1996,8 +2004,11 @@ ${uploadedDocsContext}`;
   }
 
   try {
+    let lastFinishReason: string | undefined;
     for await (const chunk of genaiStream) {
       if (timedOut) break; // stop reading if request timed out
+      const fr = chunk.candidates?.[0]?.finishReason;
+      if (fr) lastFinishReason = fr;
       const text = chunk.text ?? "";
       if (text) {
         fullText += text;
@@ -2005,6 +2016,9 @@ ${uploadedDocsContext}`;
       }
     }
     if (timedOut) return;
+    if (lastFinishReason === "MAX_TOKENS") {
+      console.warn(`[chat] Ответ обрезан по maxOutputTokens (thinkingLevel=${thinkingLevel}, len=${fullText.length})`);
+    }
     clearTimeout(requestTimer);
     const finish = JSON.stringify({ finishReason: "stop", usage: { promptTokens: 0, completionTokens: 0 }, isContinued: false });
     res.write(`e:${finish}\n`);
