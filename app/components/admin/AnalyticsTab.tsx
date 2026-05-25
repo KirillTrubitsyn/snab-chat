@@ -79,7 +79,9 @@ export default function AnalyticsTab({ adminCode }: { adminCode: string }) {
   const baseChart = (extra: ApexOptions): ApexOptions => ({
     chart: { toolbar: { show: false }, fontFamily: "inherit" },
     colors: PALETTE,
-    legend: { position: "bottom" },
+    // Встроенная HTML-легенда ApexCharts ломается глобальным ресетом `* {margin:0}`
+    // (маркеры разъезжаются, подписи пропадают) — рисуем свою легенду в ChartCard.
+    legend: { show: false },
     dataLabels: { enabled: false },
     ...extra,
   });
@@ -92,7 +94,7 @@ export default function AnalyticsTab({ adminCode }: { adminCode: string }) {
   });
 
   const donut = (labels: string[]): ApexOptions =>
-    baseChart({ labels, legend: { position: "bottom" }, dataLabels: { enabled: true } });
+    baseChart({ labels, dataLabels: { enabled: true } });
 
   const horizontalBar = (categories: string[], color: string): ApexOptions =>
     baseChart({
@@ -170,6 +172,7 @@ export default function AnalyticsTab({ adminCode }: { adminCode: string }) {
                 series={data!.activityOverTime.series}
                 options={areaOptions}
                 height={340}
+                legend={data!.activityOverTime.series.map((s, i) => ({ label: s.name, color: PALETTE[i] }))}
               />
             </div>
             <ChartCard
@@ -177,12 +180,14 @@ export default function AnalyticsTab({ adminCode }: { adminCode: string }) {
               type="donut"
               series={data!.typeBreakdown.series}
               options={donut(data!.typeBreakdown.labels)}
+              legend={data!.typeBreakdown.labels.map((l, i) => ({ label: l, color: PALETTE[i], value: data!.typeBreakdown.series[i] }))}
             />
             <ChartCard
               title="Мобильный / десктоп"
               type="donut"
               series={data!.platformSplit.series}
               options={donut(data!.platformSplit.labels)}
+              legend={data!.platformSplit.labels.map((l, i) => ({ label: l, color: PALETTE[i], value: data!.platformSplit.series[i] }))}
             />
             <ChartCard
               title="Топ активных пользователей"
