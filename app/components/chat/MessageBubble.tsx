@@ -340,8 +340,10 @@ function normalizeLLMMarkdown(text: string): string {
   t = t.replace(/^[ \t]+(?=#{1,6})/gm, "");
   t = t.replace(/(^|\n)\\(#{1,6})/g, "$1$2");
 
-  // Ensure single space between `##` marker and heading text (`##Text` → `## Text`)
-  t = t.replace(/^(#{1,6})(?=\S)/gm, "$1 ");
+  // Ensure single space between `##` marker and heading text (`##Text` → `## Text`).
+  // Lookahead excludes `#` so an already-spaced heading (`## Text`) isn't mangled
+  // into `# # Text` by backtracking onto the boundary between the hash characters.
+  t = t.replace(/^(#{1,6})(?=[^\s#])/gm, "$1 ");
 
   t = t.replace(/([^\n])\n(#{1,6}\s)/g, "$1\n\n$2");
   t = t.replace(/(\n#{1,6}[^\n]*)\n(?!\n|#{1,6}\s|$)/g, "$1\n\n");
