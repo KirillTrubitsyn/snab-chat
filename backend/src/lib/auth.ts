@@ -169,7 +169,7 @@ export async function validateInviteCode(
 // Управление устройствами
 // ============================================================
 
-function isMobileUserAgent(userAgent: string): boolean {
+export function isMobileUserAgent(userAgent: string): boolean {
   return /mobile|android|iphone|ipad|ipod|blackberry|windows phone|webos/i.test(userAgent);
 }
 

@@ -1,5 +1,6 @@
 export { default as CodesTab } from "./CodesTab";
 export { default as ActivityTab } from "./ActivityTab";
+export { default as AnalyticsTab } from "./AnalyticsTab";
 export { default as DocumentsTab } from "./DocumentsTab";
 export { default as NontargetTab } from "./NontargetTab";
 export { default as SupportTab } from "./SupportTab";

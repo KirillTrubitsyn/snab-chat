@@ -170,7 +170,8 @@ export async function saveMessage(
   conversationId: string,
   role: "user" | "assistant",
   content: string,
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  isMobile?: boolean
 ): Promise<void> {
   const supabase = createServiceClient();
   const tokens = estimateTokens(content);
@@ -183,6 +184,7 @@ export async function saveMessage(
     token_estimate: tokens,
   };
   if (metadata) row.metadata = metadata;
+  if (isMobile !== undefined) row.is_mobile = isMobile;
 
   // Supabase-js returns `{ error }` instead of throwing on DB errors; without
   // this check a failed insert is silently ignored and we end up with orphan

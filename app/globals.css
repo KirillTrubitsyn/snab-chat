@@ -4884,6 +4884,41 @@ input, textarea {
   margin: 4px 0;
 }
 
+/* ── Analytics: KPI cards + chart grid ── */
+.admin-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.admin-kpi-card {
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+.admin-kpi-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #0F172A;
+  line-height: 1.1;
+}
+.admin-kpi-label {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #64748B;
+}
+.admin-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 900px) {
+  .admin-chart-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ── Loading / Empty states ── */
 
 .admin-loading-text {

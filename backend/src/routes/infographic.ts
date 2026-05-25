@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { OpenRouter } from "@openrouter/sdk";
 import { createServiceClient } from "../lib/supabase.js";
-import { getInviteCodeFromHeader, getAdminName, requireAuth, normalizeAdminName } from "../lib/auth.js";
+import { getInviteCodeFromHeader, getAdminName, requireAuth, normalizeAdminName, isMobileUserAgent } from "../lib/auth.js";
 import { logAuditEvent } from "../lib/audit-log.js";
 
 const router = Router();
@@ -133,6 +133,8 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
 
   // Extract client IP for audit trail
   const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",").pop()?.trim() || req.ip || "unknown";
+  // Платформа запроса (для аналитики): пишется в infographics.is_mobile.
+  const isMobile = isMobileUserAgent((req.headers["user-agent"] as string) || "");
 
   // Resolve admin name if admin request
   const rawCode = (req.headers["x-invite-code"] as string) || (req.headers["x-admin-code"] as string) || "";
@@ -257,6 +259,7 @@ router.post("/api/infographic", async (req: Request, res: Response) => {
             image_base64: imageBase64,
             admin_name: adminName || null,
             ip_address: clientIp,
+            is_mobile: isMobile,
           })
           .select("id")
           .single();
