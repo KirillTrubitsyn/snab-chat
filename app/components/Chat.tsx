@@ -293,7 +293,11 @@ export default function Chat() {
       // Extract filename from Content-Disposition header
       const disposition = res.headers.get("Content-Disposition") || "";
       const filenameMatch = disposition.match(/filename\*=UTF-8''(.+?)(?:;|$)/);
-      const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : `snabchat-${new Date().toISOString().slice(0, 10)}.docx`;
+      // Fallback when Content-Disposition could not be parsed: same naming
+      // policy as the backend (PR #5) — date prefix, no brand.
+      const filename = filenameMatch
+        ? decodeURIComponent(filenameMatch[1])
+        : `${new Date().toISOString().slice(0, 10)} ответ.docx`;
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -323,7 +327,9 @@ export default function Chat() {
       if (!res.ok) throw new Error("Excel export failed");
       const disposition = res.headers.get("Content-Disposition") || "";
       const filenameMatch = disposition.match(/filename\*=UTF-8''(.+?)(?:;|$)/);
-      const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : `snabchat-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const filename = filenameMatch
+        ? decodeURIComponent(filenameMatch[1])
+        : `${new Date().toISOString().slice(0, 10)} таблица.xlsx`;
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
