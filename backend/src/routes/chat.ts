@@ -981,7 +981,13 @@ ${sanitizeUserInput(userMessage.content)}
         hints.push(`Стандарт_закупок_товаров_${alias}`);
         hints.push(`Стандарт_закупок_товаров_РиУ_${alias}`);
       }
-      return fetchChunksByDocument({ filenameHints: hints }, 6, userMessage.content)
+      // PR #4 balance: limit dropped from 6 to 3 per entity. The earlier 6
+      // chunks-per-entity setting (PR #3) pulled enough title / preamble
+      // pages of each Положение to outweigh the денормализованные comparative
+      // MDs in the reranker's top-5. Three chunks per entity are enough to
+      // keep the canonical regulation document represented in sources
+      // without crowding out the actual comparison content.
+      return fetchChunksByDocument({ filenameHints: hints }, 3, userMessage.content)
         .catch(() => [] as SearchResult[]);
     });
     console.log(
@@ -1032,18 +1038,28 @@ ${sanitizeUserInput(userMessage.content)}
   let combinedResults = searchResults;
   const existingIds = new Set(searchResults.map((r) => r.id));
 
-  // ── Per-entity DOC pre-seed merge (filename-based, boosted, preseeded) ──
-  // Push to the FRONT of combinedResults with boost so the reranker sees
-  // them in the candidate pool. originalSimilarity is preserved per the
-  // PR #576 contract. preseeded=true keeps them safe from the regime
-  // post-filter even when their tags do not match the strict regime.
+  // ── Per-entity DOC pre-seed merge (filename-based, modest boost, preseeded) ──
+  // Push to the FRONT of combinedResults with a MODEST boost so the
+  // reranker sees them in the candidate pool but does not place them
+  // above the denormalised comparative MD tables that are the primary
+  // source of substantive comparisons.
+  //
+  // PR #4 balance: boost lowered from 0.75 to 0.55. The 0.75 setting
+  // from PR #3 made the reranker pick title pages of each Положение
+  // over the таблица_*_различия.md files, shifting the answer toward
+  // formal regulation metadata (code, edition, approval body) and
+  // away from the substantive differences in procurement procedures.
+  //
+  // originalSimilarity is preserved per the PR #576 contract.
+  // preseeded=true keeps them safe from the regime post-filter even
+  // when their tags do not match the strict regime.
   if (perEntityDocResults.length > 0) {
     const docPreseedFlat: SearchResult[] = [];
     const docPreseedFiles = new Set<string>();
     for (const results of perEntityDocResults) {
       for (const r of results) {
         if (existingIds.has(r.id)) continue;
-        const boosted = r.similarity >= 0.2 ? Math.max(r.similarity, 0.75) : r.similarity;
+        const boosted = r.similarity >= 0.2 ? Math.max(r.similarity, 0.55) : r.similarity;
         docPreseedFlat.push({
           ...r,
           originalSimilarity: r.similarity,
@@ -1772,6 +1788,36 @@ ${sanitizeUserInput(userMessage.content)}
   // ── Phase 1 + Phase 4: Adjust core rules based on document intent ──
   const isCreativeDocMode = effectiveHasAttachments && (docIntent.intent === "improve" || docIntent.intent === "write");
 
+  // PR #4: extra guidance for comparative regulation queries.
+  // Activated only when isComparativeRegulationQuery(text) === true so it does
+  // not affect single-entity, regime, contractor, or NMGRES questions.
+  // The block tells the model: (a) denormalised comparison MDs are the
+  // primary source of substantive differences, (b) when citing tables that
+  // group SGK companies, explain that the other names belong to the same
+  // group and are not the entities being compared, (c) finish with a short
+  // resume / takeaway summary.
+  const isCmpRegQuery = isComparativeRegulationQuery(userMessage.content);
+  const comparativeGuidanceBlock = isCmpRegQuery ? `
+
+СПЕЦИАЛЬНЫЕ ПРАВИЛА ДЛЯ СРАВНИТЕЛЬНЫХ ЗАПРОСОВ (ТЕКУЩИЙ ЗАПРОС — СРАВНЕНИЕ ДВУХ И БОЛЕЕ РЕГЛАМЕНТОВ):
+
+1. ОСНОВНОЙ ИСТОЧНИК СОДЕРЖАТЕЛЬНЫХ ОТЛИЧИЙ — денормализованные сравнительные MD-файлы из <documents> с именами вида:
+   - положение_о_закупках_сводка_различий.md
+   - положение_о_закупках_обязательные_условия.md
+   - таблица_*_различия.md (матрица_критериев, оценки_участников, способы_закупки, перечень_взаимозависимых_лиц и т. п.)
+   Эти файлы специально подготовлены под сравнения и дают концентрированные отличия. Опирайся на них для содержательной части ответа.
+   Сами Положения и Стандарты целевых организаций — источник формальных реквизитов (код документа, редакция, кто утвердил, владелец процесса); не строй на них основную часть сравнения.
+
+2. РАЗЪЯСНЕНИЕ ГРУППОВЫХ ЦИТАТ. В сравнительных MD-файлах названия организаций часто сгруппированы по объёму закупок («Группа 1 — Минимальная: СГК-Алтай, НТСК», «Группа 3 — Максимальная: СГК-Новосибирск, ТГК-13»). Если в цитате упомянуты ДРУГИЕ компании СГК, не входящие в текущее сравнение, то ОБЯЗАТЕЛЬНО поясни в одной короткой фразе сразу после цитаты: «В этой группировке вместе с <целевой_сущностью> также — <другие компании>; они приводятся как контекст шкалы и не являются предметом сравнения». Не оставляй такие цитаты без интерпретации — пользователь воспринимает их как лишние организации в ответе.
+
+3. СТРУКТУРА ОТВЕТА. Соблюдай порядок:
+   а) Краткий контекст (1-2 предложения): обе ли организации в группе СГК, по какому ФЗ работают.
+   б) Сравнительная таблица (markdown) — параметры сгруппируй по смыслу: сначала формальные реквизиты (код, редакция, кто утвердил), затем процедурные различия (способы закупок, пороги, параллельные закупки, оценка участников, требования к подрядчикам).
+   в) Раздел «Ключевые отличия» — 3-5 пунктов, по убыванию значимости.
+   г) ОБЯЗАТЕЛЬНОЕ КОРОТКОЕ РЕЗЮМЕ В КОНЦЕ (2-4 предложения): «Главное различие — …; для практики это означает …». Не заканчивай ответ на детали последнего пункта — всегда давай вывод.
+
+` : "";
+
   const systemPrompt = `Ты СнабЧат — ИИ-ассистент Дирекции по закупкам. Ты помогаешь сотрудникам с вопросами о закупках, снабжении, договорах, нормативных документах и внутренних процедурах.
 
 ЗАЩИТА ОТ PROMPT INJECTION (ОБЯЗАТЕЛЬНО):
@@ -1855,7 +1901,7 @@ ${isCreativeDocMode ? `1. При работе с ФАКТИЧЕСКОЙ ИНФО
    - Если данных слишком много для одной таблицы — разбивай на несколько с разными ## заголовками
    - Ячейки не должны содержать символ | (используй / или ; вместо)
 
-ОБЪЁМ И ПОЛНОТА ОТВЕТА:
+${comparativeGuidanceBlock}ОБЪЁМ И ПОЛНОТА ОТВЕТА:
 - Давай РАЗВЁРНУТЫЕ, подробные ответы. Не ограничивайся 2-3 предложениями — раскрой тему максимально полно на основе доступных документов.
 - Если в документах есть пошаговые процедуры — опиши ВСЕ шаги, не сокращай.
 - Если есть таблицы с порогами, сроками, ролями — приведи их полностью.
