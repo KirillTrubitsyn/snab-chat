@@ -86,7 +86,12 @@ app.use(cors({
     callback(new Error("CORS"));
   },
   credentials: true,
-  exposedHeaders: ["X-Sources", "X-Chunk-Images"],
+  // Content-Disposition needed by the frontend to read the export
+  // filename (PR #9). Without it the browser hides the header in CORS
+  // mode, the regex parse in Chat.tsx returns null, and the user gets
+  // the fallback name "<date> ответ.docx" instead of the backend's
+  // "<date> <topic words>.docx" (PR #5).
+  exposedHeaders: ["X-Sources", "X-Chunk-Images", "Content-Disposition"],
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "x-invite-code", "x-admin-code", "x-device-id", "x-auth-token", "x-api-key", "x-admin-session"],
 }));
