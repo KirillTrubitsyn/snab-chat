@@ -1,7 +1,8 @@
 import { Router, Request, Response } from "express";
 import { type ModelMessage } from "ai";
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
-import { hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, searchContractorCards, graphAwareSearch, expandTableSources, type SearchResult } from "../lib/retrieval.js";
+import { hybridSearch, filterByRelevance, intentAwareRerank, fetchChunksBySection, fetchChunksByDocument, fetchCatalogResults, searchContractorCards, graphAwareSearch, expandTableSources, vectorSearchInSource, type SearchResult } from "../lib/retrieval.js";
+import { embedQuery } from "../lib/embeddings.js";
 import { rerank } from "../lib/reranker.js";
 import { classifyIntent, type SpuSubIntent, type QueryIntent } from "../lib/intent-classifier.js";
 import { loadConversationContext, saveMessage } from "../lib/memory.js";
@@ -954,42 +955,119 @@ ${sanitizeUserInput(userMessage.content)}
     );
   }
 
-  // ── Per-entity DOCUMENT pre-seed (filename-based) ──
+  // ── Per-entity DOCUMENT pre-seed (scoped vector search inside source) ──
   //
-  // Comparative regulation queries like "Сравни положения о закупках ЕТГК
-  // и НТСК" used to return everything EXCEPT the actual Положение НТСК
-  // (sources.id=1421). Why: the semantic per-entity search above lifts
-  // chunks by embedding similarity, but Положение НТСК's 48 chunks
-  // compete with denormalised сравнительные MDs and 607 chunks of the
-  // big Положение_о_закупках_АО_Енисейская_ТГК_(ТГК-13).docx, and lose
-  // the top-20 cut on every query variant. By the time the reranker
-  // sees the candidate set, Положение НТСК is simply not in it.
+  // Evolution of the per-entity pre-seed across PRs #3 → #4 → #7:
   //
-  // Fix: when the query is about substantive regulations
-  // (isComparativeRegulationQuery) and we have at least one matched
-  // entity, fetch "Положение_о_закупках_<alias>" /
-  // "Стандарт_закупок_<alias>" / etc. by FILENAME for every alias of
-  // every matched entity. This guarantees the canonical regulation
-  // document for each named entity reaches the reranker.
+  // PR #3 used fetchChunksByDocument with filenameHints — that returns the
+  // first N chunks by chunk_index ASC. On any normative document chunk_index
+  // 0..5 is invariably the cover page + logo + title + table of contents —
+  // none of the substantive sections (способы закупок, пороги одобрения,
+  // требования к участникам) ever reached the reranker.
+  //
+  // PR #4 dialled the boost down and the limit to 3 to stop the title pages
+  // from crowding out the comparative MDs. That fixed the noise but did
+  // nothing for depth — the answer still lived on titles and protocol
+  // numbers because that is all the LLM saw from each Положение.
+  //
+  // PR #7 (this block) keeps the filename → source_id lookup but replaces
+  // the chunk fetch with vectorSearchInSource: a scoped vector search
+  // inside each matched source_id, ranked by cosine similarity to the
+  // user's query embedding. For "Сравни положения о закупках ЕТГК и НТСК"
+  // that returns chunks about procurement procedures, not the title page.
+  //
+  // We embed the user query ONCE up front and reuse the embedding across
+  // every source_id, so the depth fix costs one extra embedding call total,
+  // not one per source.
   let perEntityDocPromises: Promise<SearchResult[]>[] = [];
   if (matchedEntities.length >= 1 && isComparativeRegulationQuery(userMessage.content)) {
-    perEntityDocPromises = matchedEntities.map((entity) => {
-      const hints: string[] = [];
-      for (const alias of entity.aliases) {
-        hints.push(`Положение_о_закупках_${alias}`);
-        hints.push(`Стандарт_закупок_${alias}`);
-        hints.push(`Стандарт_закупок_товаров_${alias}`);
-        hints.push(`Стандарт_закупок_товаров_РиУ_${alias}`);
+    // Single promise that yields all per-entity DOC pre-seed chunks
+    // flattened. We wrap it in a one-element array so the dispatcher
+    // slice logic below stays uniform with perEntitySearchPromises
+    // (which is also an array of per-entity result-arrays).
+    const perEntityDocSinglePromise = (async (): Promise<SearchResult[]> => {
+      try {
+        // Step 1 — Resolve source_ids by filename. One round-trip per
+        // entity, OR-ed across aliases × canonical-document-prefixes.
+        // We only care about Положение and Стандарт — the canonical
+        // regulation documents. Appendices (Прил_*) are pulled
+        // separately via expandByRelationships if relationships exist.
+        const supabase = createServiceClient();
+        const DOC_PREFIXES = [
+          "Положение_о_закупках_",
+          "Стандарт_закупок_",
+          "Стандарт_закупок_товаров_",
+          "Стандарт_закупок_товаров_РиУ_",
+        ];
+        const entitySources = await Promise.all(
+          matchedEntities.map(async (entity) => {
+            const orParts: string[] = [];
+            for (const alias of entity.aliases) {
+              for (const prefix of DOC_PREFIXES) {
+                // PostgREST OR-filter syntax: comma-separated,
+                // `column.op.value`. Aliases here are short Russian
+                // words; commas/parens stripped pessimistically.
+                const pattern = `%${prefix}${alias}%`.replace(/[(),]/g, "");
+                orParts.push(`filename.ilike.${pattern}`);
+              }
+            }
+            const { data } = await supabase
+              .from("sources")
+              .select("id, filename")
+              .or(orParts.join(","))
+              .limit(5);
+            return (data ?? []) as Array<{ id: number; filename: string }>;
+          }),
+        );
+
+        // De-dupe source_ids — one alias may match another entity's
+        // filename (rare, harmless).
+        const allSources = new Map<number, string>();
+        for (const list of entitySources) {
+          for (const row of list) allSources.set(row.id, row.filename);
+        }
+        if (allSources.size === 0) {
+          console.log("[chat] Per-entity DOC pre-seed: no matching sources for any entity");
+          return [];
+        }
+
+        // Step 2 — Embed the user's query ONCE and reuse it for every
+        // source. Gemini embedding calls are ~200ms and not free; one
+        // call beats N calls for two entities × multiple matched docs.
+        const queryEmbedding = await embedQuery(userMessage.content);
+
+        // Step 3 — Scoped vector search inside each source. Returns
+        // top-6 chunks ranked by cosine similarity to the query,
+        // NOT by chunk_index. This is the difference from PR #3/#4:
+        // the LLM finally sees the substantive sections of each
+        // Положение, not the cover/logo/title pages.
+        const PER_SOURCE_LIMIT = 6;
+        const perSource = await Promise.all(
+          Array.from(allSources.entries()).map(async ([sourceId, filename]) => {
+            const chunks = await vectorSearchInSource(
+              queryEmbedding,
+              sourceId,
+              PER_SOURCE_LIMIT,
+            ).catch(() => [] as SearchResult[]);
+            return { filename, chunks };
+          }),
+        );
+
+        const flat: SearchResult[] = [];
+        for (const { filename, chunks } of perSource) {
+          flat.push(...chunks);
+          console.log(
+            `[chat] Per-entity DOC pre-seed: ${chunks.length} chunks from "${filename}" (top-${PER_SOURCE_LIMIT} by query similarity)`,
+          );
+        }
+        return flat;
+      } catch (err) {
+        console.error("[chat] Per-entity DOC pre-seed failed (non-fatal):", err);
+        return [];
       }
-      // PR #4 balance: limit dropped from 6 to 3 per entity. The earlier 6
-      // chunks-per-entity setting (PR #3) pulled enough title / preamble
-      // pages of each Положение to outweigh the денормализованные comparative
-      // MDs in the reranker's top-5. Three chunks per entity are enough to
-      // keep the canonical regulation document represented in sources
-      // without crowding out the actual comparison content.
-      return fetchChunksByDocument({ filenameHints: hints }, 3, userMessage.content)
-        .catch(() => [] as SearchResult[]);
-    });
+    })();
+
+    perEntityDocPromises = [perEntityDocSinglePromise];
     console.log(
       `[chat] Per-entity DOC pre-seed enqueued for ${matchedEntities.length} entities: ${matchedEntities.map((e) => e.name).join(", ")}`,
     );

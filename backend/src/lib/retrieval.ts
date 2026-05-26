@@ -502,6 +502,67 @@ export async function hybridSearch(
  * solving the problem where "пункт 61" has weak semantic similarity
  * to the actual content of section 61.
  */
+/**
+ * Scoped vector search inside a single document (PR #7).
+ *
+ * Used by the per-entity DOC pre-seed in chat.ts to return the TOP-N
+ * semantically relevant chunks from one specific source_id, rather than
+ * the first N chunks by chunk_index ASC (which fetchChunksByDocument does).
+ *
+ * Why this matters
+ * ----------------
+ * On a comparative regulation query the embedding of the user's question
+ * lifts substantive sections (способы закупок, пороги, требования) inside
+ * each Положение. fetchChunksByDocument never sees those because it sorts
+ * by chunk_index and the first 3-6 chunks of every Положение are cover +
+ * logo + title. This RPC ranks the document's own chunks by cosine
+ * similarity to the query embedding, so the LLM finally gets the meat.
+ *
+ * The caller is expected to embed the user query once and reuse the same
+ * embedding across multiple source_ids — Gemini embedding calls are not
+ * free and not instant.
+ *
+ * Same shape as hybridSearch results so combinedResults can hold both
+ * without a discriminator.
+ */
+export async function vectorSearchInSource(
+  queryEmbedding: number[],
+  sourceId: number,
+  matchCount: number = 6,
+): Promise<SearchResult[]> {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase.rpc("vector_search_in_source", {
+    query_embedding: queryEmbedding,
+    target_source_id: sourceId,
+    match_count: matchCount,
+  });
+  if (error) {
+    console.error(
+      `[vectorSearchInSource] RPC error for source_id=${sourceId}:`,
+      error.message,
+    );
+    return [];
+  }
+  if (!Array.isArray(data)) return [];
+  return (data as Array<{
+    id: string;
+    content: string;
+    source_filename: string;
+    chunk_index: number;
+    similarity: number;
+    tags: string[] | null;
+    image_paths: string[] | null;
+  }>).map((r) => ({
+    id: r.id,
+    content: r.content,
+    source_filename: r.source_filename,
+    chunk_index: r.chunk_index,
+    similarity: r.similarity,
+    tags: r.tags ?? [],
+    image_paths: r.image_paths ?? [],
+  }));
+}
+
 export async function fetchChunksBySection(
   ref: SectionReference,
   maxChunks: number = 6
