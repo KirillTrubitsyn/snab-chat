@@ -16,6 +16,7 @@ import {
   LevelFormat,
 } from "docx";
 import ExcelJS from "exceljs";
+import { generateDocxFilename, generateXlsxFilename, asciiFilename } from "../lib/export-filenames.js";
 import { parseMarkdownTables } from "../lib/markdown-tables.js";
 import { requireAuth } from "../lib/auth.js";
 
@@ -717,60 +718,7 @@ async function generateDocx(question: string, answer: string): Promise<Buffer> {
 
 /* ── Filename generator (up to 4 meaningful Russian words) ── */
 
-const STOP_WORDS = new Set([
-  "в", "на", "по", "с", "и", "а", "но", "или", "что", "как", "для", "из",
-  "от", "до", "за", "при", "не", "ли", "бы", "же", "это", "то", "все",
-  "он", "она", "они", "мы", "вы", "его", "её", "их", "мне", "нам", "вам",
-  "о", "об", "у", "к", "ко", "та", "те", "тот", "эта", "эти", "этот",
-  "какой", "какая", "какие", "чем", "кто", "где", "когда", "почему",
-  "есть", "быть", "был", "была", "были", "будет", "может", "можно",
-  "нужно", "надо", "ещё", "еще", "уже", "так", "очень", "более",
-  "скажи", "расскажи", "объясни", "опиши", "подскажи", "покажи",
-  "пожалуйста", "какое",
-]);
-
-function generateDocxFilename(question: string): string {
-  const date = new Date().toISOString().slice(0, 10);
-  const words = question
-    .replace(/[^\wа-яА-ЯёЁ\s-]/g, "")
-    .split(/\s+/)
-    .map((w) => w.toLowerCase())
-    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
-
-  const selected = words.slice(0, 4);
-
-  if (selected.length === 0) {
-    return `СнабЧат ${date}.docx`;
-  }
-
-  selected[0] = selected[0].charAt(0).toUpperCase() + selected[0].slice(1);
-  return `${selected.join(" ")} ${date}.docx`;
-}
-
-const XLSX_STOP_WORDS = new Set(
-  Array.from(STOP_WORDS).concat([
-    "составь", "создай", "сделай", "таблицу",
-    "таблица", "excel", "xlsx",
-  ])
-);
-
-function generateXlsxFilename(question: string): string {
-  const date = new Date().toISOString().slice(0, 10);
-  const words = question
-    .replace(/[^\wа-яА-ЯёЁ\s-]/g, "")
-    .split(/\s+/)
-    .map((w) => w.toLowerCase())
-    .filter((w) => w.length > 2 && !XLSX_STOP_WORDS.has(w));
-
-  const selected = words.slice(0, 4);
-
-  if (selected.length === 0) {
-    return `СнабЧат ${date}.xlsx`;
-  }
-
-  selected[0] = selected[0].charAt(0).toUpperCase() + selected[0].slice(1);
-  return `${selected.join(" ")} ${date}.xlsx`;
-}
+// Filename helpers moved to ../lib/export-filenames.ts (PR #5).
 
 /* ── Strip markdown formatting from cell text ── */
 
@@ -820,7 +768,9 @@ router.post("/api/export", async (req: Request, res: Response) => {
     );
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="snabchat.docx"; filename*=UTF-8''${encodedFilename}`
+      // ASCII fallback for browsers that cannot decode UTF-8 filename*; same naming
+      // policy as the primary name — date prefix, no brand.
+      `attachment; filename="${asciiFilename("docx")}"; filename*=UTF-8''${encodedFilename}`
     );
     return res.send(buffer);
   } catch (error) {
@@ -888,7 +838,7 @@ router.post("/api/export-excel", async (req: Request, res: Response) => {
     );
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="snabchat.xlsx"; filename*=UTF-8''${encodedFilename}`
+      `attachment; filename="${asciiFilename("xlsx")}"; filename*=UTF-8''${encodedFilename}`
     );
     return res.send(Buffer.from(xlsxBuffer));
   } catch (error) {
