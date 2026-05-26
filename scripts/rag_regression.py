@@ -68,13 +68,20 @@ def chat(question: str, timeout: int = REQUEST_TIMEOUT) -> dict:
     ).encode("utf-8")
 
     conn = HTTPSConnection(API_HOST, timeout=timeout)
+    # HTTP headers are restricted to ISO-8859-1 (latin-1) on the wire per
+    # RFC 7230. Python's http.client therefore refuses cyrillic header
+    # values and dies with `'latin-1' codec can't encode characters in
+    # position 0-4`. URL-encode the credentials so only ASCII goes out;
+    # the backend decodes them transparently (see auth.ts::decodeHeaderValue).
+    # quote(..., safe="") percent-encodes ALL non-ASCII bytes; ASCII-only
+    # values (auth tokens) are unchanged.
     conn.request(
         "POST", API_PATH, body=body,
         headers={
             "Content-Type": "application/json; charset=utf-8",
             "Origin": ORIGIN,
-            "x-invite-code": INVITE_CODE,
-            "x-auth-token": AUTH_TOKEN,
+            "x-invite-code": urllib.parse.quote(INVITE_CODE, safe=""),
+            "x-auth-token": urllib.parse.quote(AUTH_TOKEN, safe=""),
         },
     )
     resp = conn.getresponse()
