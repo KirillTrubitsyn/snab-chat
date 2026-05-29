@@ -463,7 +463,7 @@ async function ocrPdfWithGemini(
 
   const result = await withGoogleApiLimit(async () => {
     return client.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3-flash",
       contents: [
         {
           role: "user",
@@ -510,7 +510,7 @@ async function transcribeAudioWithGemini(
 
   const result = await withGoogleApiLimit(async () => {
     return client.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3-flash",
       contents: [
         {
           role: "user",
@@ -554,7 +554,7 @@ async function ocrDocWithGemini(
 
   const result = await withGoogleApiLimit(async () => {
     return client.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3-flash",
       contents: [
         {
           role: "user",
@@ -596,7 +596,7 @@ async function parseImageToMarkdown(
 
   const { text } = await withGoogleApiLimit(() =>
     generateText({
-      model: google("gemini-3.5-flash"),
+      model: google("gemini-3-flash"),
       messages: [
         {
           role: "user",

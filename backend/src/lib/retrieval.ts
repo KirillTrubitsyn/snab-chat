@@ -842,7 +842,7 @@ export async function fetchCatalogResults(
 const EXCEL_SOURCE_RE = /\.(xlsx|xls)$/i;
 /** Safety cap so a query touching many estimates can't blow the LLM context.
  *  Covers one large estimate fully (~150 chunks ≈ несколько тысяч строк); only
- *  pathological multi-estimate queries hit it. gemini-3.5-flash holds ~1M tokens. */
+ *  pathological multi-estimate queries hit it. gemini-3-flash holds ~1M tokens. */
 const MAX_TABLE_EXPANSION_CHUNKS = 150;
 
 /**

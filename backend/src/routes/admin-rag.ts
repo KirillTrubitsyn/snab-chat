@@ -293,7 +293,7 @@ router.post("/api/admin/kg-eval", async (req: Request, res: Response) => {
 
       try {
         const resp = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
+          model: "gemini-3-flash",
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           config: {
             temperature: 0.1,
