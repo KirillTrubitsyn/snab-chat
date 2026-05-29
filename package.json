@@ -27,7 +27,7 @@
     "mammoth": "^1.8.0",
     "next": "^15.3.3",
     "otplib": "^13.4.0",
-    "pdf-parse": "^1.1.1",
+    "pdf-parse": "^2.4.5",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
     "react-apexcharts": "^1.7.0",
