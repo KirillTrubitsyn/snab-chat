@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.59",
-    "@google/genai": "^1.48.0",
+    "@google/genai": "^1.50.1",
     "@node-rs/bcrypt": "^1.10.7",
     "@openrouter/sdk": "^0.12.19",
     "@supabase/supabase-js": "^2.49.0",
